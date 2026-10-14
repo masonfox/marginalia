@@ -1,4 +1,9 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	Link,
+	redirect,
+	useRouter,
+} from "@tanstack/react-router";
 import { useEffect } from "react";
 import { getSectionViewFn } from "#/fns/retrieval";
 import type { SectionPassage, SectionView } from "#/modules/retrieval";
@@ -72,9 +77,13 @@ type FoundView = Extract<SectionView, { status: "found" }>;
 
 function SectionText({ view }: { view: FoundView }) {
 	const target = view.currentLocator;
+	const router = useRouter();
 	useEffect(() => {
 		document.getElementById(domId(target))?.scrollIntoView({ block: "center" });
 	}, [target]);
+	// Scroll restoration resets the window to the top on `onRendered`, after this
+	// component's effects run, so scroll to the highlight again once it has.
+	useEffect(() => router.subscribe("onRendered", scrollToHighlight), [router]);
 
 	return (
 		<main className="mx-auto max-w-3xl px-4 py-8">
@@ -138,6 +147,12 @@ function SectionNav({ view }: { view: FoundView }) {
 			)}
 		</div>
 	);
+}
+
+function scrollToHighlight() {
+	document
+		.querySelector('[data-locator][aria-current="true"]')
+		?.scrollIntoView({ block: "center" });
 }
 
 function domId(locator: string) {
