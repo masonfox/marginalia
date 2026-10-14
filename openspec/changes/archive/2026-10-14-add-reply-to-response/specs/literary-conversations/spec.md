@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Reply to selected assistant text
-The system SHALL offer a nearby "Reply to selection" action when the reader selects non-whitespace response text wholly within one persisted assistant message that is not currently streaming. The selection SHALL exclude research activity, source lists, citation controls and popovers, usage, status notices, and user messages. The action SHALL be available through pointer, touch selection, and keyboard selection and activation, without interfering with ordinary copying or citation interactions. Clearing the selection, moving it outside eligible text, pressing Escape, or leaving the conversation SHALL dismiss the action. Text from a saved incomplete response SHALL be eligible, with its incomplete status still shown.
+The system SHALL offer a nearby "Reply to selection" action when the reader selects non-whitespace response text wholly within one persisted assistant message that is not currently streaming. The selection SHALL exclude research activity, source lists, citation popovers, usage, status notices, and user messages. A selection MAY span inline citation markers; they SHALL be omitted from the quoted text. The action SHALL be available through pointer, touch selection, and keyboard selection and activation, without interfering with ordinary copying or citation interactions. Clearing the selection, moving it outside eligible text, pressing Escape, or leaving the conversation SHALL dismiss the action. Text from a saved incomplete response SHALL be eligible, with its incomplete status still shown.
 
 #### Scenario: Select a response excerpt
 - **WHEN** the reader highlights text within one saved assistant response and activates "Reply to selection"
 - **THEN** the selected displayed text is attached to the composer as assistant-response context and the message input receives focus
+
+#### Scenario: Selection across citation markers
+- **WHEN** the reader selects response text that contains inline citation markers and activates "Reply to selection"
+- **THEN** the attached quote contains the surrounding text without the markers' numbers or labels
 
 #### Scenario: Ineligible selection
 - **WHEN** a selection is empty, spans multiple messages, includes excluded content, or belongs to a response still streaming or not yet persisted
