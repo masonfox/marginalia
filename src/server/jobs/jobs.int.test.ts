@@ -11,6 +11,8 @@ import {
 } from ".";
 
 const log = pino({ level: "silent" });
+/** pg-boss's internal queue for scheduled occurrences (timekeeper QUEUES.SEND_IT). */
+const SEND_IT = "__pgboss__send-it";
 const sha = (n: number) => n.toString(16).padStart(64, "0");
 const running: JobRuntime[] = [];
 
@@ -262,10 +264,24 @@ describe("job runtime", () => {
 		});
 		await sleep(2_000);
 
-		// An instance-local schedule would fire each occurrence once per
-		// instance, with the duplicate runs moments apart.
-		expect((runs[1] as number) - (runs[0] as number)).toBeGreaterThan(2_000);
+		// pg-boss forwards each occurrence through its internal send-it queue,
+		// filed under the one-minute slot it falls in; a unique index on
+		// (name, singletonOn, singletonKey) keeps one forward per slot however
+		// many instances run the pass. The slot is what identifies an occurrence:
+		// the scan job itself carries no trace of it, and its timestamps include
+		// worker polling delay. Two genuine occurrences can run moments apart when
+		// the first pass's window spans a slot boundary, so spacing proves nothing.
 		const created = await jobs(a, "library.scan");
+		const forwarded = (await a.boss.findJobs<{ name: string }>(SEND_IT)).filter(
+			(job) => job.data.name === "library.scan",
+		);
+		const slots = forwarded.map((job) => job.singletonOn?.getTime());
+		expect(slots).not.toContain(undefined);
+		expect(new Set(slots).size).toBe(forwarded.length);
+		// Every scan job traces to a forwarded occurrence (a forward can yield
+		// none when the exclusive queue drops it); an instance-local schedule
+		// would send scan jobs pg-boss never forwarded, once per instance.
+		expect(created.length).toBeLessThanOrEqual(forwarded.length);
 		expect(created.length).toBe(runs.length);
 	}, 120_000);
 });
