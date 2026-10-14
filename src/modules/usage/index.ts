@@ -6,6 +6,7 @@ export {
 	totalOf,
 	type UsageTotal,
 	usageForConversation,
+	usageForEdition,
 } from "./conversation";
 export {
 	BUILTIN_PRICES,

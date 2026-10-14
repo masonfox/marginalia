@@ -11,12 +11,12 @@ Contract (agreed up front so sections can start together; A defines it, others c
 
 Depends on: nothing. Blocks: B, C, D (types and queries), E.
 
-- [ ] 1.1 Add `unit_summaries`, `unit_observations`, and `preprocess_runs` tables in `modules/analysis/schema.ts`, with cascade on edition delete and the indexes needed for bounded reads
-- [ ] 1.2 Add `preprocess` to `ai_usage.purpose` and a nullable `edition_id` column (cascade); update `recordUsage` and add a per-edition usage total query in `modules/usage`
-- [ ] 1.3 Generate the additive migration with drizzle and register the schema in the db schema barrel
-- [ ] 1.4 Implement bounded queries: `getBookMap`, `lookupObservations` (name_key match, reading order, caps), filtering by `end_position <= bound`, not stale, and current prompt version
-- [ ] 1.5 Implement write helpers: `saveUnitResult` (transactional replace for one unit), `markDerivedStale`, run progress updates, and `getPreprocessStatus`
-- [ ] 1.6 Integration tests: bound filtering (including bound inside a unit), stale hiding, cascade on edition delete, profile cannot leak
+- [x] 1.1 Add `unit_summaries`, `unit_observations`, and `preprocess_runs` tables in `modules/analysis/schema.ts`, with cascade on edition delete and the indexes needed for bounded reads
+- [x] 1.2 Add `preprocess` to `ai_usage.purpose` and a nullable `edition_id` column (cascade); update `recordUsage` and add a per-edition usage total query in `modules/usage`
+- [x] 1.3 Generate the additive migration with drizzle and register the schema in the db schema barrel
+- [x] 1.4 Implement bounded queries: `getBookMap`, `lookupObservations` (name_key match, reading order, caps), filtering by `end_position <= bound`, not stale, and current prompt version
+- [x] 1.5 Implement write helpers: `saveUnitResult` (transactional replace for one unit), `markDerivedStale`, run progress updates, and `getPreprocessStatus`
+- [x] 1.6 Integration tests: bound filtering (including bound inside a unit), stale hiding, cascade on edition delete, profile cannot leak
 
 ## 2. Section B: Prompts and job handler (owner: `src/modules/analysis/prompts.ts`, `process.ts`, `handler.ts`, `*.test.ts`, `src/server/jobs/kinds.ts`, `runtime.ts`, `handlers.ts`, `src/modules/catalog/ingest.ts`, `persist.ts`)
 

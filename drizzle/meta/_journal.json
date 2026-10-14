@@ -43,6 +43,13 @@
       "when": 1792003323310,
       "tag": "0005_message_parts_json",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792013612120,
+      "tag": "0006_charming_doctor_strange",
+      "breakpoints": true
     }
   ]
 }
