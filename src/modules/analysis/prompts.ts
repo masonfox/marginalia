@@ -1,0 +1,65 @@
+import { z } from "zod";
+import { OBSERVATION_KINDS } from "./schema";
+
+/** Instructions for the per-unit call. Changing them requires bumping PREPROCESS_PROMPT_VERSION. */
+export const UNIT_SYSTEM_PROMPT = `You prepare reading notes for one section (chapter) of a book.
+You are given the text of this section only, as passages, each starting with a locator in square brackets. You may also be given the summary of the previous section for continuity.
+
+Rules:
+- Describe only what happens in THIS section. Do not use knowledge of the rest of the book, and do not predict or hint at later events, even if you recognise the book.
+- The previous summary is context only; do not repeat it.
+- "summary": 2 to 4 plain sentences about this section.
+- "observations": characters, places, objects, and motifs that appear in this section. Each has a "name" (as the book names it), a "kind" (${OBSERVATION_KINDS.join(", ")}), and a short "note" of what appears or happens to it in this section.
+- Each summary and observation cites supporting passages in "citations": the passage locator exactly as given, and a short exact quote copied from that passage.
+- Do not describe the book as a whole and do not state themes of the whole book.
+Reply with a single JSON object and nothing else:
+{"summary": string, "citations": [{"locator": string, "quote": string}], "observations": [{"name": string, "kind": string, "note": string, "citations": [{"locator": string, "quote": string}]}]}`;
+
+const citation = z.object({ locator: z.string(), quote: z.string() });
+
+export const unitOutputSchema = z.object({
+	summary: z.string().min(1),
+	citations: z.array(citation).default([]),
+	observations: z
+		.array(
+			z.object({
+				name: z.string().min(1),
+				kind: z.enum(OBSERVATION_KINDS),
+				note: z.string().min(1),
+				citations: z.array(citation).default([]),
+			}),
+		)
+		.default([]),
+});
+export type UnitOutput = z.infer<typeof unitOutputSchema>;
+
+export interface PromptPassage {
+	locator: string;
+	text: string;
+}
+
+export function buildUnitPrompt(input: {
+	unitLabel: string;
+	previousSummary: string | null;
+	passages: PromptPassage[];
+	part?: { index: number; of: number };
+}): string {
+	const head = input.part
+		? `Section: ${input.unitLabel} (part ${input.part.index + 1} of ${input.part.of})`
+		: `Section: ${input.unitLabel}`;
+	const prev = input.previousSummary
+		? `Summary of the previous section (context only):\n${input.previousSummary}\n\n`
+		: "";
+	const body = input.passages
+		.map((p) => `[${p.locator}] ${p.text}`)
+		.join("\n\n");
+	return `${head}\n\n${prev}Text of this section:\n\n${body}`;
+}
+
+/** Extracts and validates the JSON object from a model reply (tolerates code fences and prose). */
+export function parseUnitOutput(text: string): UnitOutput {
+	const start = text.indexOf("{");
+	const end = text.lastIndexOf("}");
+	if (start < 0 || end < start) throw new Error("Model reply had no JSON");
+	return unitOutputSchema.parse(JSON.parse(text.slice(start, end + 1)));
+}

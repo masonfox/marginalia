@@ -1,4 +1,12 @@
 // Derived per-unit summaries and observations, always read through a position bound.
+
+export { type PreprocessDeps, preprocessEdition } from "./handler";
+export { processUnit } from "./process";
+export {
+	buildUnitPrompt,
+	parseUnitOutput,
+	UNIT_SYSTEM_PROMPT,
+} from "./prompts";
 export {
 	getBookMap,
 	getCurrentUnits,

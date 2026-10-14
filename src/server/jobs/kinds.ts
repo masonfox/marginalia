@@ -28,6 +28,13 @@ export const jobKinds = {
 		retryLimit: 4,
 		concurrency: (c: JobConfig) => c.ingestConcurrency,
 	},
+	"analysis.preprocess": {
+		payload: z.object({ editionId: z.uuid() }),
+		key: (p: { editionId: string }) => p.editionId,
+		retryLimit: 2,
+		// Fixed at 1 to bound spend.
+		concurrency: () => 1,
+	},
 	"access.purge-sessions": {
 		payload: z.object({}),
 		key: () => "sessions",

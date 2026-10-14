@@ -22,13 +22,13 @@ Depends on: nothing. Blocks: B, C, D (types and queries), E.
 
 Depends on: A (schema and write helpers), and the config contract from D1 (can stub). Blocks: E.
 
-- [ ] 2.1 Write the unit prompt and output schema (summary, observations with kind, note, citations) and `PREPROCESS_PROMPT_VERSION`
-- [ ] 2.2 Implement the unit processor: gather unit passages with locators, chunk long units, call the model with the previous unit's summary only, merge chunk results
-- [ ] 2.3 Verify citations with the existing quote verification, restricting to passages of the unit; store unverified items flagged
-- [ ] 2.4 Record usage per call through `recordUsage` with purpose `preprocess` and the edition id, including failed attempts that report usage
-- [ ] 2.5 Add the `analysis.preprocess` kind (key by edition, retry limit) and the handler: skip current units, process the rest sequentially, update progress, throw after the loop if any unit failed, `NonRetryableError` when AI is unconfigured
-- [ ] 2.6 Enqueue the job at the end of successful ingest and reparse when `preprocessAuto` is on and AI is configured; call `markDerivedStale` inside the reparse transaction
-- [ ] 2.7 Tests with a mock model: per-unit resume, dedup, stale regeneration, unverified citations, no later text in the model input, no enqueue without AI
+- [x] 2.1 Write the unit prompt and output schema (summary, observations with kind, note, citations) and `PREPROCESS_PROMPT_VERSION`
+- [x] 2.2 Implement the unit processor: gather unit passages with locators, chunk long units, call the model with the previous unit's summary only, merge chunk results
+- [x] 2.3 Verify citations with the existing quote verification, restricting to passages of the unit; store unverified items flagged
+- [x] 2.4 Record usage per call through `recordUsage` with purpose `preprocess` and the edition id, including failed attempts that report usage
+- [x] 2.5 Add the `analysis.preprocess` kind (key by edition, retry limit) and the handler: skip current units, process the rest sequentially, update progress, throw after the loop if any unit failed, `NonRetryableError` when AI is unconfigured
+- [x] 2.6 Enqueue the job at the end of successful ingest and reparse when `preprocessAuto` is on and AI is configured; call `markDerivedStale` inside the reparse transaction
+- [x] 2.7 Tests with a mock model: per-unit resume, dedup, stale regeneration, unverified citations, no later text in the model input, no enqueue without AI
 
 ## 3. Section C: Conversation integration (owner: `src/modules/conversation/prompt.ts`, `tools.ts`, `chat.ts`, `prompt.test.ts`, `tools.int.test.ts`, `prefix.test.ts`)
 

@@ -32,6 +32,8 @@ export interface IngestDeps {
 	batchSize?: number;
 	/** Re-anchors dependents (conversation bounds) inside a reparse's transaction. */
 	onReplaced?: ReplacedHook;
+	/** Called after a successful ingest or reparse (e.g. to enqueue preprocessing). Failures are logged, not thrown. */
+	onIngested?: (editionId: string) => Promise<void>;
 }
 
 /** `deleted`: the edition was deleted before or during ingestion; nothing was written. */
@@ -107,6 +109,11 @@ export async function ingestEdition(
 			},
 			"edition ingested",
 		);
+		try {
+			await deps.onIngested?.(edition.id);
+		} catch (err) {
+			deps.log.warn({ editionId: edition.id, err }, "post-ingest hook failed");
+		}
 		return "ready";
 	} catch (err) {
 		const permanent =
