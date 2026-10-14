@@ -72,7 +72,7 @@ function BookPage() {
 					<img
 						src={`/api/covers/${edition.id}`}
 						alt=""
-						className="aspect-[2/3] w-36 shrink-0 rounded-md border object-cover"
+						className="aspect-[2/3] w-56 shrink-0 self-start rounded-md border object-cover"
 					/>
 				)}
 				<div className="min-w-0">
