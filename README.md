@@ -4,7 +4,7 @@ Marginalia is a self-hosted companion for reading your own EPUBs. It turns each 
 
 This release (0.1) provides the text foundation and a small reading UI:
 
-- **Import** EPUB 2 and EPUB 3 files by upload, or by scanning read-only library folders. Books are identified by content, so each edition is imported once.
+- **Import** EPUB 2 and EPUB 3 files by upload, or by scanning read-only library folders. Books are identified by content, so each edition is imported once. **Delete** a book from its page; a book from a library folder stays deleted until you upload the same file again.
 - **Structure**: metadata, cover, table of contents, spine-ordered sections, block-level passages, and footnotes and endnotes. Each passage has a reading-order position.
 - **Citation locators** like `3f9a1c07b2de:v1:12.47`. They stay valid when the parser improves, because old locators forward to the passage that now holds their text.
 - **Search** with PostgreSQL full-text search, using language-aware stemming, phrases, and highlighted snippets.

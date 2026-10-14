@@ -12,6 +12,7 @@ import {
 	findReadableFile,
 	getEdition,
 	getEditionBySha,
+	removeUnlessReimported,
 	setEditionStatus,
 } from "#/modules/library";
 import type { Database } from "#/server/db";
@@ -31,7 +32,8 @@ export interface IngestDeps {
 	batchSize?: number;
 }
 
-export type IngestOutcome = "ready" | "unchanged";
+/** `deleted`: the edition was deleted before or during ingestion; nothing was written. */
+export type IngestOutcome = "ready" | "unchanged" | "deleted";
 
 /**
  * The `library.ingest` handler. Parses the edition's bytes and replaces its
@@ -47,7 +49,10 @@ export async function ingestEdition(
 	const { db } = deps;
 	const parserVersion = deps.parserVersion ?? PARSER_VERSION;
 	const edition = await getEditionBySha(db, sha256);
-	if (!edition) throw new NonRetryableError(`No edition exists for ${sha256}`);
+	if (!edition) {
+		deps.log.info({ sha256 }, "edition was deleted; skipping ingest");
+		return "deleted";
+	}
 	if (edition.status === "ready" && edition.parserVersion === parserVersion) {
 		return "unchanged";
 	}
@@ -69,13 +74,28 @@ export async function ingestEdition(
 			parsed.metadata.language,
 		);
 
-		await db.transaction(async (tx) => {
-			await replaceEditionStructure(tx, edition, parsed, {
+		const written = await db.transaction((tx) =>
+			replaceEditionStructure(tx, edition, parsed, {
 				searchConfig,
 				coverPath,
 				batchSize: deps.batchSize,
-			});
-		});
+			}),
+		);
+		if (!written) {
+			if (coverPath) {
+				await removeUnlessReimported(
+					db,
+					sha256,
+					[path.join(deps.dataDir, coverPath)],
+					deps.log,
+				);
+			}
+			deps.log.info(
+				{ editionId: edition.id },
+				"edition was deleted during ingest; nothing written",
+			);
+			return "deleted";
+		}
 		deps.log.info(
 			{
 				editionId: edition.id,
@@ -111,7 +131,10 @@ export async function reparseEdition(
 	ctx: { finalAttempt: boolean },
 ): Promise<IngestOutcome> {
 	const edition = await getEdition(deps.db, editionId);
-	if (!edition) throw new NonRetryableError(`No edition ${editionId}`);
+	if (!edition) {
+		deps.log.info({ editionId }, "edition was deleted; skipping reparse");
+		return "deleted";
+	}
 	return ingestEdition(deps, edition.sha256, ctx);
 }
 

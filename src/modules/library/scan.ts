@@ -7,7 +7,7 @@ import type { Enqueue } from "#/server/jobs/kinds";
 import type { Logger } from "#/server/logger";
 import { ensureEdition } from "./editions";
 import { ensureSource, hashFile, recordFile } from "./files";
-import { libraryFiles } from "./schema";
+import { excludedEditions, libraryFiles } from "./schema";
 
 export interface ScanDeps {
 	db: Database;
@@ -25,14 +25,17 @@ export interface ScanStats {
 	enqueued: number;
 	missing: number;
 	returned: number;
+	/** Hashed files whose bytes belong to a deleted edition, so were not imported. */
+	excluded: number;
 }
 
 /**
  * The `library.scan` handler. Walks every configured root for `*.epub`
  * files, re-hashing only new files and files whose size or modification time
  * changed (or all files when `full`). Files no longer present are marked
- * missing; their editions stay readable and searchable. Library roots are
- * only ever read.
+ * missing; their editions stay readable and searchable. Files whose bytes
+ * belong to a deleted edition are recorded but not imported. Library roots
+ * are only ever read.
  */
 export async function scanLibraries(
 	deps: ScanDeps,
@@ -45,6 +48,7 @@ export async function scanLibraries(
 		enqueued: 0,
 		missing: 0,
 		returned: 0,
+		excluded: 0,
 	};
 	for (const configured of deps.libraryPaths) {
 		const root = path.resolve(configured);
@@ -110,6 +114,10 @@ async function scanRoot(
 		const sha256 = await hash(file.realPath);
 		stats.hashed++;
 		await recordFile(db, { sourceId: source.id, relPath, size, mtime, sha256 });
+		if (await isExcluded(db, sha256)) {
+			stats.excluded++;
+			continue;
+		}
 		const title = path.basename(relPath).replace(/\.epub$/i, "");
 		const { edition } = await ensureEdition(db, sha256, title);
 		if (edition.status === "processing") {
@@ -138,6 +146,14 @@ async function scanRoot(
 			);
 	}
 	stats.missing += gone.length;
+}
+
+async function isExcluded(db: Database, sha256: string) {
+	const [row] = await db
+		.select({ sha256: excludedEditions.sha256 })
+		.from(excludedEditions)
+		.where(eq(excludedEditions.sha256, sha256));
+	return row !== undefined;
 }
 
 interface FoundFile {

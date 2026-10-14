@@ -87,6 +87,12 @@ Books are identified by the SHA-256 of their bytes:
 - A file that disappears is shown as *unavailable*, but stays readable and searchable.
 - If your folder lives on a network filesystem with unreliable modification times, use **Rescan library** with a full rescan, or restart the container.
 
+### Deleting books
+
+**Delete book** on a book's page permanently removes it: its passages, search entries, cover, and (for uploads) the stored EPUB in `/data`. There is no undo, and links to its passages stop resolving.
+
+Marginalia never deletes files in library folders. Instead it remembers the deleted book's SHA-256, and scans skip any file with those bytes, at any path, including on a full rescan. To bring the book back, upload the same file: this clears the exclusion and imports it again, with the same citation locators as before. Any library copies show up as sources again. To get rid of the file itself, delete it from the folder yourself.
+
 ## Using an existing PostgreSQL server
 
 Marginalia works with any reachable PostgreSQL 16 or newer server. It needs no extensions in this release. The bundled image (`pgvector/pgvector:pg17`) only prepares for future features.

@@ -5,7 +5,7 @@ import {
 	type ParsedTocEntry,
 	parseLocator,
 } from "#/modules/epub";
-import { markEditionReady } from "#/modules/library";
+import { editions, markEditionReady } from "#/modules/library";
 import type { Executor } from "#/server/db";
 import { type LocatorMatch, matchLocators } from "./matching";
 import {
@@ -33,14 +33,22 @@ export interface ReplaceOptions {
  * and marks it ready. Must run inside a transaction: readers see either the
  * old structure or the new one. When the previous structure came from an
  * older parser version, writes locator aliases forwarding every old locator
- * to the passage that now holds its text (D4a).
+ * to the passage that now holds its text (D4a). Returns false, writing
+ * nothing, when the edition was deleted.
  */
 export async function replaceEditionStructure(
 	tx: Executor,
 	edition: EditionKey,
 	parsed: ParsedEdition,
 	options: ReplaceOptions,
-): Promise<void> {
+): Promise<boolean> {
+	// Serializes with deleteEdition, which takes the same lock.
+	const [live] = await tx
+		.select({ id: editions.id })
+		.from(editions)
+		.where(eq(editions.id, edition.id))
+		.for("update");
+	if (!live) return false;
 	const batchSize = options.batchSize ?? 2000;
 	const locatorOf = (p: { spineIndex: number; blockIndex: number }) =>
 		formatLocator({
@@ -139,6 +147,7 @@ export async function replaceEditionStructure(
 		linearPassageCount: parsed.linearPassageCount,
 		searchConfig: options.searchConfig,
 	});
+	return true;
 }
 
 async function insertToc(

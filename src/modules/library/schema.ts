@@ -62,6 +62,19 @@ export const libraryFiles = pgTable(
 	],
 );
 
+/**
+ * Content hashes of deleted editions. Scans skip library files with these
+ * bytes; uploading the same bytes removes the row.
+ */
+export const excludedEditions = pgTable("excluded_editions", {
+	sha256: text("sha256").primaryKey(),
+	/** Title at deletion, for logs and any future management UI. */
+	title: text("title").notNull(),
+	excludedAt: timestamp("excluded_at", { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+});
+
 export type EditionStatus = "processing" | "ready" | "failed";
 
 export const editions = pgTable(
