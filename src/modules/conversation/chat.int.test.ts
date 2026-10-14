@@ -1,0 +1,366 @@
+import { APICallError } from "ai";
+import { MockLanguageModelV4 } from "ai/test";
+import { beforeAll, describe, expect, it } from "vitest";
+import type { AiRuntime } from "#/modules/ai";
+import { createTestDb, type TestDb } from "../../../test/db";
+import { buildEpub } from "../../../test/epub-builder";
+import { ingestBook, tempDataDir } from "../../../test/library";
+import { waitFor } from "../../../test/wait";
+import {
+	type ChatDeps,
+	createConversation,
+	getConversation,
+	PROMPT_VERSION,
+	startChat,
+} from ".";
+
+let t: TestDb;
+let editionId: string;
+let shortId: string;
+
+const usage = {
+	inputTokens: {
+		total: 1,
+		noCache: 1,
+		cacheRead: undefined,
+		cacheWrite: undefined,
+	},
+	outputTokens: { total: 1, text: 1, reasoning: undefined },
+};
+const finish = (unified: "stop" | "tool-calls") => ({
+	type: "finish" as const,
+	finishReason: { unified, raw: undefined },
+	usage,
+});
+type Chunk = Record<string, unknown>;
+
+const toolCall = (id: string, input: object): Chunk[] => [
+	{ type: "stream-start", warnings: [] },
+	{
+		type: "tool-call",
+		toolCallId: id,
+		toolName: "searchBooks",
+		input: JSON.stringify(input),
+	},
+	finish("tool-calls"),
+];
+const textReply = (text: string): Chunk[] => [
+	{ type: "stream-start", warnings: [] },
+	{ type: "text-start", id: "t1" },
+	{ type: "text-delta", id: "t1", delta: text },
+	{ type: "text-end", id: "t1" },
+	finish("stop"),
+];
+
+const streamOf = (chunks: Chunk[]) =>
+	new ReadableStream({
+		start(c) {
+			for (const ch of chunks) c.enqueue(ch);
+			c.close();
+		},
+	});
+
+function runtime(model: MockLanguageModelV4, maxSteps = 5): AiRuntime {
+	return {
+		model,
+		status: { enabled: true, provider: "openai", model: "mock-1" },
+		maxSteps,
+		temperature: undefined,
+	};
+}
+
+/** A model that plays the scripted responses in order, repeating the last. */
+function scripted(...responses: Chunk[][]) {
+	let i = 0;
+	return new MockLanguageModelV4({
+		doStream: async () => {
+			const chunks = responses[Math.min(i++, responses.length - 1)] as Chunk[];
+			return { stream: streamOf(chunks) as never };
+		},
+	});
+}
+
+const deps = (ai: AiRuntime): ChatDeps => ({
+	db: t.db,
+	ai,
+	log: { warn() {}, error() {} },
+});
+
+const newConversation = () =>
+	createConversation(t.db, { editionIds: [editionId] }).then((c) => c.id);
+
+async function readChunks(response: Response) {
+	const body = await response.text();
+	return body
+		.split("\n")
+		.filter((l) => l.startsWith("data: ") && l !== "data: [DONE]")
+		.map(
+			(l) => JSON.parse(l.slice(6)) as { type: string; [k: string]: unknown },
+		);
+}
+
+async function saved(conversationId: string, count: number) {
+	return waitFor(
+		async () => {
+			const c = await getConversation(t.db, conversationId);
+			return c && c.messages.length >= count ? c : null;
+		},
+		{ what: `${count} stored messages` },
+	);
+}
+
+async function run(
+	ai: AiRuntime,
+	conversationId: string,
+	message?: string,
+): Promise<Response> {
+	const r = await startChat(deps(ai), { conversationId, message });
+	if (r.status !== "ok") throw new Error(r.status);
+	return r.response;
+}
+
+beforeAll(async () => {
+	t = await createTestDb();
+	const dataDir = await tempDataDir();
+	const book = await ingestBook(
+		t.db,
+		dataDir,
+		await buildEpub({
+			title: "Chat Book",
+			language: "en",
+			chapters: [
+				{
+					href: "a.xhtml",
+					title: "One",
+					body: "<p>The green light burned at the end of the dock.</p><p>Nothing else.</p>",
+				},
+			],
+		}),
+		"chat.epub",
+	);
+	editionId = book.id;
+	shortId = book.shortId;
+});
+
+describe("startChat", () => {
+	it("streams a cited answer after a tool call and persists everything", async () => {
+		const id = await newConversation();
+		const cite = `[[cite locator="${shortId}:v1:0.0" quote="green light burned"]]`;
+		const fabricated = `[[cite locator="${shortId}:v1:0.0" quote="purple dragons"]]`;
+		const model = scripted(
+			toolCall("call1", { query: "green light" }),
+			textReply(`Evidence: ${cite}. Interpretation: hope. ${fabricated}`),
+		);
+		const response = await run(runtime(model), id, "What is the green light?");
+		const chunks = await readChunks(response);
+		const types = chunks.map((c) => c.type);
+		expect(types).toContain("tool-input-available");
+		expect(types).toContain("tool-output-available");
+		expect(types).toContain("text-delta");
+		expect(types).toContain("data-citations");
+		// Verified citations arrive before the stream finishes.
+		expect(types.indexOf("data-citations")).toBeLessThan(
+			types.lastIndexOf("finish"),
+		);
+
+		const conv = await saved(id, 2);
+		const [user, assistant] = conv.messages;
+		expect(user).toMatchObject({ role: "user", seq: 1 });
+		expect(conv.title).toBe("What is the green light?");
+		expect(assistant).toMatchObject({
+			role: "assistant",
+			seq: 2,
+			finishReason: "stop",
+			model: "mock-1",
+			promptVersion: PROMPT_VERSION,
+			error: null,
+		});
+		const partTypes = (assistant?.parts as { type: string }[]).map(
+			(p) => p.type,
+		);
+		expect(partTypes).toContain("tool-searchBooks");
+		expect(partTypes).toContain("text");
+		expect(partTypes).not.toContain("data-citations");
+		expect(assistant?.citations.map((c) => c.status)).toEqual([
+			"verified",
+			"quote_mismatch",
+		]);
+
+		// The model saw the system prompt and the tool result on its second call.
+		const second = JSON.stringify(model.doStreamCalls[1]?.prompt);
+		expect(second).toContain("Chat Book");
+		expect(second).toContain("green light");
+	});
+
+	it("replays earlier messages on the next turn", async () => {
+		const id = await newConversation();
+		const ai = runtime(
+			scripted(textReply("First answer."), textReply("Second.")),
+		);
+		await (await run(ai, id, "one")).text();
+		await saved(id, 2);
+		await (await run(ai, id, "two")).text();
+		await saved(id, 4);
+		const prompt = JSON.stringify(
+			(ai.model as MockLanguageModelV4).doStreamCalls[1]?.prompt,
+		);
+		expect(prompt).toContain("First answer.");
+		expect(prompt).toContain('"two"');
+	});
+
+	it("saves a partial reply as aborted when the generation is stopped", async () => {
+		const id = await newConversation();
+		const controller = new AbortController();
+		const model = new MockLanguageModelV4({
+			doStream: async ({ abortSignal }) => ({
+				stream: new ReadableStream({
+					start(c) {
+						c.enqueue({ type: "stream-start", warnings: [] });
+						c.enqueue({ type: "text-start", id: "t1" });
+						c.enqueue({ type: "text-delta", id: "t1", delta: "Partial thou" });
+						abortSignal?.addEventListener("abort", () => {
+							try {
+								c.error(new DOMException("aborted", "AbortError"));
+							} catch {}
+						});
+					},
+				}) as never,
+			}),
+		});
+		const result = await startChat(deps(runtime(model)), {
+			conversationId: id,
+			message: "Tell me more",
+			abortSignal: controller.signal,
+		});
+		if (result.status !== "ok") throw new Error(result.status);
+		const reader =
+			result.response.body?.getReader() as ReadableStreamDefaultReader;
+		const decoder = new TextDecoder();
+		let seen = "";
+		while (!seen.includes("Partial thou")) {
+			const { value, done } = await reader.read();
+			if (done) break;
+			seen += decoder.decode(value);
+		}
+		controller.abort();
+		await reader.cancel().catch(() => {});
+		const conv = await saved(id, 2);
+		expect(conv.messages[1]).toMatchObject({
+			role: "assistant",
+			finishReason: "aborted",
+		});
+		expect(JSON.stringify(conv.messages[1]?.parts)).toContain("Partial thou");
+		// The conversation accepts a new generation afterwards.
+		const again = await run(runtime(scripted(textReply("ok"))), id, "Continue");
+		await again.text();
+	});
+
+	it("records a provider error with no verified citations and allows retry", async () => {
+		const id = await newConversation();
+		const failing = new MockLanguageModelV4({
+			doStream: async () => {
+				throw new APICallError({
+					message: "upstream exploded",
+					url: "https://example.test",
+					requestBodyValues: {},
+					statusCode: 500,
+					isRetryable: false,
+				});
+			},
+		});
+		const chunks = await readChunks(await run(runtime(failing), id, "Hello?"));
+		const err = chunks.find((c) => c.type === "error");
+		expect(String(err?.errorText)).toContain("upstream exploded");
+
+		const conv = await saved(id, 2);
+		expect(conv.messages[1]).toMatchObject({
+			role: "assistant",
+			finishReason: "error",
+			citations: [],
+		});
+		expect(conv.messages[1]?.error).toContain("upstream exploded");
+
+		const good = scripted(textReply("Recovered."));
+		await (await run(runtime(good), id)).text();
+		const after = await waitFor(
+			async () => {
+				const c = await getConversation(t.db, id);
+				return c?.messages.at(-1)?.finishReason === "stop" ? c : null;
+			},
+			{ what: "retried reply" },
+		);
+		expect(after.messages.map((m) => [m.seq, m.role])).toEqual([
+			[1, "user"],
+			[2, "assistant"],
+		]);
+		expect(JSON.stringify(good.doStreamCalls[0]?.prompt)).toContain("Hello?");
+	});
+
+	it("reports nothing to retry when the last message is a good reply", async () => {
+		const id = await newConversation();
+		await (await run(runtime(scripted(textReply("Fine."))), id, "Hi")).text();
+		await saved(id, 2);
+		const r = await startChat(deps(runtime(scripted(textReply("x")))), {
+			conversationId: id,
+		});
+		expect(r.status).toBe("nothing_to_retry");
+	});
+
+	it("stops after the configured number of steps", async () => {
+		const id = await newConversation();
+		const model = scripted(toolCall("loop", { query: "light" }));
+		await (await run(runtime(model, 2), id, "Keep searching")).text();
+		const conv = await saved(id, 2);
+		expect(model.doStreamCalls).toHaveLength(2);
+		expect(conv.messages[1]?.finishReason).toBe("tool-calls");
+	});
+
+	it("rejects a second generation while one is running, leaving the conversation untouched", async () => {
+		const id = await newConversation();
+		let release: () => void = () => {};
+		const gate = new Promise<void>((r) => {
+			release = r;
+		});
+		const slow = new MockLanguageModelV4({
+			doStream: async () => {
+				await gate;
+				return { stream: streamOf(textReply("Slow answer.")) as never };
+			},
+		});
+		const body = (await run(runtime(slow), id, "First")).text();
+		const second = await startChat(deps(runtime(scripted(textReply("no")))), {
+			conversationId: id,
+			message: "Second",
+		});
+		expect(second.status).toBe("busy");
+		release();
+		await body;
+		const conv = await saved(id, 2);
+		expect(conv.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+		expect(JSON.stringify(conv.messages[0]?.parts)).toContain("First");
+	});
+
+	it("reports disabled and not_found without calling a model", async () => {
+		const id = await newConversation();
+		const off: AiRuntime = {
+			model: null,
+			status: { enabled: false },
+			maxSteps: 8,
+			temperature: undefined,
+		};
+		const disabled = await startChat(deps(off), {
+			conversationId: id,
+			message: "x",
+		});
+		expect(disabled.status).toBe("disabled");
+		expect((await getConversation(t.db, id))?.messages).toEqual([]);
+
+		const model = scripted(textReply("x"));
+		const missing = await startChat(deps(runtime(model)), {
+			conversationId: "00000000-0000-0000-0000-000000000000",
+			message: "x",
+		});
+		expect(missing.status).toBe("not_found");
+		expect(model.doStreamCalls).toHaveLength(0);
+	});
+});

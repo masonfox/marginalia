@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { countPassages, getToc } from "#/modules/catalog";
+import { pruneEmptyConversations } from "#/modules/conversation";
 import { PARSER_VERSION } from "#/modules/epub";
 import {
 	deleteEdition,
@@ -58,11 +59,15 @@ export const reparseEditions = createServerFn({ method: "POST" })
 		return reparseOutdated(db, enqueue, PARSER_VERSION, data.editionId);
 	});
 
-/** Permanently deletes a book; an already deleted book counts as done. */
+/**
+ * Permanently deletes a book; an already deleted book counts as done.
+ * Conversations left with no book are deleted with it.
+ */
 export const deleteEditionFn = createServerFn({ method: "POST" })
 	.validator(z.object({ editionId: z.uuid() }))
 	.handler(async ({ data }) => {
 		const { db, config, log } = appContext();
 		const result = await deleteEdition(db, config.dataDir, data.editionId, log);
+		await pruneEmptyConversations(db);
 		return { deleted: result.deleted };
 	});

@@ -1,4 +1,4 @@
-import { and, eq, type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import { editions } from "#/modules/library";
 import type { Executor } from "#/server/db";
@@ -6,6 +6,18 @@ import type { Executor } from "#/server/db";
 export const searchInput = z.object({
 	/** Limit to one edition; omit to search every ready edition. */
 	editionId: z.uuid().optional(),
+	/**
+	 * Limit to a set of editions, each with its own optional position bound.
+	 * Ranking and the limit apply across the whole set. An empty set matches nothing.
+	 */
+	editionIds: z
+		.array(
+			z.object({
+				editionId: z.uuid(),
+				maxPosition: z.number().int().nonnegative().optional(),
+			}),
+		)
+		.optional(),
 	query: z.string().max(500),
 	/** Only passages whose reveal position is at or before this bound. */
 	maxPosition: z.number().int().nonnegative().optional(),
@@ -49,6 +61,8 @@ export async function searchPassages(
 	const input = searchInput.parse(rawInput);
 	const query = input.query.trim();
 	if (!query) return [];
+	const scope = input.editionIds;
+	if (scope && scope.length === 0) return [];
 
 	const configRows = await db
 		.selectDistinct({ config: editions.searchConfig })
@@ -57,6 +71,12 @@ export async function searchPassages(
 			and(
 				eq(editions.status, "ready"),
 				input.editionId ? eq(editions.id, input.editionId) : undefined,
+				scope
+					? inArray(
+							editions.id,
+							scope.map((e) => e.editionId),
+						)
+					: undefined,
 			),
 		);
 	const configs = configRows
@@ -73,6 +93,18 @@ export async function searchPassages(
 	);
 	const filters: SQL[] = [sql`(${matchesAny})`];
 	if (input.editionId) filters.push(sql`p.edition_id = ${input.editionId}`);
+	if (scope) {
+		filters.push(
+			sql`(${sql.join(
+				scope.map((e) =>
+					e.maxPosition === undefined
+						? sql`p.edition_id = ${e.editionId}`
+						: sql`(p.edition_id = ${e.editionId} and p.reveal_position <= ${e.maxPosition})`,
+				),
+				sql` or `,
+			)})`,
+		);
+	}
 	if (input.maxPosition !== undefined) {
 		filters.push(sql`p.reveal_position <= ${input.maxPosition}`);
 	}

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pino } from "pino";
+import { ingestEdition } from "#/modules/catalog";
 import type {
 	ParsedEdition,
 	ParsedPassage,
@@ -116,4 +117,19 @@ export function reshape(
 		}),
 		linearPassageCount: position,
 	};
+}
+
+/** Uploads bytes and ingests them as a ready edition. */
+export async function ingestBook(
+	db: Database,
+	dataDir: string,
+	bytes: Buffer,
+	name: string,
+	over: Partial<Parameters<typeof ingestEdition>[0]> = {},
+) {
+	const { sha256, edition } = await addUploadedBook(db, dataDir, bytes, name);
+	await ingestEdition({ db, dataDir, log: silentLog, ...over }, sha256, {
+		finalAttempt: true,
+	});
+	return { id: edition.id, shortId: edition.shortId, sha256 };
 }

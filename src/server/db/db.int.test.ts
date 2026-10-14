@@ -23,12 +23,15 @@ describe("database", () => {
 			"select table_name from information_schema.tables where table_schema = 'public' order by 1",
 		);
 		expect(rows.map((r) => r.table_name)).toEqual([
+			"conversation_editions",
+			"conversations",
 			"editions",
 			"excluded_editions",
 			"instance_settings",
 			"library_files",
 			"library_sources",
 			"locator_aliases",
+			"messages",
 			"note_refs",
 			"passages",
 			"sections",

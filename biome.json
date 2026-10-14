@@ -186,6 +186,34 @@
 					}
 				}
 			}
+		},
+		{
+			"includes": ["src/modules/conversation/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"**/modules/*/*",
+											"**/access/*",
+											"**/library/*",
+											"**/epub/*",
+											"**/catalog/*",
+											"**/retrieval/*",
+											"**/modules/ai/*"
+										],
+										"message": "Import other modules only through their public index (e.g. #/modules/retrieval)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
 		}
 	]
 }

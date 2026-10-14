@@ -1,0 +1,259 @@
+import {
+	APICallError,
+	convertToModelMessages,
+	createUIMessageStream,
+	createUIMessageStreamResponse,
+	stepCountIs,
+	streamText,
+	type UIMessage,
+} from "ai";
+import { and, eq } from "drizzle-orm";
+import type { AiRuntime } from "#/modules/ai";
+import { createRetrieval } from "#/modules/retrieval";
+import type { Database } from "#/server/db";
+import type { Logger } from "#/server/logger";
+import { buildSystemPrompt, PROMPT_VERSION } from "./prompt";
+import {
+	appendMessage,
+	type ConversationDetail,
+	getConversation,
+	type StoredMessage,
+	setProvisionalTitle,
+} from "./repository";
+import { type CitationRecord, type Json, messages } from "./schema";
+import { createConversationTools } from "./tools";
+import { verifyCitations } from "./verify";
+
+/** The UI message shape: text and tool parts plus a data part carrying verified citations. */
+export type ChatUIMessage = UIMessage<unknown, { citations: CitationRecord[] }>;
+
+export interface ChatDeps {
+	db: Database;
+	ai: AiRuntime;
+	log: Pick<Logger, "warn" | "error">;
+}
+
+export type ChatInput = {
+	conversationId: string;
+	/** The reader's new message. Omit to retry after a failed generation. */
+	message?: string;
+	abortSignal?: AbortSignal;
+};
+
+export type ChatStart =
+	| { status: "disabled" }
+	| { status: "not_found" }
+	| { status: "busy" }
+	| { status: "nothing_to_retry" }
+	| { status: "ok"; response: Response };
+
+/** Conversations with a generation running. One process serves all requests, as with the login limiter. */
+const inFlight = new Set<string>();
+
+/**
+ * Handles one chat turn: persists the user message, streams the model's reply
+ * (with tool use), and persists the assistant message with verified
+ * citations when the stream ends, is stopped, or fails.
+ */
+export async function startChat(
+	deps: ChatDeps,
+	input: ChatInput,
+): Promise<ChatStart> {
+	const { db, ai } = deps;
+	if (!ai.model) return { status: "disabled" };
+	const conversation = await getConversation(db, input.conversationId);
+	if (!conversation) return { status: "not_found" };
+	if (inFlight.has(conversation.id)) return { status: "busy" };
+	inFlight.add(conversation.id);
+	try {
+		const history = await prepareHistory(db, conversation, input.message);
+		if (!history) {
+			inFlight.delete(conversation.id);
+			return { status: "nothing_to_retry" };
+		}
+		const response = generate(deps, conversation, history, input.abortSignal);
+		return { status: "ok", response };
+	} catch (err) {
+		inFlight.delete(conversation.id);
+		throw err;
+	}
+}
+
+/** Appends the new user message (or prepares a retry) and returns the messages to send the model. */
+async function prepareHistory(
+	db: Database,
+	conversation: ConversationDetail,
+	text: string | undefined,
+): Promise<StoredMessage[] | null> {
+	const stored = [...conversation.messages];
+	if (text === undefined) {
+		const last = stored.at(-1);
+		if (last?.role === "assistant" && last.finishReason === "error") {
+			await db
+				.delete(messages)
+				.where(
+					and(
+						eq(messages.conversationId, conversation.id),
+						eq(messages.id, last.id),
+					),
+				);
+			stored.pop();
+		}
+		return stored.at(-1)?.role === "user" ? stored : null;
+	}
+	const parts: Json[] = [{ type: "text", text }];
+	const saved = await appendMessage(db, {
+		conversationId: conversation.id,
+		role: "user",
+		parts,
+	});
+	if (stored.length === 0) await setProvisionalTitle(db, conversation.id, text);
+	stored.push({
+		id: saved.id,
+		seq: saved.seq,
+		role: "user",
+		parts,
+		citations: [],
+		finishReason: null,
+		model: null,
+		promptVersion: null,
+		error: null,
+		createdAt: new Date(),
+	});
+	return stored;
+}
+
+function generate(
+	deps: ChatDeps,
+	conversation: ConversationDetail,
+	history: StoredMessage[],
+	abortSignal: AbortSignal | undefined,
+): Response {
+	const { db, ai, log } = deps;
+	const retrieval = createRetrieval(db);
+	const verifyDeps = { retrieval, books: conversation.books };
+	const tools = createConversationTools({
+		db,
+		retrieval,
+		books: conversation.books,
+	});
+	const modelName = ai.status.model ?? null;
+
+	let failure: string | null = null;
+	let citations: CitationRecord[] | null = null;
+	let text = "";
+
+	const stream = createUIMessageStream<ChatUIMessage>({
+		onError: describeError,
+		execute: async ({ writer }) => {
+			const result = streamText({
+				// `model` is non-null: startChat checked.
+				model: ai.model as NonNullable<AiRuntime["model"]>,
+				system: buildSystemPrompt(conversation.books),
+				messages: await convertToModelMessages(history.map(toUIMessage), {
+					tools,
+				}),
+				tools,
+				stopWhen: stepCountIs(ai.maxSteps),
+				temperature: ai.temperature,
+				abortSignal,
+				onError: () => {
+					// Surfaced through the stream's error chunk below.
+				},
+			});
+			for await (const chunk of result.toUIMessageStream({
+				onError: describeError,
+			})) {
+				if (chunk.type === "text-delta") text += chunk.delta;
+				if (chunk.type === "error") failure = chunk.errorText;
+				if (chunk.type === "finish" && !failure) {
+					citations = await verifyCitations(verifyDeps, text);
+					writer.write({ type: "data-citations", data: citations });
+				}
+				writer.write(chunk as never);
+			}
+		},
+		onEnd: async ({
+			responseMessage,
+			isAborted,
+			isCancelled,
+			finishReason,
+		}) => {
+			try {
+				const aborted = isAborted || isCancelled === true;
+				const message = responseMessage as ChatUIMessage;
+				const finalText = message.parts
+					.filter((p) => p.type === "text")
+					.map((p) => p.text)
+					.join("");
+				const verified =
+					failure !== null
+						? []
+						: (citations ??
+							(await verifyCitations(verifyDeps, finalText).catch(() => [])));
+				await appendMessage(db, {
+					conversationId: conversation.id,
+					role: "assistant",
+					parts: message.parts.filter(
+						(p) => p.type !== "data-citations",
+					) as Json[],
+					citations: verified,
+					finishReason: failure
+						? "error"
+						: aborted
+							? "aborted"
+							: (finishReason ?? "stop"),
+					model: modelName,
+					promptVersion: PROMPT_VERSION,
+					error: failure,
+				});
+			} catch (err) {
+				log.error(
+					{ err, conversationId: conversation.id },
+					"could not save reply",
+				);
+			} finally {
+				inFlight.delete(conversation.id);
+			}
+		},
+	});
+	return createUIMessageStreamResponse({ stream });
+}
+
+function toUIMessage(m: StoredMessage): Omit<ChatUIMessage, "id"> {
+	return { role: m.role, parts: replayableParts(m.parts) };
+}
+
+/** Parts that can be replayed to a model: text and finished tool calls. */
+function replayableParts(parts: unknown[]): ChatUIMessage["parts"] {
+	return (parts as { type: string; state?: string }[]).filter((p) => {
+		if (p.type === "text" || p.type === "step-start") return true;
+		const isTool = p.type.startsWith("tool-") || p.type === "dynamic-tool";
+		return (
+			isTool && (p.state === "output-available" || p.state === "output-error")
+		);
+	}) as ChatUIMessage["parts"];
+}
+
+/** A reader-safe message for a stream error. Never includes credentials. */
+export function describeError(error: unknown): string {
+	if (APICallError.isInstance(error)) {
+		const status = error.statusCode ? ` (HTTP ${error.statusCode})` : "";
+		const hint =
+			error.statusCode === 401 || error.statusCode === 403
+				? " Check AI_API_KEY and that the key may use this model."
+				: "";
+		return redact(
+			`The AI provider returned an error${status}: ${error.message}.${hint}`,
+		);
+	}
+	if (error instanceof Error) return redact(error.message);
+	return "The AI provider failed.";
+}
+
+/** Truncates and masks anything shaped like an API key, in case a provider echoes one. */
+function redact(message: string): string {
+	return message
+		.replace(/(?<![A-Za-z0-9])(sk|key|AIza)[-_A-Za-z0-9]{12,}/g, "[redacted]")
+		.slice(0, 500);
+}
