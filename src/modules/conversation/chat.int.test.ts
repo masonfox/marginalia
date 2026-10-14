@@ -3,7 +3,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { asc, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { AiRuntime } from "#/modules/ai";
-import { saveUnitResult } from "#/modules/analysis";
+import { preprocessEdition, saveUnitResult } from "#/modules/analysis";
 import {
 	aiUsage,
 	priceTable,
@@ -75,6 +75,7 @@ function runtime(model: MockLanguageModelV4, maxSteps = 5): AiRuntime {
 		model,
 		status: { enabled: true, provider: "openai", model: "mock-1" },
 		maxSteps,
+		preprocessModel: null,
 		temperature: undefined,
 		reasoning: undefined,
 		providerOptions: {},
@@ -396,6 +397,7 @@ describe("startChat", () => {
 			model: null,
 			status: { enabled: false },
 			maxSteps: 8,
+			preprocessModel: null,
 			temperature: undefined,
 			reasoning: undefined,
 			providerOptions: {},
@@ -743,6 +745,81 @@ describe("scope during chat", () => {
 		expect(systemOf(model.doStreamCalls[3] as never)).toContain(
 			"Two: The lantern vanishes.",
 		);
+	});
+
+	it("end to end: preprocesses with a mock provider, then bounds map and tool", async () => {
+		const edition = await ingestBook(
+			t.db,
+			await tempDataDir(),
+			await buildEpub({
+				title: "E2E Book",
+				language: "en",
+				chapters: [
+					{ href: "a.xhtml", title: "Alpha", body: "<p>Anna sails home.</p>" },
+					{ href: "b.xhtml", title: "Beta", body: "<p>Boris sails away.</p>" },
+				],
+			}),
+			"e2e.epub",
+		);
+		const pre = new MockLanguageModelV4({
+			doGenerate: async (options) => {
+				const text = JSON.stringify(options.prompt);
+				const second = text.includes("Boris");
+				return {
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify({
+								summary: second ? "Boris leaves." : "Anna arrives.",
+								citations: [],
+								observations: [
+									{
+										name: "Ship",
+										kind: "object",
+										note: second ? "Departs." : "Arrives.",
+										citations: [],
+									},
+								],
+							}),
+						},
+					],
+					finishReason: { unified: "stop", raw: "stop" },
+					usage: {
+						inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+						outputTokens: { total: 1, text: 1, reasoning: 0 },
+					},
+					warnings: [],
+				} as never;
+			},
+		});
+		await preprocessEdition(
+			{
+				db: t.db,
+				model: pre,
+				modelName: "mock-pre",
+				provider: "openai",
+				log: { info() {}, warn() {}, error() {}, debug() {} } as never,
+			},
+			edition.id,
+		);
+		const { id } = await createConversation(t.db, {
+			editionIds: [edition.id],
+			scopes: { [edition.id]: { maxPosition: 1, scopeLabel: "Alpha" } },
+		});
+		const lookup = toolCall("o1", { book: "b1", name: "Ship" }).map((c) =>
+			c.type === "tool-call" ? { ...c, toolName: "lookupObservations" } : c,
+		);
+		const model = scripted(lookup, textReply("Done."));
+		await (await run(runtime(model), id, "What about the ship?")).text();
+		const stored = await saved(id, 2);
+		const system = systemOf(model.doStreamCalls[0] as never);
+		expect(system).toContain("Anna arrives.");
+		expect(system).not.toContain("Boris leaves.");
+		const part = (
+			stored.messages[1]?.parts as { type: string; output?: unknown }[]
+		).find((x) => x.type === "tool-lookupObservations");
+		expect(JSON.stringify(part?.output)).toContain("Arrives.");
+		expect(JSON.stringify(part?.output)).not.toContain("Departs.");
 	});
 
 	it("states the scope in the system prompt, identically on every turn", async () => {

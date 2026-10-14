@@ -37,9 +37,8 @@ export const startPreprocessFn = createServerFn({ method: "POST" })
 		const edition = await getEditionDetail(db, data.editionId);
 		if (!edition || edition.status !== "ready")
 			throw new Error("The book is not ready.");
-		// Job kind comes from the preprocessing job module.
-		const id = await (
-			enqueue as unknown as (k: string, p: unknown) => Promise<string | null>
-		)("analysis.preprocess", { editionId: data.editionId });
+		const id = await enqueue("analysis.preprocess", {
+			editionId: data.editionId,
+		});
 		return { enqueued: id !== null };
 	});

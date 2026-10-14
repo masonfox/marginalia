@@ -53,6 +53,6 @@ Depends on: A for status and usage queries (UI wiring), B for the job kind (star
 
 ## 5. Section E: Integration and verification (after A, B, C, D merge)
 
-- [ ] 5.1 End-to-end check against a mock provider: ingest, preprocess, start a bounded conversation, confirm the map and tool respect the bound
-- [ ] 5.2 Run `pnpm` typecheck, lint, unit and integration tests; fix cross-section drift
-- [ ] 5.3 Run `openspec validate add-book-preprocessing`
+- [x] 5.1 End-to-end check against a mock provider: ingest, preprocess, start a bounded conversation, confirm the map and tool respect the bound
+- [x] 5.2 Run `pnpm` typecheck, lint, unit and integration tests; fix cross-section drift
+- [x] 5.3 Run `openspec validate add-book-preprocessing`

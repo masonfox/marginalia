@@ -10,6 +10,23 @@ import { scanLibraries } from "#/modules/library";
 import { appContext } from "../context";
 import type { JobHandlers } from "./kinds";
 
+/** Enqueues preprocessing after ingest only when AI is configured and auto mode is on. */
+export async function enqueueAutoPreprocess(
+	deps: {
+		config: { preprocessAuto: boolean };
+		ai: { status: { enabled: boolean } };
+		enqueue: (
+			kind: "analysis.preprocess",
+			p: { editionId: string },
+		) => Promise<unknown>;
+	},
+	editionId: string,
+): Promise<boolean> {
+	if (!deps.config.preprocessAuto || !deps.ai.status.enabled) return false;
+	await deps.enqueue("analysis.preprocess", { editionId });
+	return true;
+}
+
 /** Wires each job kind to the module that handles it. */
 export function jobHandlers(): JobHandlers {
 	const ingestDeps = () => {
@@ -26,8 +43,7 @@ export function jobHandlers(): JobHandlers {
 			},
 			// Preprocessing starts after a successful ingest or reparse when enabled.
 			onIngested: async (editionId) => {
-				if (!config.preprocessAuto || !ai.status.enabled) return;
-				await enqueue("analysis.preprocess", { editionId });
+				await enqueueAutoPreprocess({ config, ai, enqueue }, editionId);
 			},
 		} satisfies IngestDeps;
 	};
