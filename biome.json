@@ -1,0 +1,191 @@
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"ignoreUnknown": true,
+		"includes": [
+			"**",
+			"!**/src/routeTree.gen.ts",
+			"!**/drizzle",
+			"!**/openspec",
+			"!**/.claude",
+			"!**/test/fixtures"
+		]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab"
+	},
+	"assist": {
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
+		}
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"style": {
+				"noRestrictedImports": {
+					"level": "error",
+					"options": {
+						"patterns": [
+							{
+								"group": ["**/modules/*/*"],
+								"message": "Import other modules only through their public index (e.g. #/modules/catalog)."
+							}
+						]
+					}
+				}
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double"
+		}
+	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		}
+	},
+	"overrides": [
+		{
+			"includes": ["src/modules/access/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"**/modules/*/*",
+											"**/library/*",
+											"**/epub/*",
+											"**/catalog/*",
+											"**/retrieval/*"
+										],
+										"message": "Import other modules only through their public index (e.g. #/modules/catalog)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/modules/library/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"**/modules/*/*",
+											"**/access/*",
+											"**/epub/*",
+											"**/catalog/*",
+											"**/retrieval/*"
+										],
+										"message": "Import other modules only through their public index (e.g. #/modules/catalog)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/modules/epub/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"**/modules/*/*",
+											"**/access/*",
+											"**/library/*",
+											"**/catalog/*",
+											"**/retrieval/*"
+										],
+										"message": "Import other modules only through their public index (e.g. #/modules/catalog)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/modules/catalog/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"**/modules/*/*",
+											"**/access/*",
+											"**/library/*",
+											"**/epub/*",
+											"**/retrieval/*"
+										],
+										"message": "Import other modules only through their public index (e.g. #/modules/catalog)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/modules/retrieval/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"**/modules/*/*",
+											"**/access/*",
+											"**/library/*",
+											"**/epub/*",
+											"**/catalog/*"
+										],
+										"message": "Import other modules only through their public index (e.g. #/modules/catalog)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		}
+	]
+}
