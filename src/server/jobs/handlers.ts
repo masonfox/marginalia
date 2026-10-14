@@ -1,5 +1,10 @@
 import { purgeExpiredSessions } from "#/modules/access";
-import { ingestEdition, reparseEdition } from "#/modules/catalog";
+import {
+	type IngestDeps,
+	ingestEdition,
+	reparseEdition,
+} from "#/modules/catalog";
+import { rebaseScopes } from "#/modules/conversation";
 import { scanLibraries } from "#/modules/library";
 import { appContext } from "../context";
 import type { JobHandlers } from "./kinds";
@@ -8,7 +13,14 @@ import type { JobHandlers } from "./kinds";
 export function jobHandlers(): JobHandlers {
 	const ingestDeps = () => {
 		const { db, config, log } = appContext();
-		return { db, dataDir: config.dataDir, log };
+		return {
+			db,
+			dataDir: config.dataDir,
+			log,
+			// Keeps conversation bounds on the same text when a reparse shifts positions.
+			onReplaced: (tx, { editionId, rebase }) =>
+				rebaseScopes(tx, editionId, rebase),
+		} satisfies IngestDeps;
 	};
 	return {
 		"library.scan": async ({ full }) => {

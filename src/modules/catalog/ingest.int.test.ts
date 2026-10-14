@@ -483,3 +483,95 @@ describe("deleted editions", () => {
 		expect(covers.filter((f) => f.startsWith(sha256))).toEqual([]);
 	});
 });
+
+describe("bound re-anchoring on reparse", () => {
+	const posOf = (parsed: ParsedEdition, spine: number, block: number) => {
+		const position = parsed.sections[spine]?.passages[block]?.position;
+		if (typeof position !== "number") throw new Error("no linear passage");
+		return position;
+	};
+
+	/** v2: one passage inserted early, one removed, and two merged later on. */
+	const toV2 = (parsed: ParsedEdition) =>
+		reshape(parsed, 2, (ps, spine) => {
+			const out: ParsedPassage[] = [];
+			ps.forEach((p, i) => {
+				if (spine === 3 && i === 0)
+					out.push({ ...p, kind: "paragraph", text: "A new editor's note." });
+				if (spine === 5 && i === 4) return;
+				if (spine === 6 && i === 2) {
+					out.push({ ...p, text: `${p.text} ${ps[3]?.text}` });
+					return;
+				}
+				if (spine === 6 && i === 3) return;
+				out.push(p);
+			});
+			return out;
+		});
+
+	async function reparse(name: string) {
+		const { sha256 } = await addUploadedBook(
+			t.db,
+			dataDir,
+			Buffer.concat([standardEbooks(), Buffer.from(name)]),
+			`${name}.epub`,
+		);
+		await ingestEdition(deps({ parse: async () => v1 }), sha256, finalAttempt);
+		const v2 = toV2(v1);
+		const calls: { editionId: string; rebase: (b: number) => number }[] = [];
+		await ingestEdition(
+			deps({
+				parse: async () => v2,
+				parserVersion: 2,
+				onReplaced: async (_tx, change) => {
+					calls.push(change);
+				},
+			}),
+			sha256,
+			finalAttempt,
+		);
+		expect(calls).toHaveLength(1);
+		return { v2, rebase: (calls[0] as (typeof calls)[0]).rebase };
+	}
+
+	it("moves a bound with positions shifted by an earlier insertion", async () => {
+		const { v2, rebase } = await reparse("rebase-shift");
+		const old = posOf(v1, 5, 2);
+		expect(rebase(old)).toBe(posOf(v2, 5, 2));
+		expect(rebase(old)).toBe(old + 1);
+		// Bounds before the insertion do not move.
+		expect(rebase(posOf(v1, 2, 0))).toBe(posOf(v1, 2, 0));
+	});
+
+	it("falls back to the last surviving passage when the bounded one is removed", async () => {
+		const { v2, rebase } = await reparse("rebase-removed");
+		expect(rebase(posOf(v1, 5, 4))).toBe(posOf(v2, 5, 3));
+	});
+
+	it("never reveals a merged passage holding text after the bound", async () => {
+		const { v2, rebase } = await reparse("rebase-merged");
+		// Old 6.2 now shares a passage with old 6.3: bounded at 6.2, the merge stays hidden.
+		expect(rebase(posOf(v1, 6, 2))).toBe(posOf(v2, 6, 1));
+		expect(rebase(posOf(v1, 6, 3))).toBe(posOf(v2, 6, 2));
+		expect(rebase(0)).toBe(-1);
+	});
+
+	it("does not call the hook when the parser version is unchanged", async () => {
+		const { sha256 } = await addUploadedBook(
+			t.db,
+			dataDir,
+			Buffer.concat([standardEbooks(), Buffer.from("rebase-same")]),
+			"rebase-same.epub",
+		);
+		let called = false;
+		const onReplaced = async () => {
+			called = true;
+		};
+		await ingestEdition(
+			deps({ parse: async () => v1, onReplaced }),
+			sha256,
+			finalAttempt,
+		);
+		expect(called).toBe(false);
+	});
+});

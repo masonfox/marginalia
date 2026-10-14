@@ -21,6 +21,8 @@ import {
 	RenameConversation,
 } from "#/components/conversation-controls";
 import { ResearchTrail } from "#/components/research-trail";
+import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
+import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
 import { groupParts } from "#/lib/research-trail";
@@ -206,6 +208,26 @@ function ConversationPage() {
 					)}
 					<UsageTotal total={conversation.usageTotal} />
 				</p>
+				{conversation.books.length > 0 && (
+					<ul className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+						{conversation.books.map((b) => (
+							<li key={b.editionId} className="flex items-center gap-1">
+								<Badge variant="secondary" data-testid="scope-chip">
+									{conversation.books.length > 1 && `${b.title}: `}
+									{scopeText(b.scopeLabel)}
+								</Badge>
+								<WidenScope
+									conversationId={conversationId}
+									book={b}
+									disabled={busy}
+								/>
+							</li>
+						))}
+					</ul>
+				)}
+				<div className="mt-3">
+					<ScopeNotice labels={conversation.books.map((b) => b.scopeLabel)} />
+				</div>
 				<div className="mt-2 flex flex-wrap items-center gap-1">
 					<RenameConversation
 						conversationId={conversationId}
@@ -228,13 +250,9 @@ function ConversationPage() {
 				{messages.length === 0 && (
 					<li className="space-y-3 text-sm text-muted-foreground">
 						{ai.enabled && (
-							<p
-								className="rounded-md border bg-muted/40 px-3 py-2 text-foreground"
-								data-testid="spoiler-notice"
-							>
-								The assistant has access to the whole book, so it may reveal
-								later events. Your messages and the passages it reads are sent
-								to {ai.provider} ({ai.model}).
+							<p data-testid="provider-notice">
+								Your messages and the passages the assistant reads are sent to{" "}
+								{ai.provider} ({ai.model}).
 							</p>
 						)}
 						<p>

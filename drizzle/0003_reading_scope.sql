@@ -1,0 +1,2 @@
+ALTER TABLE "conversation_editions" ADD COLUMN "scope_label" text;--> statement-breakpoint
+ALTER TABLE "conversation_editions" ADD CONSTRAINT "conversation_editions_scope_check" CHECK (("conversation_editions"."max_position" is null) = ("conversation_editions"."scope_label" is null));

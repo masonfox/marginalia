@@ -26,15 +26,22 @@
     {
       "idx": 3,
       "version": "7",
-      "when": 1791998973869,
-      "tag": "0003_ai_usage",
+      "when": 1792001495797,
+      "tag": "0003_reading_scope",
       "breakpoints": true
     },
     {
       "idx": 4,
       "version": "7",
-      "when": 1792001017994,
-      "tag": "0004_message_parts_json",
+      "when": 1792003322310,
+      "tag": "0004_ai_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792003323310,
+      "tag": "0005_message_parts_json",
       "breakpoints": true
     }
   ]

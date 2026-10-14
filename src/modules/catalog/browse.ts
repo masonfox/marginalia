@@ -5,6 +5,8 @@ import { passages, tocEntries } from "./schema";
 export interface TocNode {
 	label: string;
 	locator: string | null;
+	/** When the target passage may be revealed; null when the entry has no passage. */
+	revealPosition: number | null;
 	children: TocNode[];
 }
 
@@ -19,6 +21,7 @@ export async function getToc(
 			parentId: tocEntries.parentId,
 			label: tocEntries.label,
 			locator: passages.locator,
+			revealPosition: passages.revealPosition,
 		})
 		.from(tocEntries)
 		.leftJoin(passages, eq(tocEntries.passageId, passages.id))
@@ -31,7 +34,12 @@ export async function getToc(
 	const nodes = new Map<number, TocNode>();
 	const roots: TocNode[] = [];
 	for (const r of rows)
-		nodes.set(r.id, { label: r.label, locator: r.locator, children: [] });
+		nodes.set(r.id, {
+			label: r.label,
+			locator: r.locator,
+			revealPosition: r.revealPosition,
+			children: [],
+		});
 	for (const r of rows) {
 		const node = nodes.get(r.id) as TocNode;
 		const parent = r.parentId === null ? undefined : nodes.get(r.parentId);

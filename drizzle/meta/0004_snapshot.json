@@ -1,6 +1,6 @@
 {
-  "id": "0bdefcc6-072b-456e-a26f-ce20fb606878",
-  "prevId": "08b114fb-6d73-4754-9359-3f0c44e57e49",
+  "id": "02f4c121-4bd9-46b8-ab4b-d9f0046f7fc9",
+  "prevId": "f2fd7f66-89f9-4d05-b930-9633af004cf3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -672,6 +672,12 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
+        },
+        "scope_label": {
+          "name": "scope_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -730,7 +736,12 @@
       },
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "conversation_editions_scope_check": {
+          "name": "conversation_editions_scope_check",
+          "value": "(\"conversation_editions\".\"max_position\" is null) = (\"conversation_editions\".\"scope_label\" is null)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.conversations": {
@@ -811,7 +822,7 @@
         },
         "parts": {
           "name": "parts",
-          "type": "json",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": true
         },

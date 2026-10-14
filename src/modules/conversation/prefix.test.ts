@@ -14,6 +14,7 @@ const books: ConversationBook[] = [
 		authors: ["Dan Simmons"],
 		ordinal: 0,
 		maxPosition: null,
+		scopeLabel: null,
 	},
 ];
 
