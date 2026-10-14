@@ -24,9 +24,9 @@
 
 ## 5. Integrated acceptance
 
-- [ ] 5.1 Add an end-to-end select -> attach -> ask -> stream -> reopen scenario and failed-generation retry scenario using existing browser fixtures; verify sent-history quote display, unchanged citations/research trail, actual provider context, and stable prefix assertions all pass.
+- [x] 5.1 Add an end-to-end select -> attach -> ask -> stream -> reopen scenario and failed-generation retry scenario using existing browser fixtures; verify sent-history quote display, unchanged citations/research trail, actual provider context, and stable prefix assertions all pass.
 - [x] 5.2 Run `pnpm typecheck`, `pnpm lint`, relevant unit/integration/browser suites, and `openspec validate add-reply-to-response --strict`; verify all required checks pass and record any manual touch/native-selection QA needed by the browser environment.
 
 ## Verification note (2026-10-14)
 
-Implementation tasks are complete. Task 5.1 browser execution remains pending: the coordinator explicitly instructed this dispatch to skip the browser suite because no shared E2E instance exists and not to create a fixture server. Browser assertions on implementation tasks are therefore not verified in this dispatch; native pointer/keyboard/touch selection and lifecycle QA remain required. Task 5.2 ran typecheck, all unit tests, scoped integration tests, repository lint, scoped lint, and strict OpenSpec validation; repository lint has the known pre-existing formatting failures. See verification.md for exact results and follow-up QA.
+Implementation tasks are complete. Task 5.1 was completed afterward: the reply E2E scenario passed against this branch, and the maintainer completed manual browser QA. Task 5.2 ran typecheck, all unit tests, scoped integration tests, repository lint, scoped lint, and strict OpenSpec validation; repository lint has the known pre-existing formatting failures. See verification.md for exact results and follow-up QA.
