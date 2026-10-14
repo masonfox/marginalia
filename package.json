@@ -10,7 +10,7 @@
 		"#/*": "./src/*"
 	},
 	"scripts": {
-		"dev": "node --env-file-if-exists=.env.development node_modules/vite/bin/vite.js dev --port 3000",
+		"dev": "node scripts/with-dev-env.mjs node_modules/vite/bin/vite.js dev --port 3000",
 		"build": "vite build",
 		"start": "node .output/server/index.mjs",
 		"generate-routes": "tsr generate",
@@ -21,7 +21,7 @@
 		"test:unit": "vitest run --project unit",
 		"test:integration": "vitest run --project integration",
 		"db:generate": "drizzle-kit generate",
-		"db:migrate": "tsx --env-file-if-exists=.env.development src/server/db/migrate-cli.ts",
+		"db:migrate": "node scripts/with-dev-env.mjs --import tsx src/server/db/migrate-cli.ts",
 		"test:e2e": "playwright test"
 	},
 	"dependencies": {

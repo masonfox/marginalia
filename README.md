@@ -36,7 +36,7 @@ cp .env.development.example .env.development   # local settings, gitignored
 pnpm dev
 ```
 
-`pnpm dev` and `pnpm db:migrate` read `.env.development` if it exists. Variables already set in your shell take precedence. Production never reads this file.
+`pnpm dev` and `pnpm db:migrate` read `.env.development` if it exists. In a git worktree without its own copy, they read the main checkout's, and relative paths in it (such as `MARGINALIA_DATA_DIR`) resolve against the main checkout, so worktrees share its database and data. Variables already set in your shell take precedence. Production never reads this file.
 
 | Command | What it does |
 | --- | --- |
