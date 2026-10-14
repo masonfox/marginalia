@@ -1,5 +1,53 @@
+import { Reply } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { REPLY_CONTEXT_LIMIT, type ReplyContext } from "#/lib/reply-context";
+
+const BLOCKS = new Set([
+	"P",
+	"LI",
+	"BLOCKQUOTE",
+	"H1",
+	"H2",
+	"H3",
+	"H4",
+	"H5",
+	"H6",
+	"TR",
+	"DIV",
+	"PRE",
+	"BR",
+]);
+
+/** Selected text with citation pills left out, so their numbers never leak into the quote. */
+function selectedText(range: Range): string {
+	let out = "";
+	let afterPill = false;
+	const walk = (node: Node) => {
+		if (node.nodeType === Node.TEXT_NODE) {
+			let text = node.textContent ?? "";
+			// "claim [1] worth" would otherwise quote as "claim  worth".
+			if (afterPill && /\s$/.test(out)) text = text.replace(/^[ \t]+/, "");
+			out += text;
+			afterPill = false;
+			return;
+		}
+		if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== 11) return;
+		const el = node as Element;
+		if (el.hasAttribute?.("data-citation-status")) {
+			afterPill = true;
+			return;
+		}
+		const block = BLOCKS.has(el.tagName);
+		if (block && out && !out.endsWith("\n")) out += "\n";
+		for (const child of Array.from(node.childNodes)) walk(child);
+		if (block && !out.endsWith("\n")) out += "\n";
+	};
+	walk(range.cloneContents());
+	return out
+		.replace(/[ \t]+\n/g, "\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
 
 /** Inspect every intersected subtree, including controls between text endpoints. */
 export function captureReplySelection(
@@ -28,8 +76,7 @@ export function captureReplySelection(
 			node.nodeType === Node.ELEMENT_NODE
 				? (node as Element)
 				: node.parentElement;
-		if (element?.closest("[data-reply-excluded],button,a,input,textarea"))
-			return false;
+		if (element?.closest("[data-reply-excluded],input,textarea")) return false;
 		if (
 			node.nodeType === Node.TEXT_NODE &&
 			node.textContent?.trim() &&
@@ -40,7 +87,7 @@ export function captureReplySelection(
 	};
 	if (!valid(ancestor)) return null;
 	while (walker.nextNode()) if (!valid(walker.currentNode)) return null;
-	const text = selection.toString().trim();
+	const text = selectedText(range);
 	return text ? { messageId, text } : null;
 }
 
@@ -71,7 +118,11 @@ export function ReplySelection({
 			setSnapshot({
 				...quote,
 				left: Math.max(8, Math.min(rect.left, window.innerWidth - 180)),
-				top: Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 48)),
+				// Above the selection like a native menu; below only when there is no room.
+				top:
+					rect.top >= 56
+						? rect.top - 48
+						: Math.min(rect.bottom + 8, window.innerHeight - 48),
 			});
 		};
 		const key = (event: KeyboardEvent) => {
@@ -111,7 +162,7 @@ export function ReplySelection({
 				<button
 					ref={button}
 					type="button"
-					className="fixed z-50 rounded-md border bg-popover px-3 py-2 text-sm shadow-md"
+					className="fixed z-50 inline-flex cursor-pointer items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg ring-2 ring-background hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
 					style={{ left: snapshot.left, top: snapshot.top }}
 					onPointerDown={(event) => {
 						if (event.pointerType !== "touch") event.preventDefault();
@@ -129,6 +180,7 @@ export function ReplySelection({
 						window.getSelection()?.removeAllRanges();
 					}}
 				>
+					<Reply className="size-4" aria-hidden />
 					Reply to selection
 				</button>
 			)}

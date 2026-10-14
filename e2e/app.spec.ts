@@ -403,7 +403,11 @@ test.describe("reply to an assistant selection", () => {
 					sourceId,
 					conversationId,
 					JSON.stringify([
-						{ type: "text", text: "A **particular claim** worth discussing." },
+						{
+							// The citation renders as a pill button; selections across it must still work.
+							type: "text",
+							text: 'A **particular claim** [[cite locator="x:v1:0.0" quote="claim"]] worth discussing.',
+						},
 					]),
 				],
 			);
