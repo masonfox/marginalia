@@ -20,6 +20,7 @@ export {
 	getOutline,
 	LIMITS,
 	readPassage,
+	readSection,
 	searchBooks,
 	type ToolDeps,
 } from "./tools";

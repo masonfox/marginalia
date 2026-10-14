@@ -14,6 +14,16 @@ export const LIMITS = {
 	context: 5,
 	outlineEntries: 150,
 	resultChars: 8000,
+	/**
+	 * readSection's budget per call. 16k chars is ~4k tokens: a typical
+	 * 3-5k-word chapter (~18-30k chars) reads in two calls, a long one in
+	 * three. Every tool result is re-sent on each later step, so three reads
+	 * add ~12k input tokens per step — far cheaper than paging with
+	 * readPassage, which spends a whole step per ~11 passages.
+	 */
+	sectionChars: 16000,
+	/** Rows fetched per readSection call; enough that the char budget, not this, usually binds. */
+	sectionPassages: 300,
 } as const;
 
 export interface ToolDeps {
@@ -148,6 +158,87 @@ export async function readPassage(
 }
 
 /**
+ * Reads forward through a section from `locator`, packing consecutive
+ * passages up to `LIMITS.sectionChars`. Stops at the budget, the section's
+ * end, or the book's reading-scope bound; `next` resumes where it stopped.
+ */
+export async function readSection(deps: ToolDeps, args: { locator: string }) {
+	const result = await deps.retrieval.readForward(args.locator, {
+		limit: LIMITS.sectionPassages,
+	});
+	if (result.status === "not_found") {
+		return { status: "not_found" as const, locator: result.requestedLocator };
+	}
+	const book = deps.books.find((b) => b.editionId === result.edition.id);
+	if (!book) {
+		return {
+			status: "not_in_conversation" as const,
+			locator: result.requestedLocator,
+		};
+	}
+	if (result.status === "removed") {
+		return { status: "removed" as const, locator: result.requestedLocator };
+	}
+	const bound = book.maxPosition;
+	const visible = (p: { revealPosition: number }) =>
+		bound === null || p.revealPosition <= bound;
+	if (!visible(result.passage)) {
+		return {
+			status: "not_found" as const,
+			locator: result.requestedLocator,
+		};
+	}
+	const shape = (p: (typeof result)["passage"]) => ({
+		locator: p.locator,
+		kind: p.kind,
+		text: clip(p.text, LIMITS.passageChars),
+	});
+
+	const kept: ReturnType<typeof shape>[] = [];
+	let size = 0;
+	let next: string | null = null;
+	let reachedScope = false;
+	for (const p of [result.passage, ...result.following]) {
+		if (!visible(p)) {
+			reachedScope = true;
+			break;
+		}
+		const item = shape(p);
+		const length = JSON.stringify(item).length;
+		if (kept.length > 0 && size + length > LIMITS.sectionChars) {
+			next = p.locator;
+			break;
+		}
+		kept.push(item);
+		size += length;
+	}
+	if (!reachedScope && next === null && result.continuation) {
+		if (visible(result.continuation)) next = result.continuation.locator;
+		else reachedScope = true;
+	}
+	const endOfSection = !reachedScope && next === null;
+	let nextSection: string | null = null;
+	if (endOfSection && result.nextSection) {
+		if (visible(result.nextSection)) nextSection = result.nextSection.locator;
+		else reachedScope = true;
+	}
+	return {
+		status: "ok" as const,
+		superseded: result.superseded,
+		book: bookHandle(book),
+		bookTitle: result.edition.title,
+		section: result.section.title,
+		path: result.tocPath,
+		passages: kept,
+		truncated: next !== null,
+		next,
+		endOfSection,
+		...(endOfSection && { nextSection }),
+		...(reachedScope && { continuesBeyondScope: true }),
+	};
+}
+
+/**
  * The TOC entries revealed at or before `bound`. An entry beyond it is
  * dropped with its children; an entry without a passage stays only if a
  * visible descendant or later sibling remains.
@@ -229,6 +320,12 @@ export function createConversationTools(deps: ToolDeps) {
 				context: z.number().int().min(0).max(LIMITS.context).optional(),
 			}),
 			execute: (args) => readPassage(deps, args),
+		}),
+		readSection: tool({
+			description:
+				"Read through a scene or chapter: consecutive passages of one section, starting at any locator (such as a section start from getOutline), up to a large size budget, each with its own citable locator. When truncated, call again with `next` to continue exactly where it stopped. At the section's end, `nextSection` gives the next section's start. Use this to read a stretch of text; use readPassage to check a single passage before quoting it.",
+			inputSchema: z.object({ locator: z.string().min(1).max(200) }),
+			execute: (args) => readSection(deps, args),
 		}),
 		getOutline: tool({
 			description:

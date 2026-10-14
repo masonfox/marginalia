@@ -56,6 +56,7 @@ describe("request prefix", () => {
 		expect(Object.keys(tools)).toEqual([
 			"searchBooks",
 			"readPassage",
+			"readSection",
 			"getOutline",
 		]);
 	});

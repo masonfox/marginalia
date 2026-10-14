@@ -584,6 +584,7 @@ describe("request prefix", () => {
 		expect(calls[0]?.tools?.map((t) => t.name)).toEqual([
 			"searchBooks",
 			"readPassage",
+			"readSection",
 			"getOutline",
 		]);
 

@@ -1,9 +1,11 @@
 // Search, citation resolution, and quote verification. Reads catalog tables; never writes.
 import type { Executor } from "#/server/db";
+import { type ReadForwardResult, readForward } from "./read";
 import { type ResolveResult, resolveLocator } from "./resolve";
 import { type SearchHit, type SearchInput, searchPassages } from "./search";
 import { type VerifyResult, verifyQuote } from "./verify";
 
+export type { ReadForwardResult } from "./read";
 export type {
 	ResolvedEdition,
 	ResolvedPassage,
@@ -29,6 +31,11 @@ export interface Retrieval {
 		locator: string,
 		options?: { context?: number },
 	): Promise<ResolveResult>;
+	/** Resolves a locator and reads up to `limit` following passages of its section. */
+	readForward(
+		locator: string,
+		options: { limit: number },
+	): Promise<ReadForwardResult>;
 	verifyQuote(locator: string, quote: string): Promise<VerifyResult>;
 }
 
@@ -36,6 +43,7 @@ export function createRetrieval(db: Executor): Retrieval {
 	return {
 		search: (input) => searchPassages(db, input),
 		resolve: (locator, options) => resolveLocator(db, locator, options),
+		readForward: (locator, options) => readForward(db, locator, options),
 		verifyQuote: (locator, quote) => verifyQuote(db, locator, quote),
 	};
 }

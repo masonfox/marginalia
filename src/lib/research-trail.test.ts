@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { describeStep, groupParts, summarizeTrail } from "./research-trail";
+import {
+	describeStep,
+	groupParts,
+	type StepKind,
+	summarizeTrail,
+} from "./research-trail";
 
 const done = (type: string, input: unknown, output: unknown) => ({
 	type,
@@ -148,6 +153,105 @@ describe("describeStep: readPassage", () => {
 	});
 });
 
+describe("describeStep: readSection", () => {
+	const ok = {
+		status: "ok",
+		superseded: false,
+		book: "b1",
+		bookTitle: "H",
+		section: "Chapter 1",
+		path: ["Part One", "Chapter 1"],
+		passages: [
+			{ locator: "a:v1:1.0", kind: "p", text: "One" },
+			{ locator: "a:v1:1.1", kind: "p", text: "Two" },
+			{ locator: "a:v1:1.2", kind: "p", text: "Three" },
+		],
+		truncated: true,
+		next: "a:v1:1.3",
+		endOfSection: false,
+	};
+
+	it("is a read step labelled with the path, listing every passage", () => {
+		const s = describeStep(
+			done("tool-readSection", { locator: "a:v1:1.0" }, ok),
+		);
+		expect(s).toMatchObject({
+			kind: "read",
+			status: "ok",
+			label: "Part One › Chapter 1",
+			detail: "3 passages",
+		});
+		expect(s.passages.map((p) => p.locator)).toEqual([
+			"a:v1:1.0",
+			"a:v1:1.1",
+			"a:v1:1.2",
+		]);
+		expect(s.passages[1]).toEqual({
+			locator: "a:v1:1.1",
+			text: "Two",
+			section: "Chapter 1",
+			bookTitle: "H",
+		});
+	});
+
+	it("falls back to section, then locator", () => {
+		const base = { status: "ok", passages: [{ locator: "l", text: "t" }] };
+		expect(
+			describeStep(
+				done(
+					"tool-readSection",
+					{ locator: "l" },
+					{ ...base, section: "Sec", path: [] },
+				),
+			).label,
+		).toBe("Sec");
+		expect(
+			describeStep(
+				done("tool-readSection", { locator: "l" }, { ...base, path: [] }),
+			).label,
+		).toBe("l");
+	});
+
+	it.each([
+		"not_found",
+		"removed",
+		"not_in_conversation",
+	])("%s is unavailable", (status) => {
+		const s = describeStep(
+			done("tool-readSection", { locator: "l" }, { status, locator: "l" }),
+		);
+		expect(s).toMatchObject({ kind: "read", status: "unavailable" });
+		expect(s.passages).toEqual([]);
+	});
+
+	it("reports in-progress as reading a section", () => {
+		expect(
+			describeStep({
+				type: "tool-readSection",
+				state: "input-available",
+				input: { locator: "l" },
+			}),
+		).toMatchObject({
+			kind: "read",
+			status: "running",
+			label: "Reading section…",
+		});
+	});
+
+	it("skips malformed passages", () => {
+		const s = describeStep(
+			done(
+				"tool-readSection",
+				{ locator: "l" },
+				{ status: "ok", passages: [null, 1, {}, { locator: "x", text: 2 }] },
+			),
+		);
+		expect(s.passages).toEqual([
+			{ locator: "x", text: "", section: undefined, bookTitle: undefined },
+		]);
+	});
+});
+
 describe("describeStep: other cases", () => {
 	it("describes outline", () => {
 		const s = describeStep(
@@ -202,6 +306,7 @@ describe("describeStep: other cases", () => {
 			for (const type of [
 				"tool-searchBooks",
 				"tool-readPassage",
+				"tool-readSection",
 				"tool-getOutline",
 			]) {
 				expect(() => describeStep(done(type, null, output))).not.toThrow();
@@ -232,18 +337,29 @@ describe("groupParts / summarizeTrail", () => {
 		).toHaveLength(1);
 	});
 
+	const step = (kind: StepKind, passages = 0) => ({
+		kind,
+		passages: Array.from({ length: passages }, (_, i) => ({
+			locator: `l${i}`,
+			text: "",
+		})),
+	});
+
 	it("summarizes with pluralization and zero counts", () => {
 		expect(
-			summarizeTrail([
-				{ kind: "search" },
-				{ kind: "search" },
-				{ kind: "read" },
-			]),
+			summarizeTrail([step("search", 3), step("search"), step("read", 1)]),
 		).toBe("Researched · 2 searches · 1 passage read");
-		expect(summarizeTrail([{ kind: "read" }, { kind: "read" }])).toBe(
+		expect(summarizeTrail([step("read", 1), step("read", 1)])).toBe(
 			"Researched · 2 passages read",
 		);
-		expect(summarizeTrail([{ kind: "search" }])).toBe("Researched · 1 search");
-		expect(summarizeTrail([{ kind: "outline" }])).toBe("Researched");
+		expect(summarizeTrail([step("search")])).toBe("Researched · 1 search");
+		expect(summarizeTrail([step("outline")])).toBe("Researched");
+	});
+
+	it("counts every passage a section read returned, not just the step", () => {
+		expect(summarizeTrail([step("read", 1), step("read", 24)])).toBe(
+			"Researched · 25 passages read",
+		);
+		expect(summarizeTrail([step("read", 0)])).toBe("Researched");
 	});
 });
