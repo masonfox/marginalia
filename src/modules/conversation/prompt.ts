@@ -1,7 +1,34 @@
 import { bookHandle } from "./tools";
 
 /** Bump when the prompt changes; stored on each assistant message. */
-export const PROMPT_VERSION = "4";
+export const PROMPT_VERSION = "5";
+
+/** Includes labels and the truncation notice, per book. */
+export const BOOK_MAP_CHARS = 12000;
+
+export interface PromptSummary {
+	unitOrdinal: number;
+	unitLabel: string;
+	summary: string;
+}
+
+/** Shorten oldest units to their first sentence, then drop oldest units. */
+function renderBookMap(summaries: PromptSummary[]): string {
+	const rows = [...summaries]
+		.sort((a, b) => a.unitOrdinal - b.unitOrdinal)
+		.map((s) => ({ label: s.unitLabel, text: s.summary }));
+	const notice =
+		"[Map capped: oldest summaries shortened to their first sentence, then oldest units omitted.]";
+	const render = () => rows.map((s) => `- ${s.label}: ${s.text}`).join("\n");
+	if (render().length <= BOOK_MAP_CHARS) return render();
+	const budget = BOOK_MAP_CHARS - notice.length - 1;
+	for (const row of rows) {
+		row.text = row.text.match(/^.*?[.!?](?:\s|$)/s)?.[0].trim() ?? row.text;
+		if (render().length <= budget) break;
+	}
+	while (rows.length > 0 && render().length > budget) rows.shift();
+	return `${notice}\n${render()}`;
+}
 
 export interface PromptBook {
 	ordinal: number;
@@ -37,12 +64,14 @@ function spoilerRules(books: PromptBook[]): string {
 export interface PromptOptions {
 	/** Model calls allowed per reply; the last one cannot use tools. */
 	maxSteps: number;
+	/** Already filtered by each book's reading bound; keys are book handles. */
+	bookMaps?: Readonly<Record<string, readonly PromptSummary[]>>;
 }
 
 /** The system prompt: grounding, tool budget, evidence versus interpretation, stance, citation format, and spoiler rules. */
 export function buildSystemPrompt(
 	books: PromptBook[],
-	{ maxSteps }: PromptOptions,
+	{ maxSteps, bookMaps }: PromptOptions,
 ): string {
 	const list = books
 		.map((b) => {
@@ -55,10 +84,19 @@ export function buildSystemPrompt(
 		})
 		.join("\n");
 	const one = books.length === 1;
+	const maps = books.flatMap((b) => {
+		const summaries = bookMaps?.[bookHandle(b)];
+		return summaries?.length
+			? [`## ${bookHandle(b)}\n${renderBookMap([...summaries])}`]
+			: [];
+	});
+	const guide = maps.length
+		? `\n\n# Book maps (guide, not evidence)\nThese derived summaries may be incomplete or wrong. They are not citable text of the book. Use them and lookupObservations to navigate, then search or read the supporting passages before making claims or citing them. Unverified derived citations are not verified evidence.\n\n${maps.join("\n\n")}`
+		: "";
 
 	return `You are a literary discussion partner. You and the reader are talking about ${one ? "a book" : "these books"} that ${one ? "is" : "are"} in the reader's library:
 
-${list}
+${list}${guide}
 
 You can read ${one ? "it" : "them"} only through your tools (searchBooks, readPassage, readSection, getOutline). Use them; do not rely on memory of the book.
 
@@ -66,6 +104,7 @@ You can read ${one ? "it" : "them"} only through your tools (searchBooks, readPa
 - Retrieve before you claim. Before saying what the text says, search for and read the relevant passages. Claims about the text must rest on passages you retrieved in this conversation, not on memory of the book or outside commentary.
 - If you searched and could not find support, say so plainly ("I could not find this in the text") instead of asserting it.
 - General literary knowledge (genre, history, criticism) is allowed, but label it as outside knowledge, not as something the text says.
+- Derived summaries and observations are a guide, not evidence; they may be incomplete or wrong. Never cite them as text of the book. Search or read the supporting passages and cite those passages instead, even when a derived citation is marked verified.
 
 # Tool budget
 - You have ${maxSteps} turns per reply; tools are available on all but the last. Read only what you need to ground the answer.

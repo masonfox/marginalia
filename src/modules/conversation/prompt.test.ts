@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSystemPrompt, PROMPT_VERSION } from "./prompt";
+import { BOOK_MAP_CHARS, buildSystemPrompt, PROMPT_VERSION } from "./prompt";
 
 const opts = { maxSteps: 8 };
 
@@ -130,6 +130,69 @@ describe("scope in the system prompt", () => {
 	});
 
 	it("changed the prompt version", () => {
-		expect(PROMPT_VERSION).toBe("4");
+		expect(PROMPT_VERSION).toBe("5");
+	});
+});
+
+describe("book maps", () => {
+	const books = [
+		{ ordinal: 0, title: "One", authors: [], scopeLabel: "Chapter 2" },
+	];
+	const summary = (unitOrdinal: number, text: string) => ({
+		unitOrdinal,
+		unitLabel: `Chapter ${unitOrdinal + 1}`,
+		summary: text,
+	});
+	it("renders only the supplied bounded map and ignores non-conversation maps", () => {
+		const prompt = buildSystemPrompt(books, {
+			...opts,
+			bookMaps: {
+				b1: [
+					summary(0, "The lantern appears."),
+					summary(1, "The lantern disappears."),
+				],
+				b9: [summary(2, "A later secret.")],
+			},
+		});
+		expect(prompt).toContain("Chapter 1: The lantern appears.");
+		expect(prompt).toContain("Chapter 2: The lantern disappears.");
+		expect(prompt).not.toContain("A later secret");
+		expect(prompt).toContain("guide, not evidence");
+		expect(prompt).toContain("not citable text of the book");
+		expect(prompt).toContain("search or read the supporting passages");
+	});
+	it("omits the map for books with no current summaries", () => {
+		expect(buildSystemPrompt(books, { ...opts, bookMaps: { b1: [] } })).toBe(
+			buildSystemPrompt(books, opts),
+		);
+	});
+	it("shortens oldest summaries first and states the deterministic rule", () => {
+		const prompt = buildSystemPrompt(books, {
+			...opts,
+			bookMaps: {
+				b1: [
+					summary(0, `First sentence. ${"x".repeat(BOOK_MAP_CHARS)}`),
+					summary(1, "Newest sentence. Keep this detail."),
+				],
+			},
+		});
+		expect(prompt).toContain("Chapter 1: First sentence.");
+		expect(prompt).not.toContain("x".repeat(100));
+		expect(prompt).toContain("Newest sentence. Keep this detail.");
+		expect(prompt).toContain(
+			"oldest summaries shortened to their first sentence",
+		);
+	});
+	it("drops oldest units when first sentences still exceed the budget", () => {
+		const prompt = buildSystemPrompt(books, {
+			...opts,
+			bookMaps: {
+				b1: [summary(0, "x".repeat(BOOK_MAP_CHARS)), summary(1, "Newest.")],
+			},
+		});
+		expect(prompt).not.toContain("Chapter 1:");
+		expect(prompt).toContain("Chapter 2: Newest.");
+		const map = prompt.split("## b1\n")[1]?.split("\n\nYou can read")[0] ?? "";
+		expect(map.length).toBeLessThanOrEqual(BOOK_MAP_CHARS);
 	});
 });

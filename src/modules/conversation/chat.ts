@@ -10,6 +10,7 @@ import {
 } from "ai";
 import { and, eq } from "drizzle-orm";
 import type { AiRuntime } from "#/modules/ai";
+import { getBookMap } from "#/modules/analysis";
 import { createRetrieval } from "#/modules/retrieval";
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
 import type { Database } from "#/server/db";
@@ -23,7 +24,7 @@ import {
 	setProvisionalTitle,
 } from "./repository";
 import { type CitationRecord, type Json, messages } from "./schema";
-import { createConversationTools } from "./tools";
+import { bookHandle, createConversationTools } from "./tools";
 import { verifyCitations } from "./verify";
 
 /** The UI message shape: text and tool parts plus a data part carrying verified citations. */
@@ -154,11 +155,21 @@ function generate(
 	const stream = createUIMessageStream<ChatUIMessage>({
 		onError: describeError,
 		execute: async ({ writer }) => {
+			// Load once per turn; stored summaries and scope alone determine the cached prefix.
+			const bookMaps = Object.fromEntries(
+				await Promise.all(
+					conversation.books.map(async (book) => [
+						bookHandle(book),
+						await getBookMap(db, book.editionId, book.maxPosition),
+					]),
+				),
+			);
 			const result = streamText({
 				// `model` is non-null: startChat checked.
 				model: ai.model as NonNullable<AiRuntime["model"]>,
 				system: buildSystemPrompt(conversation.books, {
 					maxSteps: ai.maxSteps,
+					bookMaps,
 				}),
 				messages: await convertToModelMessages(history.map(toUIMessage), {
 					tools,

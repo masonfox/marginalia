@@ -1,5 +1,10 @@
 import { tool } from "ai";
 import { z } from "zod";
+import {
+	getBookMap,
+	hasCurrentPreprocessing,
+	lookupObservations as queryObservations,
+} from "#/modules/analysis";
 import { getToc, type TocNode } from "#/modules/catalog";
 import type { Retrieval } from "#/modules/retrieval";
 import type { Executor } from "#/server/db";
@@ -14,6 +19,9 @@ export const LIMITS = {
 	context: 5,
 	outlineEntries: 150,
 	resultChars: 8000,
+	observations: 20,
+	observationChars: 1000,
+	observationCitations: 5,
 	/**
 	 * readSection's budget per call. 16k chars is ~4k tokens: a typical
 	 * 3-5k-word chapter (~18-30k chars) reads in two calls, a long one in
@@ -259,6 +267,83 @@ function boundedToc(nodes: TocNode[], bound: number | null): TocNode[] {
 	return kept;
 }
 
+export async function lookupObservations(
+	deps: ToolDeps,
+	args: { book: string; name: string; limit?: number },
+) {
+	const selected = selectBooks(deps, args.book);
+	if (selected.error) return selected.error;
+	const book = selected.books[0];
+	if (!book) return { status: "unknown_book" as const };
+	if (!(await hasCurrentPreprocessing(deps.db, book.editionId))) {
+		return {
+			status: "unavailable" as const,
+			message:
+				"Observations are unavailable: this book has no current preprocessing. Search the text instead.",
+		};
+	}
+	const limit = Math.max(
+		1,
+		Math.min(args.limit ?? LIMITS.observations, LIMITS.observations),
+	);
+	const [observations, map] = await Promise.all([
+		queryObservations(
+			deps.db,
+			book.editionId,
+			args.name,
+			book.maxPosition,
+			limit + 1,
+		),
+		getBookMap(deps.db, book.editionId, book.maxPosition),
+	]);
+	const labels = new Map(map.map((s) => [s.unitOrdinal, s.unitLabel]));
+	const results = observations.slice(0, limit).map((o) => ({
+		unitLabel: clip(
+			labels.get(o.unitOrdinal) ?? `Unit ${o.unitOrdinal + 1}`,
+			LIMITS.observationChars,
+		),
+		name: clip(o.name, LIMITS.observationChars),
+		kind: o.kind,
+		note: clip(o.note, LIMITS.observationChars),
+		// Keep exact citation text and its verification state together; drop oversized citations.
+		citations: o.citations
+			.filter(
+				(c) =>
+					c.locator.length <= 200 && c.quote.length <= LIMITS.observationChars,
+			)
+			.slice(0, LIMITS.observationCitations),
+	}));
+	if (observations.length === 0)
+		return {
+			status: "not_found" as const,
+			message:
+				"No observations found within the reading scope. Search the text instead.",
+		};
+	const capped = capItems(results);
+	return {
+		status: "ok" as const,
+		book: bookHandle(book),
+		message:
+			"Derived observations are a guide, not evidence, and may be incomplete or wrong. Read the cited passages before making claims; unverified citations need checking.",
+		count: capped.items.length,
+		truncated:
+			capped.truncated ||
+			observations.length > limit ||
+			observations.some(
+				(o) =>
+					o.citations.length > LIMITS.observationCitations ||
+					o.note.length > LIMITS.observationChars ||
+					o.name.length > LIMITS.observationChars ||
+					o.citations.some(
+						(c) =>
+							c.quote.length > LIMITS.observationChars ||
+							c.locator.length > 200,
+					),
+			),
+		results: capped.items,
+	};
+}
+
 export async function getOutline(deps: ToolDeps, args: { book?: string }) {
 	const selected = selectBooks(deps, args.book);
 	if (selected.error) return selected.error;
@@ -332,6 +417,16 @@ export function createConversationTools(deps: ToolDeps) {
 				"The table of contents of a book (section titles with the locator of their first passage), for navigating its structure. For a book the reader has not finished, lists only the part they have read.",
 			inputSchema: z.object({ book: bookArg }),
 			execute: (args) => getOutline(deps, args),
+		}),
+		lookupObservations: tool({
+			description:
+				"Look up derived observations about a character, place, object, or motif by name in one conversation book, within its reading scope. These are guidance, not citable evidence: read supporting passages before making claims.",
+			inputSchema: z.object({
+				book: z.string().min(1).max(20).describe("Book handle such as b1."),
+				name: z.string().trim().min(1).max(300),
+				limit: z.number().int().min(1).max(LIMITS.observations).optional(),
+			}),
+			execute: (args) => lookupObservations(deps, args),
 		}),
 	};
 }

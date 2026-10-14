@@ -34,10 +34,10 @@ Depends on: A (schema and write helpers), and the config contract from D1 (can s
 
 Depends on: A's query signatures (code against the contract; integrate-test after A merges). Independent of B and D.
 
-- [ ] 3.1 Extend `buildSystemPrompt` with per-book maps, the guide-not-evidence instruction, the size cap and deterministic shortening, and bump `PROMPT_VERSION` to 5
-- [ ] 3.2 Load maps in `chat.ts` at the start of each turn using each book's bound; omit for books without current preprocessing
-- [ ] 3.3 Add the `lookupObservations` tool appended last in the fixed tool order: book check, bound, caps, unavailable and not-found messages
-- [ ] 3.4 Tests: map limited by scope, identical prompt across turns, tool order stable, other-book rejection, no-preprocessing behavior
+- [x] 3.1 Extend `buildSystemPrompt` with per-book maps, the guide-not-evidence instruction, the size cap and deterministic shortening, and bump `PROMPT_VERSION` to 5
+- [x] 3.2 Load maps in `chat.ts` at the start of each turn using each book's bound; omit for books without current preprocessing
+- [x] 3.3 Add the `lookupObservations` tool appended last in the fixed tool order: book check, bound, caps, unavailable and not-found messages
+- [x] 3.4 Tests: map limited by scope, identical prompt across turns, tool order stable, other-book rejection, no-preprocessing behavior
 
 ## 4. Section D: UI, config, and docs (owner: `src/server/config.ts`, `config.test.ts`, `src/modules/ai/*`, `src/routes/**` book detail, `src/fns/*`, `src/components/*` for the new card, `compose.yaml`, `docs/deployment.md`, `README.md`)
 

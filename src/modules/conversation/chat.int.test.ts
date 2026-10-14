@@ -3,6 +3,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { asc, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { AiRuntime } from "#/modules/ai";
+import { saveUnitResult } from "#/modules/analysis";
 import {
 	aiUsage,
 	priceTable,
@@ -604,11 +605,13 @@ describe("request prefix", () => {
 			expect(tools(i)).toBe(tools(0));
 		}
 		expect(system(0)).toContain("Chat Book");
+		expect(system(0)).not.toContain("# Book maps");
 		expect(calls[0]?.tools?.map((t) => t.name)).toEqual([
 			"searchBooks",
 			"readPassage",
 			"readSection",
 			"getOutline",
+			"lookupObservations",
 		]);
 
 		// Turn 2 starts with exactly what turn 1's last step sent.
@@ -629,6 +632,118 @@ describe("scope during chat", () => {
 
 	const systemOf = (call: { prompt: { role: string; content: unknown }[] }) =>
 		call.prompt.find((m) => m.role === "system")?.content as string;
+
+	it("loads bounded maps each turn and persists bounded observation calls and results", async () => {
+		const edition = await ingestBook(
+			t.db,
+			await tempDataDir(),
+			await buildEpub({
+				title: "Mapped Book",
+				language: "en",
+				chapters: [
+					{
+						href: "one.xhtml",
+						title: "One",
+						body: "<p>A lantern appears.</p>",
+					},
+					{
+						href: "two.xhtml",
+						title: "Two",
+						body: "<p>A lantern vanishes.</p>",
+					},
+				],
+			}),
+			"mapped.epub",
+		);
+		for (const unitOrdinal of [0, 1]) {
+			await t.db.transaction((tx) =>
+				saveUnitResult(tx, edition.id, {
+					unitOrdinal,
+					unitLabel: unitOrdinal === 0 ? "One" : "Two",
+					endPosition: unitOrdinal + 1,
+					summary:
+						unitOrdinal === 0
+							? "The lantern appears."
+							: "The lantern vanishes.",
+					summaryCitations: [],
+					model: "mock",
+					observations: [
+						{
+							name: "Lantern",
+							kind: "object",
+							note: unitOrdinal === 0 ? "Appears." : "Vanishes.",
+							citations: [
+								{
+									locator: `${edition.shortId}:v1:${unitOrdinal}.0`,
+									quote: "A lantern",
+									verified: true,
+								},
+							],
+						},
+					],
+				}),
+			);
+		}
+		const { id } = await createConversation(t.db, {
+			editionIds: [edition.id],
+			scopes: { [edition.id]: { maxPosition: 1, scopeLabel: "One" } },
+		});
+		const observationCall = toolCall("observations", {
+			book: "b1",
+			name: "Lantern",
+		}).map((chunk) =>
+			chunk.type === "tool-call"
+				? { ...chunk, toolName: "lookupObservations" }
+				: chunk,
+		);
+		const model = scripted(
+			observationCall,
+			textReply("First."),
+			textReply("Second."),
+			textReply("Whole."),
+		);
+		await (await run(runtime(model), id, "Find the lantern")).text();
+		const stored = await saved(id, 2);
+		const part = (
+			stored.messages[1]?.parts as {
+				type: string;
+				input?: unknown;
+				output?: unknown;
+			}[]
+		).find((p) => p.type === "tool-lookupObservations");
+		expect(part).toMatchObject({
+			input: { book: "b1", name: "Lantern" },
+			output: {
+				status: "ok",
+				count: 1,
+				results: [
+					{
+						unitLabel: "One",
+						note: "Appears.",
+						citations: [{ verified: true }],
+					},
+				],
+			},
+		});
+		expect(JSON.stringify(part?.output)).not.toContain("Vanishes");
+		await (await run(runtime(model), id, "Again")).text();
+		await saved(id, 4);
+		const first = systemOf(model.doStreamCalls[0] as never);
+		expect(first).toContain("One: The lantern appears.");
+		expect(first).not.toContain("The lantern vanishes");
+		for (const call of model.doStreamCalls.slice(1))
+			expect(systemOf(call)).toBe(first);
+		await widenConversationScope(t.db, {
+			conversationId: id,
+			editionId: edition.id,
+			scope: { kind: "whole" },
+		});
+		await (await run(runtime(model), id, "Whole book now")).text();
+		await saved(id, 6);
+		expect(systemOf(model.doStreamCalls[3] as never)).toContain(
+			"Two: The lantern vanishes.",
+		);
+	});
 
 	it("states the scope in the system prompt, identically on every turn", async () => {
 		const id = await boundedConversation();
