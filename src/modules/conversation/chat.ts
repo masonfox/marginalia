@@ -157,12 +157,17 @@ function generate(
 			const result = streamText({
 				// `model` is non-null: startChat checked.
 				model: ai.model as NonNullable<AiRuntime["model"]>,
-				system: buildSystemPrompt(conversation.books),
+				system: buildSystemPrompt(conversation.books, {
+					maxSteps: ai.maxSteps,
+				}),
 				messages: await convertToModelMessages(history.map(toUIMessage), {
 					tools,
 				}),
 				tools,
 				stopWhen: stepCountIs(ai.maxSteps),
+				// The last step must answer. "none" keeps the tool definitions, so the cached prefix holds.
+				prepareStep: ({ stepNumber }) =>
+					stepNumber === ai.maxSteps - 1 ? { toolChoice: "none" } : undefined,
 				temperature: ai.temperature,
 				reasoning: ai.reasoning,
 				providerOptions: ai.providerOptions,

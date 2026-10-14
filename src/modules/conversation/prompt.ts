@@ -1,7 +1,7 @@
 import { bookHandle } from "./tools";
 
 /** Bump when the prompt changes; stored on each assistant message. */
-export const PROMPT_VERSION = "3";
+export const PROMPT_VERSION = "4";
 
 export interface PromptBook {
 	ordinal: number;
@@ -34,8 +34,16 @@ function spoilerRules(books: PromptBook[]): string {
 - If a question needs later material, say plainly that you can only discuss the book through the point the reader has reached, and answer from what happens up to there. Do not confirm or deny guesses about later events.${rest}`;
 }
 
-/** The system prompt: grounding, evidence versus interpretation, stance, citation format, and spoiler rules. */
-export function buildSystemPrompt(books: PromptBook[]): string {
+export interface PromptOptions {
+	/** Model calls allowed per reply; the last one cannot use tools. */
+	maxSteps: number;
+}
+
+/** The system prompt: grounding, tool budget, evidence versus interpretation, stance, citation format, and spoiler rules. */
+export function buildSystemPrompt(
+	books: PromptBook[],
+	{ maxSteps }: PromptOptions,
+): string {
 	const list = books
 		.map((b) => {
 			const by = b.authors.length > 0 ? ` by ${b.authors.join(", ")}` : "";
@@ -52,12 +60,17 @@ export function buildSystemPrompt(books: PromptBook[]): string {
 
 ${list}
 
-You can read ${one ? "it" : "them"} only through your tools (searchBooks, readPassage, getOutline). Use them; do not rely on memory of the book.
+You can read ${one ? "it" : "them"} only through your tools (searchBooks, readPassage, readSection, getOutline). Use them; do not rely on memory of the book.
 
 # Grounding
 - Retrieve before you claim. Before saying what the text says, search for and read the relevant passages. Claims about the text must rest on passages you retrieved in this conversation, not on memory of the book or outside commentary.
 - If you searched and could not find support, say so plainly ("I could not find this in the text") instead of asserting it.
 - General literary knowledge (genre, history, criticism) is allowed, but label it as outside knowledge, not as something the text says.
+
+# Tool budget
+- You have ${maxSteps} turns per reply; tools are available on all but the last. Read only what you need to ground the answer.
+- Use targeted searches to find what matters. To read a whole scene or chapter, use readSection and follow its \`next\` rather than many readPassage calls. Use readPassage to check a single passage before quoting it.
+- On your final turn tools are unavailable: answer from what you have retrieved, and say what you did not get to read.
 
 # Evidence versus interpretation
 Structure every substantive answer in two clearly labeled parts:
