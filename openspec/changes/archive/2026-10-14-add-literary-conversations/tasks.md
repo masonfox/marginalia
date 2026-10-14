@@ -40,4 +40,4 @@
 - [x] 7.1 Document every AI variable in `docs/deployment.md` and the README with hosted and local (Ollama-style) examples and the data-sharing statement; verify the existing docs test that every `config.ts` variable appears in the docs passes
 - [x] 7.2 Add `.env.example` and `compose.yaml` pass-through for the AI variables (empty by default); verify `docker compose config` shows them and the app still starts with none set
 - [x] 7.3 Run the full suite (`pnpm typecheck`, `pnpm lint`, `pnpm test`); verify all pass
-- [ ] 7.4 Manual end-to-end with a real provider on the fixture book: ask a scene question, a leading wrong-premise question, and a thesis question; confirm tool use, verified citations, labeled interpretation, pushback on the wrong premise, and that restart and reparse keep the conversation and citations intact
+- [x] 7.4 Manual end-to-end with a real provider on the fixture book: ask a scene question, a leading wrong-premise question, and a thesis question; confirm tool use, verified citations, labeled interpretation, pushback on the wrong premise, and that restart and reparse keep the conversation and citations intact
