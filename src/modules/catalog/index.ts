@@ -13,8 +13,16 @@ export {
 } from "./matching";
 export {
 	type EditionKey,
+	type Rebase,
+	type ReplacedHook,
 	type ReplaceOptions,
 	replaceEditionStructure,
 } from "./persist";
+export {
+	deriveReadingUnits,
+	getReadingUnits,
+	isMatterLabel,
+	type ReadingUnit,
+} from "./reading-units";
 export * from "./schema";
 export { FALLBACK_SEARCH_CONFIG, resolveSearchConfig } from "./search-config";

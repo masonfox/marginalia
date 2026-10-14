@@ -1,4 +1,16 @@
-import { and, asc, desc, eq, notExists, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	inArray,
+	isNotNull,
+	lt,
+	notExists,
+	type SQL,
+	sql,
+} from "drizzle-orm";
+import { getReadingUnits } from "#/modules/catalog";
 import { editions } from "#/modules/library";
 import type { Database, Executor } from "#/server/db";
 import {
@@ -17,9 +29,17 @@ export interface ConversationBook {
 	title: string;
 	authors: string[];
 	ordinal: number;
-	/** Spoiler bound for this book; null means unbounded. */
+	/** Spoiler bound for this book; null means whole book. */
 	maxPosition: number | null;
+	/** The reading unit the reader has read through; null exactly when `maxPosition` is. */
+	scopeLabel: string | null;
 }
+
+/** How far the reader has read in a book: a reading unit, by its end position, or the whole book. */
+export type Scope = { kind: "whole" } | { kind: "unit"; endPosition: number };
+
+/** A stored bound: null for whole book. */
+export type ResolvedScope = { maxPosition: number; scopeLabel: string } | null;
 
 export interface ConversationSummary {
 	id: string;
@@ -27,6 +47,8 @@ export interface ConversationSummary {
 	createdAt: Date;
 	updatedAt: Date;
 	messageCount: number;
+	/** Scope of the listed book in this conversation; null means whole book. */
+	scopeLabel: string | null;
 }
 
 export interface StoredMessage {
@@ -51,29 +73,47 @@ export interface ConversationDetail {
 	messages: StoredMessage[];
 }
 
-/** Creates a conversation scoped to one or more existing editions, in the given order. */
+/**
+ * Creates a conversation scoped to one or more existing editions, in the
+ * given order. `scopes` holds already resolved bounds by edition id; books
+ * without one are whole book.
+ */
 export async function createConversation(
 	db: Database,
-	input: { editionIds: string[]; title?: string },
+	input: NewConversation,
+): Promise<{ id: string }> {
+	return db.transaction((tx) => insertConversation(tx, input));
+}
+
+interface NewConversation {
+	editionIds: string[];
+	title?: string;
+	scopes?: Record<string, ResolvedScope>;
+}
+
+/** createConversation's writes; the caller provides the transaction. */
+async function insertConversation(
+	tx: Executor,
+	input: NewConversation,
 ): Promise<{ id: string }> {
 	const ids = [...new Set(input.editionIds)];
 	if (ids.length === 0)
 		throw new Error("a conversation needs at least one book");
-	return db.transaction(async (tx) => {
-		const [row] = await tx
-			.insert(conversations)
-			.values({ title: input.title?.trim() || DEFAULT_TITLE })
-			.returning({ id: conversations.id });
-		if (!row) throw new Error("could not create conversation");
-		await tx.insert(conversationEditions).values(
-			ids.map((editionId, ordinal) => ({
-				conversationId: row.id,
-				editionId,
-				ordinal,
-			})),
-		);
-		return row;
-	});
+	const [row] = await tx
+		.insert(conversations)
+		.values({ title: input.title?.trim() || DEFAULT_TITLE })
+		.returning({ id: conversations.id });
+	if (!row) throw new Error("could not create conversation");
+	await tx.insert(conversationEditions).values(
+		ids.map((editionId, ordinal) => ({
+			conversationId: row.id,
+			editionId,
+			ordinal,
+			maxPosition: input.scopes?.[editionId]?.maxPosition ?? null,
+			scopeLabel: input.scopes?.[editionId]?.scopeLabel ?? null,
+		})),
+	);
+	return row;
 }
 
 /** Conversations that include the edition, most recently active first. */
@@ -89,6 +129,7 @@ export async function listConversationsForEdition(
 			createdAt: conversations.createdAt,
 			updatedAt: conversations.updatedAt,
 			messageCount: count,
+			scopeLabel: conversationEditions.scopeLabel,
 		})
 		.from(conversations)
 		.innerJoin(
@@ -112,6 +153,7 @@ export async function getConversationBooks(
 			authors: editions.authors,
 			ordinal: conversationEditions.ordinal,
 			maxPosition: conversationEditions.maxPosition,
+			scopeLabel: conversationEditions.scopeLabel,
 		})
 		.from(conversationEditions)
 		.innerJoin(editions, eq(editions.id, conversationEditions.editionId))
@@ -284,15 +326,133 @@ export async function appendMessage(
 	});
 }
 
-/** Starts a conversation about one ready book. Returns null when the book does not exist or is not ready. */
+/**
+ * Resolves a scope against the edition's current reading units. Returns
+ * undefined when a unit scope matches no current unit's end, meaning the
+ * units changed since the reader chose. The label always comes from the
+ * server-side unit.
+ */
+export async function resolveScope(
+	db: Executor,
+	editionId: string,
+	scope: Scope,
+): Promise<ResolvedScope | undefined> {
+	if (scope.kind === "whole") return null;
+	const units = await getReadingUnits(db, editionId);
+	const unit = units.find((u) => u.endPosition === scope.endPosition);
+	return unit
+		? { maxPosition: unit.endPosition, scopeLabel: unit.label }
+		: undefined;
+}
+
+/**
+ * Starts a conversation about one ready book with the reader's chosen scope.
+ * Returns null when the book does not exist or is not ready, and
+ * `stale_scope` when the chosen unit is no longer one of the book's units.
+ */
 export async function createConversationForEdition(
 	db: Database,
 	editionId: string,
-): Promise<{ id: string } | null> {
-	const [edition] = await db
-		.select({ id: editions.id, status: editions.status })
-		.from(editions)
-		.where(eq(editions.id, editionId));
-	if (!edition || edition.status !== "ready") return null;
-	return createConversation(db, { editionIds: [editionId] });
+	scope: Scope,
+): Promise<{ id: string } | { error: "stale_scope" } | null> {
+	return db.transaction(async (tx) => {
+		// Conflicts with the lock replaceEditionStructure takes, so units cannot change before the insert.
+		const [edition] = await tx
+			.select({ id: editions.id, status: editions.status })
+			.from(editions)
+			.where(eq(editions.id, editionId))
+			.for("share");
+		if (!edition || edition.status !== "ready") return null;
+		const resolved = await resolveScope(tx, editionId, scope);
+		if (resolved === undefined) return { error: "stale_scope" as const };
+		return insertConversation(tx, {
+			editionIds: [editionId],
+			scopes: { [editionId]: resolved },
+		});
+	});
+}
+
+export type WidenResult =
+	| { widened: true }
+	| { widened: false; reason: "not_found" | "stale_scope" | "not_wider" };
+
+/**
+ * Moves a book's bound later, or removes it for whole book. Never narrows:
+ * the condition is part of the UPDATE, so concurrent widens cannot move a
+ * bound backwards. An equal or earlier unit, or any change to a whole-book
+ * scope, leaves the scope untouched.
+ */
+export async function widenConversationScope(
+	db: Executor,
+	input: { conversationId: string; editionId: string; scope: Scope },
+): Promise<WidenResult> {
+	const resolved = await resolveScope(db, input.editionId, input.scope);
+	if (resolved === undefined) return { widened: false, reason: "stale_scope" };
+	const row = and(
+		eq(conversationEditions.conversationId, input.conversationId),
+		eq(conversationEditions.editionId, input.editionId),
+	) as SQL;
+	const rows = await db
+		.update(conversationEditions)
+		.set(resolved ?? { maxPosition: null, scopeLabel: null })
+		.where(
+			and(
+				row,
+				isNotNull(conversationEditions.maxPosition),
+				resolved
+					? lt(conversationEditions.maxPosition, resolved.maxPosition)
+					: undefined,
+			),
+		)
+		.returning({ editionId: conversationEditions.editionId });
+	if (rows.length > 0) return { widened: true };
+	const [exists] = await db
+		.select({ one: sql`1` })
+		.from(conversationEditions)
+		.where(row);
+	return { widened: false, reason: exists ? "not_wider" : "not_found" };
+}
+
+/**
+ * Re-anchors every bound on an edition after a reparse (design D5). Runs
+ * inside the reparse's transaction; labels are kept.
+ */
+export async function rebaseScopes(
+	tx: Executor,
+	editionId: string,
+	rebase: (oldBound: number) => number,
+): Promise<void> {
+	const rows = await tx
+		.selectDistinct({ maxPosition: conversationEditions.maxPosition })
+		.from(conversationEditions)
+		.where(
+			and(
+				eq(conversationEditions.editionId, editionId),
+				isNotNull(conversationEditions.maxPosition),
+			),
+		);
+	const moves = rows
+		.map((r) => r.maxPosition as number)
+		.map((old) => ({ old, next: rebase(old) }))
+		.filter((m) => m.next !== m.old);
+	if (moves.length === 0) return;
+	// One statement, so a new bound equal to another old bound is not moved twice.
+	const cases = sql.join(
+		moves.map((m) => sql`when ${m.old}::int then ${m.next}::int`),
+		sql` `,
+	);
+	await tx
+		.update(conversationEditions)
+		.set({
+			maxPosition: sql`case ${conversationEditions.maxPosition} ${cases} end`,
+		})
+		.where(
+			and(
+				eq(conversationEditions.editionId, editionId),
+				inArray(
+					conversationEditions.maxPosition,
+					moves.map((m) => m.old),
+				),
+			),
+		);
 }

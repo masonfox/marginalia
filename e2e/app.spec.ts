@@ -304,3 +304,77 @@ test.describe("reading", () => {
 		await expect(page).toHaveURL(`/books/${id}`);
 	});
 });
+
+test.describe("reading scope", () => {
+	test.beforeEach(async ({ page }) => login(page));
+
+	const conversationCount = async (editionId: string) =>
+		(
+			await one<{ n: number }>(
+				"select count(*)::int as n from conversation_editions where edition_id = $1",
+				[editionId],
+			)
+		).n;
+
+	test("cancelling the scope choice creates nothing", async ({ page }) => {
+		const { id } = await manifesto();
+		const before = await conversationCount(id);
+		await page.goto(`/books/${id}`);
+		await page.getByRole("button", { name: "Start conversation" }).click();
+		const dialog = page.getByTestId("new-conversation-dialog");
+		await expect(dialog.getByRole("radio").first()).toBeVisible();
+		await expect(dialog.getByRole("radio", { checked: true })).toHaveCount(0);
+		await expect(dialog.getByRole("button", { name: "Start" })).toBeDisabled();
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(dialog).toBeHidden();
+		await expect(page).toHaveURL(`/books/${id}`);
+		expect(await conversationCount(id)).toBe(before);
+	});
+
+	test("starts a conversation through a chapter and widens it", async ({
+		page,
+	}) => {
+		const { id } = await manifesto();
+		const scope =
+			"Through The Communist Manifesto › II: Proletarians and Communists";
+		await page.goto(`/books/${id}`);
+		await page.getByRole("button", { name: "Start conversation" }).click();
+		const dialog = page.getByTestId("new-conversation-dialog");
+		await dialog
+			.getByRole("radio", { name: "II: Proletarians and Communists" })
+			.check();
+		await expect(dialog.getByTestId("scope-note")).toBeVisible();
+		await expect(dialog.getByTestId("spoiler-notice")).toHaveCount(0);
+		await dialog.getByRole("button", { name: "Start" }).click();
+
+		await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/);
+		const conversationId = page.url().split("/c/")[1] as string;
+		await expect(page.getByTestId("scope-chip")).toHaveText(scope);
+		await expect(page.getByTestId("scope-note")).toBeVisible();
+		await expect(page.getByTestId("spoiler-notice")).toHaveCount(0);
+
+		await page.getByRole("link", { name: "← Conversations" }).click();
+		const entry = page
+			.getByRole("listitem")
+			.filter({ has: page.locator(`a[href="/c/${conversationId}"]`) });
+		await expect(entry.getByTestId("conversation-scope")).toHaveText(scope);
+
+		await entry.locator(`a[href="/c/${conversationId}"]`).click();
+		await page.getByRole("button", { name: /^Widen scope/ }).click();
+		const widen = page.getByTestId("widen-scope-dialog");
+		await expect(
+			widen.getByRole("radio", { name: "I: Bourgeois and Proletarians" }),
+		).toHaveCount(0);
+		await expect(
+			widen.getByRole("radio", { name: "II: Proletarians and Communists" }),
+		).toHaveCount(0);
+		await widen.getByRole("radio", { name: "Whole book" }).check();
+		await widen.getByRole("button", { name: "Widen" }).click();
+		await expect(widen).toBeHidden();
+		await expect(page.getByTestId("scope-chip")).toHaveText("Whole book");
+		await expect(page.getByTestId("spoiler-notice")).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: /^Widen scope/ }),
+		).toHaveCount(0);
+	});
+});

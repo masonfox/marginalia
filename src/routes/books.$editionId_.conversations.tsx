@@ -4,20 +4,15 @@ import {
 	notFound,
 	useRouter,
 } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
-import { MessageSquarePlus, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { MessageSquarePlus } from "lucide-react";
 import { z } from "zod";
 import {
 	DeleteConversation,
 	RenameConversation,
 } from "#/components/conversation-controls";
+import { NewConversationDialog, scopeText } from "#/components/scope";
 import { Button } from "#/components/ui/button";
-import {
-	createConversationFn,
-	getAiStatusFn,
-	listConversationsFn,
-} from "#/fns/conversations";
+import { getAiStatusFn, listConversationsFn } from "#/fns/conversations";
 import { getEditionFn } from "#/fns/library";
 
 export const Route = createFileRoute("/books/$editionId_/conversations")({
@@ -47,9 +42,6 @@ export const Route = createFileRoute("/books/$editionId_/conversations")({
 function ConversationsPage() {
 	const { edition, conversations, ai } = Route.useLoaderData();
 	const router = useRouter();
-	const create = useServerFn(createConversationFn);
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const ready = edition.status === "ready";
 
 	return (
@@ -70,48 +62,26 @@ function ConversationsPage() {
 
 			{ai.enabled ? (
 				<div className="mt-6 space-y-3">
-					<p className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-						<TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-						<span>
-							The assistant has access to the whole book, so it may reveal later
-							events. Passages it reads and your messages are sent to{" "}
-							{ai.provider} ({ai.model}).
-						</span>
+					<p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+						Passages the assistant reads and your messages are sent to{" "}
+						{ai.provider} ({ai.model}).
 					</p>
-					<Button
-						type="button"
-						disabled={busy || !ready}
-						onClick={async () => {
-							setBusy(true);
-							setError(null);
-							try {
-								const created = await create({
-									data: { editionId: edition.id },
-								});
-								if (!created) {
-									setError("This book is not ready for conversations yet.");
-									setBusy(false);
-									return;
-								}
-								await router.navigate({
-									to: "/c/$conversationId",
-									params: { conversationId: created.id },
-								});
-							} catch {
-								setError("Could not start a conversation. Please try again.");
-								setBusy(false);
-							}
-						}}
-					>
-						<MessageSquarePlus aria-hidden /> Start a conversation
-					</Button>
-					{!ready && (
-						<p className="text-sm text-muted-foreground">
-							Conversations are available once the book has finished importing.
-						</p>
-					)}
-					{error && (
-						<p className="text-sm text-destructive-foreground">{error}</p>
+					{ready ? (
+						<NewConversationDialog editionId={edition.id}>
+							<Button type="button">
+								<MessageSquarePlus aria-hidden /> Start a conversation
+							</Button>
+						</NewConversationDialog>
+					) : (
+						<>
+							<Button type="button" disabled>
+								<MessageSquarePlus aria-hidden /> Start a conversation
+							</Button>
+							<p className="text-sm text-muted-foreground">
+								Conversations are available once the book has finished
+								importing.
+							</p>
+						</>
 					)}
 				</div>
 			) : (
@@ -142,8 +112,11 @@ function ConversationsPage() {
 										{c.title}
 									</Link>
 									<p className="text-xs text-muted-foreground">
-										{c.messageCount} message{c.messageCount === 1 ? "" : "s"} ·
-										last active {new Date(c.updatedAt).toLocaleString()}
+										<span data-testid="conversation-scope">
+											{scopeText(c.scopeLabel)}
+										</span>{" "}
+										· {c.messageCount} message{c.messageCount === 1 ? "" : "s"}{" "}
+										· last active {new Date(c.updatedAt).toLocaleString()}
 									</p>
 								</div>
 								<div className="flex items-center gap-1">

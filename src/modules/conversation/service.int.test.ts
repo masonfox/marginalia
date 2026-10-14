@@ -31,8 +31,11 @@ beforeAll(async () => {
 
 describe("conversation operations behind the server functions", () => {
 	it("creates, lists, gets, renames, and deletes a conversation", async () => {
-		const created = await createConversationForEdition(t.db, readyId);
-		if (!created) throw new Error("expected a conversation");
+		const created = await createConversationForEdition(t.db, readyId, {
+			kind: "whole",
+		});
+		if (!created || "error" in created)
+			throw new Error("expected a conversation");
 		expect(
 			(await listConversationsForEdition(t.db, readyId)).map((c) => c.id),
 		).toContain(created.id);
@@ -61,10 +64,13 @@ describe("conversation operations behind the server functions", () => {
 			await createConversationForEdition(
 				t.db,
 				"00000000-0000-0000-0000-000000000000",
+				{ kind: "whole" },
 			),
 		).toBeNull();
 		const { edition } = await ensureEdition(t.db, "beef", "Unready");
-		expect(await createConversationForEdition(t.db, edition.id)).toBeNull();
+		expect(
+			await createConversationForEdition(t.db, edition.id, { kind: "whole" }),
+		).toBeNull();
 	});
 
 	it("deletes a book's conversations along with it, leaving others", async () => {

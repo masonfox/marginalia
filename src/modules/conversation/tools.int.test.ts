@@ -39,6 +39,7 @@ const book = (
 	authors: [],
 	ordinal,
 	maxPosition,
+	scopeLabel: maxPosition === null ? null : `Position ${maxPosition}`,
 });
 
 const chapters = (word: string, count: number) =>
@@ -195,8 +196,17 @@ describe("readPassage", () => {
 });
 
 describe("getOutline", () => {
-	it("returns each book's table of contents", async () => {
-		const r = await getOutline(deps, {});
+	const unbounded = () => ({
+		...deps,
+		books: deps.books.map((b) => ({
+			...b,
+			maxPosition: null,
+			scopeLabel: null,
+		})),
+	});
+
+	it("returns each book's whole table of contents when unbounded", async () => {
+		const r = await getOutline(unbounded(), {});
 		if (r.status !== "ok") throw new Error("expected ok");
 		expect(r.outlines.map((o) => o.book)).toEqual(["b1", "b2"]);
 		expect(r.outlines[0]?.entries.map((e) => e.title)).toEqual([
@@ -204,9 +214,39 @@ describe("getOutline", () => {
 			"Chapter 2",
 			"Chapter 3",
 		]);
-		const one = await getOutline(deps, { book: "b2" });
+		expect(r.outlines[0]).not.toHaveProperty("continuesBeyondScope");
+		const one = await getOutline(unbounded(), { book: "b2" });
 		if (one.status !== "ok") throw new Error("expected ok");
 		expect(one.outlines).toHaveLength(1);
+	});
+
+	it("lists no entry beyond a book's bound and says the book continues", async () => {
+		// Each chapter has 20 passages: Chapter 2 starts at position 21.
+		const bounded = {
+			...deps,
+			books: [{ ...alpha, maxPosition: 40, scopeLabel: "Chapter 2" }],
+		};
+		const r = await getOutline(bounded, {});
+		if (r.status !== "ok") throw new Error("expected ok");
+		expect(r.outlines[0]).toMatchObject({
+			scope: "Chapter 2",
+			continuesBeyondScope: true,
+		});
+		expect(r.outlines[0]?.entries.map((e) => e.title)).toEqual([
+			"Chapter 1",
+			"Chapter 2",
+		]);
+		const early = await getOutline(
+			{
+				...deps,
+				books: [{ ...alpha, maxPosition: 20, scopeLabel: "Chapter 1" }],
+			},
+			{},
+		);
+		if (early.status !== "ok") throw new Error("expected ok");
+		expect(early.outlines[0]?.entries.map((e) => e.title)).toEqual([
+			"Chapter 1",
+		]);
 	});
 
 	it("rejects an unknown book", async () => {

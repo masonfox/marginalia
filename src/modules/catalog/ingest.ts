@@ -18,7 +18,7 @@ import {
 import type { Database } from "#/server/db";
 import { NonRetryableError } from "#/server/jobs/kinds";
 import type { Logger } from "#/server/logger";
-import { replaceEditionStructure } from "./persist";
+import { type ReplacedHook, replaceEditionStructure } from "./persist";
 import { resolveSearchConfig } from "./search-config";
 
 export interface IngestDeps {
@@ -30,6 +30,8 @@ export interface IngestDeps {
 	/** The parser version currently in force; defaults to PARSER_VERSION. */
 	parserVersion?: number;
 	batchSize?: number;
+	/** Re-anchors dependents (conversation bounds) inside a reparse's transaction. */
+	onReplaced?: ReplacedHook;
 }
 
 /** `deleted`: the edition was deleted before or during ingestion; nothing was written. */
@@ -79,6 +81,7 @@ export async function ingestEdition(
 				searchConfig,
 				coverPath,
 				batchSize: deps.batchSize,
+				onReplaced: deps.onReplaced,
 			}),
 		);
 		if (!written) {

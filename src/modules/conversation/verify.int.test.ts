@@ -61,6 +61,7 @@ beforeAll(async () => {
 			authors: [],
 			ordinal: 0,
 			maxPosition: null,
+			scopeLabel: null,
 		},
 	];
 });
@@ -158,6 +159,7 @@ describe("verifyCitations", () => {
 					authors: [],
 					ordinal: 1,
 					maxPosition: null,
+					scopeLabel: null,
 				},
 			];
 		});

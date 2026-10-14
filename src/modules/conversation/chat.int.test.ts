@@ -12,6 +12,7 @@ import {
 	getConversation,
 	PROMPT_VERSION,
 	startChat,
+	widenConversationScope,
 } from ".";
 
 let t: TestDb;
@@ -362,5 +363,84 @@ describe("startChat", () => {
 		});
 		expect(missing.status).toBe("not_found");
 		expect(model.doStreamCalls).toHaveLength(0);
+	});
+});
+
+describe("scope during chat", () => {
+	const boundedConversation = () =>
+		createConversation(t.db, {
+			editionIds: [editionId],
+			scopes: { [editionId]: { maxPosition: 1, scopeLabel: "One" } },
+		}).then((c) => c.id);
+
+	const systemOf = (call: { prompt: { role: string; content: unknown }[] }) =>
+		call.prompt.find((m) => m.role === "system")?.content as string;
+
+	it("states the scope in the system prompt, identically on every turn", async () => {
+		const id = await boundedConversation();
+		const model = scripted(textReply("First."), textReply("Second."));
+		await (await run(runtime(model), id, "Hello")).text();
+		await saved(id, 2);
+		await (await run(runtime(model), id, "Again")).text();
+		await saved(id, 4);
+		const [first, second] = model.doStreamCalls.map(systemOf);
+		expect(first).toContain('the reader has read through "One"');
+		expect(first).toMatch(/hard rule/);
+		expect(second).toBe(first);
+	});
+
+	it("finishes a running generation under the bound it started with", async () => {
+		const id = await boundedConversation();
+		let release: () => void = () => {};
+		const gate = new Promise<void>((r) => {
+			release = r;
+		});
+		let step = 0;
+		const model = new MockLanguageModelV4({
+			doStream: async () => {
+				if (step++ === 0) {
+					await gate;
+					return {
+						stream: streamOf(
+							toolCall("c1", { query: "Nothing else" }),
+						) as never,
+					};
+				}
+				return { stream: streamOf(textReply("Done.")) as never };
+			},
+		});
+		const body = (await run(runtime(model), id, "Search")).text();
+		expect(
+			await widenConversationScope(t.db, {
+				conversationId: id,
+				editionId,
+				scope: { kind: "whole" },
+			}),
+		).toEqual({ widened: true });
+		release();
+		await body;
+		const conv = await saved(id, 2);
+		const tool = (
+			conv.messages[1]?.parts as { type: string; output?: unknown }[]
+		).find((p) => p.type === "tool-searchBooks");
+		expect(tool?.output).toMatchObject({ status: "ok", count: 0 });
+		const [first, second] = model.doStreamCalls.map(systemOf);
+		expect(second).toBe(first);
+		expect(first).toContain('read through "One"');
+
+		// The next message uses the widened scope.
+		const next = scripted(
+			toolCall("c2", { query: "Nothing else" }),
+			textReply("Found it."),
+		);
+		await (await run(runtime(next), id, "Again")).text();
+		const after = await saved(id, 4);
+		const found = (
+			after.messages[3]?.parts as { type: string; output?: unknown }[]
+		).find((p) => p.type === "tool-searchBooks");
+		expect(found?.output).toMatchObject({ status: "ok", count: 1 });
+		expect(systemOf(next.doStreamCalls[0] as never)).not.toContain(
+			"read through",
+		);
 	});
 });

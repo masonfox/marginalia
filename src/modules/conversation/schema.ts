@@ -42,12 +42,18 @@ export const conversationEditions = pgTable(
 			.notNull()
 			.references(() => editions.id, { onDelete: "cascade" }),
 		ordinal: integer("ordinal").notNull(),
-		/** Per-book spoiler bound; NULL means unbounded. Populated by reading progress. */
+		/** Per-book spoiler bound (a reveal position); NULL means whole book. */
 		maxPosition: integer("max_position"),
+		/** Label of the reading unit the bound was chosen from; set exactly when the bound is. */
+		scopeLabel: text("scope_label"),
 	},
 	(t) => [
 		primaryKey({ columns: [t.conversationId, t.editionId] }),
 		index("conversation_editions_edition_idx").on(t.editionId),
+		check(
+			"conversation_editions_scope_check",
+			sql`(${t.maxPosition} is null) = (${t.scopeLabel} is null)`,
+		),
 	],
 );
 

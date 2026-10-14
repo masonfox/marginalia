@@ -147,6 +147,27 @@ export async function readPassage(
 	};
 }
 
+/**
+ * The TOC entries revealed at or before `bound`. An entry beyond it is
+ * dropped with its children; an entry without a passage stays only if a
+ * visible descendant or later sibling remains.
+ */
+function boundedToc(nodes: TocNode[], bound: number | null): TocNode[] {
+	if (bound === null) return nodes;
+	const kept: TocNode[] = [];
+	for (const n of [...nodes].reverse()) {
+		if (n.revealPosition !== null) {
+			if (n.revealPosition <= bound)
+				kept.unshift({ ...n, children: boundedToc(n.children, bound) });
+			continue;
+		}
+		const children = boundedToc(n.children, bound);
+		if (children.length > 0 || kept.length > 0)
+			kept.unshift({ ...n, children });
+	}
+	return kept;
+}
+
 export async function getOutline(deps: ToolDeps, args: { book?: string }) {
 	const selected = selectBooks(deps, args.book);
 	if (selected.error) return selected.error;
@@ -163,7 +184,7 @@ export async function getOutline(deps: ToolDeps, args: { book?: string }) {
 					walk(n.children, depth + 1);
 				}
 			};
-			walk(await getToc(deps.db, b.editionId), 0);
+			walk(boundedToc(await getToc(deps.db, b.editionId), b.maxPosition), 0);
 			const capped = entries.slice(0, LIMITS.outlineEntries);
 			const sized = capItems(capped);
 			return {
@@ -171,6 +192,10 @@ export async function getOutline(deps: ToolDeps, args: { book?: string }) {
 				bookTitle: b.title,
 				entries: sized.items,
 				truncated: sized.truncated || entries.length > capped.length,
+				...(b.scopeLabel !== null && {
+					scope: b.scopeLabel,
+					continuesBeyondScope: true,
+				}),
 			};
 		}),
 	);
@@ -207,7 +232,7 @@ export function createConversationTools(deps: ToolDeps) {
 		}),
 		getOutline: tool({
 			description:
-				"The table of contents of a book (section titles with the locator of their first passage), for navigating its structure.",
+				"The table of contents of a book (section titles with the locator of their first passage), for navigating its structure. For a book the reader has not finished, lists only the part they have read.",
 			inputSchema: z.object({ book: bookArg }),
 			execute: (args) => getOutline(deps, args),
 		}),
