@@ -176,7 +176,8 @@ export const AssistantText = memo(function AssistantText({
 	citations,
 	numbers,
 	remainingBookIds,
-}: { text: string } & CitationContext) {
+	sourceMessageId,
+}: { text: string; sourceMessageId?: string } & CitationContext) {
 	const markers = useMemo(() => parseCitationMarkers(text), [text]);
 	const source = useMemo(() => prepare(text, markers), [text, markers]);
 	const components = useMemo(
@@ -184,7 +185,7 @@ export const AssistantText = memo(function AssistantText({
 		[markers, citations, numbers, remainingBookIds],
 	);
 	return (
-		<div className="leading-relaxed">
+		<div className="leading-relaxed" data-reply-source={sourceMessageId}>
 			<Markdown
 				remarkPlugins={REMARK_PLUGINS}
 				components={components}

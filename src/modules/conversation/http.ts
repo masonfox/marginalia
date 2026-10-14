@@ -1,11 +1,16 @@
 import { z } from "zod";
 import { type ChatDeps, startChat } from "./chat";
 
-const chatBody = z.object({
-	conversationId: z.uuid(),
-	/** The new user message. Omit to retry after a failed generation. */
-	message: z.string().trim().min(1).max(8000).optional(),
-});
+import { replyContextSchema } from "./reply-context";
+
+const chatBody = z
+	.object({
+		conversationId: z.uuid(),
+		/** The new user message. Omit to retry after a failed generation. */
+		message: z.string().trim().min(1).max(8000).optional(),
+		replyContext: replyContextSchema.optional(),
+	})
+	.refine((body) => !body.replyContext || body.message !== undefined);
 
 const json = (status: number, error: string) =>
 	Response.json({ error }, { status });
@@ -23,6 +28,7 @@ export async function handleChatRequest(
 	const result = await startChat(deps, {
 		conversationId: body.data.conversationId,
 		message: body.data.message,
+		replyContext: body.data.replyContext,
 		abortSignal: request.signal,
 	});
 	switch (result.status) {
@@ -34,6 +40,8 @@ export async function handleChatRequest(
 			return json(404, "Conversation not found");
 		case "busy":
 			return json(409, "A reply is already being generated");
+		case "invalid_context":
+			return json(400, "Invalid assistant-response context");
 		case "nothing_to_retry":
 			return json(409, "There is no failed reply to retry");
 	}

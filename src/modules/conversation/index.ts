@@ -11,6 +11,7 @@ export {
 } from "./chat";
 export { handleChatRequest } from "./http";
 export { buildSystemPrompt, PROMPT_VERSION } from "./prompt";
+export * from "./reply-context";
 export * from "./repository";
 export * from "./schema";
 export {

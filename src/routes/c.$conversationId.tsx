@@ -21,6 +21,7 @@ import {
 	DeleteConversation,
 	RenameConversation,
 } from "#/components/conversation-controls";
+import { ReplyQuote, ReplySelection } from "#/components/reply-selection";
 import { ResearchTrail } from "#/components/research-trail";
 import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
 import { Badge } from "#/components/ui/badge";
@@ -32,8 +33,17 @@ import type {
 	CitationRecord,
 	ConversationWithUsage,
 } from "#/modules/conversation";
+import {
+	type ReplyContext,
+	replyContextOf,
+	replyContextPart,
+	type StoredReplyContext,
+} from "#/modules/conversation";
 
-type Msg = UIMessage<ChatMeta, { citations: CitationRecord[] }>;
+type Msg = UIMessage<
+	ChatMeta,
+	{ citations: CitationRecord[]; "reply-context": StoredReplyContext }
+>;
 type ReplyUsage = ConversationWithUsage["usage"][string];
 
 /** How many times to refetch while a finished reply's usage is not stored yet. */
@@ -98,7 +108,11 @@ function ConversationPage() {
 						return { body: { conversationId } };
 					}
 					return {
-						body: { conversationId, message: textOf(messages.at(-1)) },
+						body: {
+							conversationId,
+							message: textOf(messages.at(-1)),
+							replyContext: replyContextOf(messages.at(-1)?.parts ?? []),
+						},
 					};
 				},
 			}),
@@ -144,6 +158,18 @@ function ConversationPage() {
 		[conversation.books],
 	);
 
+	const [draft, setDraft] = useState("");
+	const [pendingQuote, setPendingQuote] = useState<ReplyContext | null>(null);
+	const [recoveryError, setRecoveryError] = useState("");
+	const submission = useRef<Msg | null>(null);
+	const submissionBase = useRef(0);
+	const inputRef = useRef<HTMLTextAreaElement>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset conversation-local state on navigation
+	useEffect(() => {
+		setDraft("");
+		setPendingQuote(null);
+		submission.current = null;
+	}, [conversationId]);
 	const bottom = useRef<HTMLDivElement>(null);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: follow new content
 	useEffect(() => {
@@ -159,20 +185,69 @@ function ConversationPage() {
 		(lastStoredError ? last?.metadata?.error : null) ??
 		"Something went wrong.";
 
-	const retry = () => {
-		chat.clearError();
-		if (last?.role === "user") {
-			// The request never reached the server, so send the message again.
-			const text = textOf(last);
-			chat.setMessages(messages.slice(0, -1));
-			void chat.sendMessage({ text });
-		} else {
-			void chat.regenerate();
+	const retry = async () => {
+		setRecoveryError("");
+		try {
+			const saved = await getConversationFn({ data: { conversationId } });
+			if (!saved) throw new Error("Could not reload conversation. Try again.");
+			const snapshot =
+				submission.current ??
+				[...messages].reverse().find((m) => m.role === "user");
+			const base = snapshot ? submissionBase.current - 1 : -1;
+			const accepted =
+				snapshot &&
+				saved.messages.some(
+					(m, i) =>
+						i > base &&
+						m.role === "user" &&
+						textOf({ ...m, parts: m.parts as Msg["parts"] } as Msg) ===
+							textOf(snapshot) &&
+						JSON.stringify(replyContextOf(m.parts)) ===
+							JSON.stringify(replyContextOf(snapshot.parts)),
+				);
+			chat.clearError();
+			if (accepted || (!submission.current && last?.role === "assistant")) {
+				chat.setMessages(
+					saved.messages.map((m) => ({
+						id: m.id,
+						role: m.role,
+						parts: m.parts as Msg["parts"],
+						metadata: {
+							citations: m.citations,
+							finishReason: m.finishReason,
+							error: m.error,
+						},
+					})),
+				);
+				const tail = saved.messages.at(-1);
+				if (tail?.role === "assistant" && tail.finishReason !== "error") {
+					submission.current = null;
+					await router.invalidate();
+				} else await chat.regenerate();
+			} else if (snapshot) {
+				chat.setMessages(messages.filter((m) => m.id !== snapshot.id));
+				await chat.sendMessage({ parts: snapshot.parts });
+			}
+		} catch (err) {
+			setRecoveryError(
+				err instanceof Error
+					? err.message
+					: "Could not reconcile the submitted message.",
+			);
 		}
 	};
 
 	return (
 		<main className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-3xl flex-col px-4 py-6">
+			{ai.enabled && (
+				<ReplySelection
+					key={conversationId}
+					onAttach={(quote) => {
+						setPendingQuote(quote);
+						inputRef.current?.focus();
+					}}
+				/>
+			)}
 			<header className="border-b pb-4">
 				<p className="text-sm">
 					<Link
@@ -267,11 +342,23 @@ function ConversationPage() {
 					<li key={m.id}>
 						{m.role === "user" ? (
 							<div className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-lg bg-secondary px-3 py-2">
+								{replyContextOf(m.parts) && (
+									<ReplyQuote
+										quote={replyContextOf(m.parts) as StoredReplyContext}
+									/>
+								)}
 								{textOf(m)}
 							</div>
 						) : (
 							<AssistantMessage
 								message={m}
+								eligible={
+									ai.enabled &&
+									conversation.messages.some(
+										(saved) => saved.id === m.id && saved.role === "assistant",
+									) &&
+									!(busy && m.id === last?.id)
+								}
 								remainingBookIds={remainingBookIds}
 								stopped={m.id === stoppedId}
 								streaming={busy && m.id === last?.id}
@@ -289,6 +376,65 @@ function ConversationPage() {
 						className="rounded-md border border-destructive-foreground/40 px-3 py-2 text-sm"
 					>
 						<p className="text-destructive-foreground">{failureText}</p>
+						{recoveryError && <p>{recoveryError}</p>}
+						{submission.current && (
+							<Button
+								type="button"
+								onClick={async () => {
+									if (draft || pendingQuote) {
+										setRecoveryError(
+											"Your newer draft is preserved. Clear it before editing the failed message.",
+										);
+										return;
+									}
+									try {
+										const snapshot = submission.current;
+										const saved = await getConversationFn({
+											data: { conversationId },
+										});
+										if (!saved || !snapshot)
+											throw new Error(
+												"Could not reload the submitted message.",
+											);
+										if (
+											saved.messages.slice(submissionBase.current).some(
+												(m) =>
+													m.role === "user" &&
+													textOf({
+														...m,
+														parts: m.parts as Msg["parts"],
+													} as Msg) === textOf(snapshot) &&
+													JSON.stringify(replyContextOf(m.parts)) ===
+														JSON.stringify(replyContextOf(snapshot.parts)),
+											)
+										) {
+											setRecoveryError(
+												"This message is already saved. Use Retry to continue its reply.",
+											);
+											return;
+										}
+										chat.setMessages(
+											messages.filter((m) => m.id !== snapshot.id),
+										);
+										chat.clearError();
+										setDraft((current) => current || textOf(snapshot));
+										setPendingQuote(
+											(current) =>
+												current ?? replyContextOf(snapshot.parts) ?? null,
+										);
+										inputRef.current?.focus();
+									} catch (err) {
+										setRecoveryError(
+											err instanceof Error
+												? err.message
+												: "Could not recover the message.",
+										);
+									}
+								}}
+							>
+								Edit failed message
+							</Button>
+						)}
 						<Button
 							type="button"
 							size="sm"
@@ -305,18 +451,45 @@ function ConversationPage() {
 
 			{ai.enabled ? (
 				<form
-					className="sticky bottom-0 flex items-end gap-2 border-t bg-background pt-3"
+					className="sticky bottom-0 flex flex-wrap items-end gap-2 border-t bg-background pt-3"
 					onSubmit={(e) => {
 						e.preventDefault();
-						const form = e.currentTarget;
-						const value = new FormData(form).get("message");
-						const text = typeof value === "string" ? value.trim() : "";
+						const text = draft.trim();
 						if (!text || busy) return;
-						form.reset();
-						void chat.sendMessage({ text });
+						const parts: Msg["parts"] = [
+							...(pendingQuote ? [replyContextPart(pendingQuote)] : []),
+							{ type: "text", text },
+						];
+						submissionBase.current = conversation.messages.length;
+						submission.current = {
+							id: crypto.randomUUID(),
+							role: "user",
+							parts,
+						};
+						setDraft("");
+						setPendingQuote(null);
+						void chat.sendMessage({ id: submission.current.id, parts });
 					}}
 				>
+					{pendingQuote && (
+						<div className="w-full">
+							<ReplyQuote quote={pendingQuote} />
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => {
+									setPendingQuote(null);
+									inputRef.current?.focus();
+								}}
+							>
+								Remove quote
+							</Button>
+						</div>
+					)}
 					<textarea
+						ref={inputRef}
+						value={draft}
+						onChange={(e) => setDraft(e.target.value)}
 						name="message"
 						rows={2}
 						required
@@ -343,7 +516,7 @@ function ConversationPage() {
 							<Square aria-hidden /> Stop
 						</Button>
 					) : (
-						<Button type="submit">
+						<Button type="submit" disabled={!draft.trim()}>
 							<Send aria-hidden /> Send
 						</Button>
 					)}
@@ -384,12 +557,14 @@ function citationsOf(message: Msg): CitationRecord[] {
 
 function AssistantMessage({
 	message,
+	eligible,
 	remainingBookIds,
 	stopped,
 	streaming,
 	usage,
 }: {
 	message: Msg;
+	eligible: boolean;
 	remainingBookIds: Set<string>;
 	stopped: boolean;
 	streaming: boolean;
@@ -421,6 +596,7 @@ function AssistantMessage({
 				{blocks.map((block) =>
 					block.type === "text" ? (
 						<AssistantText
+							sourceMessageId={eligible ? message.id : undefined}
 							key={block.index}
 							text={block.part.text}
 							citations={citations}
@@ -428,12 +604,13 @@ function AssistantMessage({
 							remainingBookIds={remainingBookIds}
 						/>
 					) : (
-						<ResearchTrail
-							key={block.index}
-							parts={block.parts}
-							hasReply={hasReply}
-							streaming={streaming}
-						/>
+						<div key={block.index} data-reply-excluded>
+							<ResearchTrail
+								parts={block.parts}
+								hasReply={hasReply}
+								streaming={streaming}
+							/>
+						</div>
 					),
 				)}
 				<SourcesList sources={sources} />

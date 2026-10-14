@@ -14,9 +14,11 @@ import { buildEpub } from "../../../test/epub-builder";
 import { ingestBook, tempDataDir } from "../../../test/library";
 import { waitFor } from "../../../test/wait";
 import {
+	appendMessage,
 	type ChatDeps,
 	createConversation,
 	getConversation,
+	messages,
 	PROMPT_VERSION,
 	startChat,
 	widenConversationScope,
@@ -695,6 +697,68 @@ describe("scope during chat", () => {
 		expect(found?.output).toMatchObject({ status: "ok", count: 1 });
 		expect(systemOf(next.doStreamCalls[0] as never)).not.toContain(
 			"read through",
+		);
+	});
+});
+
+describe("quoted replay", () => {
+	it("preserves quote snapshots through source-error removal, retry and later turns", async () => {
+		const id = await newConversation();
+		const source = await appendMessage(t.db, {
+			conversationId: id,
+			role: "assistant",
+			parts: [{ type: "text", text: "Original partial response" }],
+			finishReason: "error",
+			error: "old failure",
+		});
+		const model = scripted(
+			[
+				{ type: "stream-start", warnings: [] },
+				{ type: "error", error: new Error("temporary failure") },
+			],
+			textReply("Recovered"),
+			textReply("Later"),
+		);
+		const ai = runtime(model);
+		const first = await startChat(deps(ai), {
+			conversationId: id,
+			message: "Explain this claim",
+			replyContext: {
+				messageId: source.id,
+				text: "Original partial response [[cite sample]]",
+			},
+		});
+		if (first.status !== "ok") throw new Error(first.status);
+		await first.response.text();
+		const failed = await saved(id, 3);
+		const snapshot = failed.messages[1]?.parts;
+		const retry = await startChat(deps(ai), { conversationId: id });
+		if (retry.status !== "ok") throw new Error(retry.status);
+		await retry.response.text();
+		await saved(id, 3);
+		await t.db.delete(messages).where(eq(messages.id, source.id));
+		const later = await startChat(deps(ai), {
+			conversationId: id,
+			message: "And then?",
+		});
+		if (later.status !== "ok") throw new Error(later.status);
+		await later.response.text();
+		const history = await saved(id, 4);
+		expect(history.messages.filter((m) => m.role === "user")).toHaveLength(2);
+		expect(history.messages[0]?.parts).toEqual(snapshot);
+		const firstPrompt = model.doStreamCalls[0]?.prompt;
+		const retryPrompt = model.doStreamCalls[1]?.prompt;
+		expect(retryPrompt).toEqual(firstPrompt);
+		const projected = JSON.stringify(firstPrompt);
+		expect(
+			projected.split("Original partial response [[cite sample]]").slice(1),
+		).toHaveLength(1);
+		expect(projected.match(/Explain this claim/g)).toHaveLength(1);
+		expect(
+			model.doStreamCalls[2]?.prompt.slice(0, (firstPrompt?.length ?? 1) - 1),
+		).toEqual(firstPrompt?.filter((_, index) => index !== 1));
+		expect(model.doStreamCalls[1]?.tools).toEqual(
+			model.doStreamCalls[0]?.tools,
 		);
 	});
 });
