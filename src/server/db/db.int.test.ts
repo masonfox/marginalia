@@ -24,6 +24,7 @@ describe("database", () => {
 		);
 		expect(rows.map((r) => r.table_name)).toEqual([
 			"editions",
+			"excluded_editions",
 			"instance_settings",
 			"library_files",
 			"library_sources",

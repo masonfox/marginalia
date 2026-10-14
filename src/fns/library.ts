@@ -3,6 +3,7 @@ import { z } from "zod";
 import { countPassages, getToc } from "#/modules/catalog";
 import { PARSER_VERSION } from "#/modules/epub";
 import {
+	deleteEdition,
 	getEditionDetail,
 	listEditions,
 	reparseOutdated,
@@ -55,4 +56,13 @@ export const reparseEditions = createServerFn({ method: "POST" })
 	.handler(async ({ data }) => {
 		const { db, enqueue } = appContext();
 		return reparseOutdated(db, enqueue, PARSER_VERSION, data.editionId);
+	});
+
+/** Permanently deletes a book; an already deleted book counts as done. */
+export const deleteEditionFn = createServerFn({ method: "POST" })
+	.validator(z.object({ editionId: z.uuid() }))
+	.handler(async ({ data }) => {
+		const { db, config, log } = appContext();
+		const result = await deleteEdition(db, config.dataDir, data.editionId, log);
+		return { deleted: result.deleted };
 	});

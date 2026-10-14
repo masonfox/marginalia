@@ -1,3 +1,5 @@
+import { readdir } from "node:fs/promises";
+import path from "node:path";
 import { and, count, countDistinct, eq, isNotNull } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
@@ -6,7 +8,7 @@ import {
 	type ParsedPassage,
 	parseEpub,
 } from "#/modules/epub";
-import { getEdition } from "#/modules/library";
+import { deleteEdition, getEdition } from "#/modules/library";
 import { NonRetryableError } from "#/server/jobs/kinds";
 import { createTestDb, type TestDb } from "../../../test/db";
 import { fixtures, standardEbooks } from "../../../test/fixtures";
@@ -22,6 +24,7 @@ import {
 	locatorAliases,
 	noteRefs,
 	passages,
+	reparseEdition,
 	resolveSearchConfig,
 	sections,
 	tocEntries,
@@ -432,5 +435,51 @@ describe("locator forwarding on reparse", () => {
 				),
 			);
 		expect(orphans?.n).toBe(aliases.filter((a) => a.targetLocator).length);
+	});
+});
+
+describe("deleted editions", () => {
+	it("completes without error when the edition no longer exists", async () => {
+		const missingSha = "0".repeat(64);
+		expect(await ingestEdition(deps(), missingSha, firstAttempt)).toBe(
+			"deleted",
+		);
+		expect(
+			await reparseEdition(
+				deps(),
+				"00000000-0000-0000-0000-000000000000",
+				firstAttempt,
+			),
+		).toBe("deleted");
+	});
+
+	it("writes nothing and removes its cover when deleted between parse and persist", async () => {
+		// Not epub3: an earlier test leaves it ready, which would make this a no-op.
+		const { sha256, edition } = await addUploadedBook(
+			t.db,
+			dataDir,
+			await fixtures.epub2(),
+			"deleted-mid-ingest.epub",
+		);
+		const outcome = await ingestEdition(
+			deps({
+				parse: async (file, fileName) => {
+					const parsed = await parseEpub(file, { fileName });
+					await deleteEdition(t.db, dataDir, edition.id, silentLog);
+					return parsed;
+				},
+			}),
+			sha256,
+			finalAttempt,
+		);
+		expect(outcome).toBe("deleted");
+		expect(await getEdition(t.db, edition.id)).toBeUndefined();
+		expect(await counts(edition.id)).toMatchObject({
+			passages: 0,
+			sections: 0,
+			toc: 0,
+		});
+		const covers = await readdir(path.join(dataDir, "covers")).catch(() => []);
+		expect(covers.filter((f) => f.startsWith(sha256))).toEqual([]);
 	});
 });

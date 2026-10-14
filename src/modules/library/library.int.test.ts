@@ -3,6 +3,7 @@ import {
 	cp,
 	mkdir,
 	readdir,
+	readFile,
 	rm,
 	stat,
 	symlink,
@@ -12,7 +13,14 @@ import {
 import path from "node:path";
 import { count, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { ingestEdition, passages } from "#/modules/catalog";
+import {
+	ingestEdition,
+	locatorAliases,
+	noteRefs,
+	passages,
+	sections,
+	tocEntries,
+} from "#/modules/catalog";
 import { PARSER_VERSION } from "#/modules/epub";
 import { JobRuntime } from "#/server/jobs";
 import type { Enqueue, JobKind, JobPayload } from "#/server/jobs/kinds";
@@ -25,13 +33,17 @@ import {
 	tempDataDir,
 } from "../../../test/library";
 import {
+	deleteEdition,
 	editions,
+	excludedEditions,
 	getEdition,
 	getEditionBySha,
+	getEditionDetail,
 	handleUploadRequest,
 	hashFile,
 	isEditionAvailable,
 	libraryFiles,
+	listEditions,
 	reparseOutdated,
 	requestRescan,
 	retryImport,
@@ -410,6 +422,195 @@ describe("filesystem scan", () => {
 
 	afterAll(async () => {
 		await rm(root, { recursive: true, force: true });
+	});
+});
+
+describe("deletion", () => {
+	freshDb();
+	let dataDir: string;
+	const ingest = (sha256: string) =>
+		ingestEdition({ db: t.db, dataDir, log: silentLog }, sha256, {
+			finalAttempt: true,
+		});
+	const remove = (id: string) => deleteEdition(t.db, dataDir, id, silentLog);
+	const exists = (file: string) =>
+		stat(file).then(
+			() => true,
+			() => false,
+		);
+	const rowCount = async (
+		table:
+			| typeof sections
+			| typeof passages
+			| typeof tocEntries
+			| typeof locatorAliases,
+		editionId: string,
+	) => {
+		const [row] = await t.db
+			.select({ n: count() })
+			.from(table)
+			.where(eq(table.editionId, editionId));
+		return row?.n;
+	};
+	const isExcluded = async (sha256: string) =>
+		(
+			await t.db
+				.select()
+				.from(excludedEditions)
+				.where(eq(excludedEditions.sha256, sha256))
+		).length === 1;
+
+	beforeAll(async () => {
+		dataDir = await tempDataDir();
+	});
+
+	it("removes an uploaded edition's data, upload rows, EPUB, and cover", async () => {
+		const { sha256, edition } = await addUploadedBook(
+			t.db,
+			dataDir,
+			await fixtures.epub3(),
+		);
+		await ingest(sha256);
+		const ready = await getEdition(t.db, edition.id);
+		expect(ready?.status).toBe("ready");
+		expect(ready?.coverPath).toBeTruthy();
+		const cover = path.join(dataDir, ready?.coverPath as string);
+		expect(await exists(cover)).toBe(true);
+		expect(await rowCount(passages, edition.id)).toBeGreaterThan(0);
+
+		expect(await remove(edition.id)).toEqual({ deleted: true });
+
+		expect(await getEdition(t.db, edition.id)).toBeUndefined();
+		for (const table of [sections, passages, tocEntries, locatorAliases]) {
+			expect(await rowCount(table, edition.id)).toBe(0);
+		}
+		const [notes] = await t.db.select({ n: count() }).from(noteRefs);
+		expect(notes?.n).toBe(0);
+		expect(
+			await t.db
+				.select()
+				.from(libraryFiles)
+				.where(eq(libraryFiles.sha256, sha256)),
+		).toEqual([]);
+		expect(await exists(uploadedBookPath(dataDir, sha256))).toBe(false);
+		expect(await exists(cover)).toBe(false);
+		expect(await isExcluded(sha256)).toBe(true);
+		expect(await listEditions(t.db)).toEqual([]);
+	});
+
+	it("deletes a failed import", async () => {
+		const { edition } = await addUploadedBook(
+			t.db,
+			dataDir,
+			await fixtures.drm(),
+		);
+		await setEditionStatus(t.db, edition.id, "failed", "DRM");
+		expect(await remove(edition.id)).toEqual({ deleted: true });
+		expect(await listEditions(t.db)).toEqual([]);
+	});
+
+	it("reports an unknown or already deleted edition as not found and changes nothing", async () => {
+		const { edition } = await addUploadedBook(
+			t.db,
+			dataDir,
+			await fixtures.verse(),
+		);
+		const missing = "00000000-0000-0000-0000-000000000000";
+		expect(await remove(missing)).toEqual({
+			deleted: false,
+			reason: "not_found",
+		});
+		expect(await getEdition(t.db, edition.id)).toBeTruthy();
+		expect(await remove(edition.id)).toEqual({ deleted: true });
+		expect(await remove(edition.id)).toEqual({
+			deleted: false,
+			reason: "not_found",
+		});
+	});
+
+	describe("with a library directory", () => {
+		let root: string;
+		let bytes: Buffer;
+		let sha256: string;
+		const file = () => path.join(root, "book.epub");
+		const scan = (full = false) => {
+			const { calls, enqueue } = recordingEnqueue();
+			return scanLibraries(
+				{ db: t.db, libraryPaths: [root], enqueue, log: silentLog },
+				{ full },
+			).then((stats) => ({ stats, calls }));
+		};
+
+		beforeAll(async () => {
+			root = await tempDataDir();
+			bytes = await fixtures.epub2();
+			sha256 = sha256Of(bytes);
+			await writeFile(file(), bytes);
+			await scan();
+			await ingest(sha256);
+		});
+		afterAll(async () => {
+			await rm(root, { recursive: true, force: true });
+		});
+
+		it("leaves the library file and its row untouched", async () => {
+			const before = await stat(file());
+			const edition = await getEditionBySha(t.db, sha256);
+			expect(edition?.status).toBe("ready");
+			expect(await remove(edition?.id as string)).toEqual({ deleted: true });
+			expect(await readFile(file())).toEqual(bytes);
+			expect((await stat(file())).mtimeMs).toBe(before.mtimeMs);
+			expect(
+				await t.db
+					.select({ relPath: libraryFiles.relPath })
+					.from(libraryFiles)
+					.where(eq(libraryFiles.sha256, sha256)),
+			).toEqual([{ relPath: "book.epub" }]);
+		});
+
+		it("skips the excluded bytes on incremental and full scans", async () => {
+			const incremental = await scan();
+			expect(incremental.stats).toMatchObject({ hashed: 0, enqueued: 0 });
+			const full = await scan(true);
+			expect(full.stats).toMatchObject({
+				hashed: 1,
+				excluded: 1,
+				enqueued: 0,
+			});
+			expect(full.calls).toEqual([]);
+			expect(await getEditionBySha(t.db, sha256)).toBeUndefined();
+		});
+
+		it("skips a copy of the excluded bytes at a new path", async () => {
+			await writeFile(path.join(root, "copy.epub"), bytes);
+			const { stats, calls } = await scan();
+			expect(stats).toMatchObject({ hashed: 1, excluded: 1, enqueued: 0 });
+			expect(calls).toEqual([]);
+			expect(await getEditionBySha(t.db, sha256)).toBeUndefined();
+		});
+
+		it("re-imports on upload and lists the library copies as sources", async () => {
+			const { calls, enqueue } = recordingEnqueue();
+			const res = await handleUploadRequest(uploadRequest(bytes, "back.epub"), {
+				db: t.db,
+				dataDir,
+				maxUploadMb: 10,
+				enqueue,
+				log: silentLog,
+			});
+			expect(res.status).toBe(201);
+			const { editionId } = await res.json();
+			expect(await isExcluded(sha256)).toBe(false);
+			expect(calls).toEqual([{ kind: "library.ingest", payload: { sha256 } }]);
+			expect((await getEdition(t.db, editionId))?.status).toBe("processing");
+			expect(await exists(uploadedBookPath(dataDir, sha256))).toBe(true);
+			const detail = await getEditionDetail(t.db, editionId);
+			expect(
+				detail?.sources.filter((s) => s.kind === "filesystem"),
+			).toHaveLength(2);
+			const later = await scan();
+			expect(later.stats).toMatchObject({ excluded: 0, enqueued: 0 });
+		});
 	});
 });
 

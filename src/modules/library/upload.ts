@@ -6,12 +6,13 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import busboy from "busboy";
+import { eq } from "drizzle-orm";
 import { EpubError, validateEpubContainer } from "#/modules/epub";
 import type { Database } from "#/server/db";
 import { publicOrigin } from "#/server/health";
 import type { Enqueue } from "#/server/jobs/kinds";
 import type { Logger } from "#/server/logger";
-import { ensureEdition } from "./editions";
+import { ensureEdition, getEditionBySha } from "./editions";
 import {
 	booksDir,
 	ensureSource,
@@ -19,6 +20,7 @@ import {
 	uploadedBookPath,
 	uploadRelPath,
 } from "./files";
+import { excludedEditions } from "./schema";
 
 export interface UploadDeps {
 	db: Database;
@@ -211,7 +213,12 @@ async function commitUpload(
 		() => true,
 		() => false,
 	);
-	if (!exists) await rename(tempPath, target);
+	// A copy with no edition may belong to a delete that is about to remove
+	// it, so replace it. A live edition's copy is kept: it may be open for
+	// ingestion, and replacing an open file fails on Windows.
+	if (!exists || !(await getEditionBySha(db, file.sha256))) {
+		await rename(tempPath, target);
+	}
 
 	const source = await ensureSource(db, "upload", booksDir(deps.dataDir));
 	await recordFile(db, {
@@ -221,6 +228,10 @@ async function commitUpload(
 		mtime: new Date(),
 		sha256: file.sha256,
 	});
+	// Uploading a deleted edition's bytes is a request to bring it back.
+	await db
+		.delete(excludedEditions)
+		.where(eq(excludedEditions.sha256, file.sha256));
 	const title =
 		path.basename(file.fileName).replace(/\.epub$/i, "") || "Untitled";
 	const { edition, created } = await ensureEdition(db, file.sha256, title);

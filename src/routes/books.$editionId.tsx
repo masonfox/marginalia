@@ -1,16 +1,29 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	createFileRoute,
 	Link,
 	notFound,
 	useNavigate,
 } from "@tanstack/react-router";
-import { Search } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
+import { Search, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { z } from "zod";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "#/components/ui/alert-dialog";
 import { Badge } from "#/components/ui/badge";
-import { Button } from "#/components/ui/button";
+import { Button, buttonVariants } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
-import { getEditionFn } from "#/fns/library";
+import { deleteEditionFn, getEditionFn } from "#/fns/library";
 import { searchPassagesFn } from "#/fns/retrieval";
 import type { TocNode } from "#/modules/catalog";
 import type { SnippetPart } from "#/modules/retrieval";
@@ -134,6 +147,11 @@ function BookPage() {
 						</li>
 					))}
 				</ul>
+				<DeleteBook
+					editionId={edition.id}
+					title={edition.title}
+					inLibraryFolder={edition.sources.some((s) => s.kind === "filesystem")}
+				/>
 			</section>
 
 			{edition.status === "ready" && <BookSearch editionId={edition.id} />}
@@ -151,6 +169,74 @@ function BookPage() {
 				)}
 			</section>
 		</main>
+	);
+}
+
+function DeleteBook({
+	editionId,
+	title,
+	inLibraryFolder,
+}: {
+	editionId: string;
+	title: string;
+	inLibraryFolder: boolean;
+}) {
+	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const remove = useServerFn(deleteEditionFn);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	return (
+		<AlertDialog onOpenChange={() => setError(null)}>
+			<AlertDialogTrigger asChild>
+				<Button size="sm" variant="outline" className="mt-4">
+					<Trash2 />
+					Delete book
+				</Button>
+			</AlertDialogTrigger>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Delete “{title}”?</AlertDialogTitle>
+					<AlertDialogDescription>
+						This removes the book, its passages, and its cover from Marginalia.
+						This cannot be undone.
+					</AlertDialogDescription>
+					{inLibraryFolder && (
+						<AlertDialogDescription>
+							The file in your library folder is not removed. Scans will skip it
+							until you upload the same file again.
+						</AlertDialogDescription>
+					)}
+					{error && (
+						<p className="text-sm text-destructive-foreground">{error}</p>
+					)}
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+					<AlertDialogAction
+						className={buttonVariants({ variant: "destructive" })}
+						disabled={busy}
+						onClick={async (event) => {
+							// Keep the dialog open until the delete finishes.
+							event.preventDefault();
+							setBusy(true);
+							setError(null);
+							try {
+								// Already deleted elsewhere also lands on the library.
+								await remove({ data: { editionId } });
+								await queryClient.invalidateQueries({ queryKey: ["editions"] });
+								await navigate({ to: "/" });
+							} catch {
+								setError("The book could not be deleted. Please try again.");
+								setBusy(false);
+							}
+						}}
+					>
+						Delete
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
 	);
 }
 

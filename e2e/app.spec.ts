@@ -151,6 +151,54 @@ test.describe("library", () => {
 		});
 		await expect(page.getByRole("alert")).toContainText("not a valid EPUB");
 	});
+
+	test("deleting a book needs confirmation and leaves its links not found", async ({
+		page,
+	}) => {
+		const title = `E2E Delete ${randomUUID().slice(0, 8)}`;
+		await page.locator("#upload").setInputFiles({
+			name: "delete-me.epub",
+			mimeType: "application/epub+zip",
+			buffer: await buildEpub({
+				title,
+				chapters: [
+					{ href: "c1.xhtml", title: "One", body: "<p>Soon to be gone.</p>" },
+				],
+			}),
+		});
+		const card = page.getByRole("listitem").filter({ hasText: title });
+		await expect(card.getByText("Ready")).toBeVisible({ timeout: 30_000 });
+		const { id, locator } = await one<{ id: string; locator: string }>(
+			`select e.id, p.locator from editions e join passages p on p.edition_id = e.id
+			 where e.title = $1 order by p.position limit 1`,
+			[title],
+		);
+
+		await page.goto(`/books/${id}`);
+		await page.waitForLoadState("networkidle");
+		await page.getByRole("button", { name: "Delete book" }).click();
+		const dialog = page.getByRole("alertdialog");
+		await expect(dialog).toContainText(`Delete “${title}”?`);
+		await expect(dialog).toContainText("cannot be undone");
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(dialog).toBeHidden();
+		await expect(page).toHaveURL(`/books/${id}`);
+
+		await page.getByRole("button", { name: "Delete book" }).click();
+		await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+		await expect(page).toHaveURL("/");
+		await expect(card).toHaveCount(0);
+
+		await page.goto(`/books/${id}`);
+		await expect(
+			page.getByRole("heading", { name: "Not found", level: 1 }),
+		).toBeVisible();
+		expect((await page.request.get(`/api/covers/${id}`)).status()).toBe(404);
+		await page.goto(`/p/${locator}`);
+		await expect(
+			page.getByRole("heading", { name: "Passage not found" }),
+		).toBeVisible();
+	});
 });
 
 test.describe("reading", () => {
