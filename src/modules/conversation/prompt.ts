@@ -1,7 +1,7 @@
 import { bookHandle } from "./tools";
 
 /** Bump when the prompt changes; stored on each assistant message. */
-export const PROMPT_VERSION = "1";
+export const PROMPT_VERSION = "2";
 
 export interface PromptBook {
 	ordinal: number;
@@ -55,5 +55,6 @@ Cite every quoted or paraphrased passage inline with exactly this marker:
 Do not volunteer events or outcomes the reader has not mentioned. Be aware you may have retrieved passages from later in the book; keep them to yourself unless the reader's question needs them. This is a courtesy, not a guarantee.
 
 # Style
+Write in markdown: short paragraphs, and lists where they help. Use bold for the Evidence and Interpretation labels, and avoid # headings. Place each citation marker right after the claim it supports; the reader sees it as a small numbered source, so do not repeat the quote in your prose.
 Be concise. Prefer a few well-chosen passages to many.`;
 }

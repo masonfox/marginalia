@@ -14,6 +14,8 @@ import {
 	type ChatMeta,
 	citationIndex,
 	isToolPart,
+	numberCitations,
+	SourcesList,
 	ToolActivity,
 } from "#/components/chat";
 import {
@@ -340,6 +342,15 @@ function AssistantMessage({
 		() => citationIndex(citationsOf(message)),
 		[message],
 	);
+	const { numbers, sources } = useMemo(
+		() =>
+			numberCitations(
+				message.parts.map((part) => (part.type === "text" ? part.text : "")),
+				citations,
+				remainingBookIds,
+			),
+		[message, citations, remainingBookIds],
+	);
 	const note = stopped
 		? FINISH_NOTES.aborted
 		: message.metadata?.finishReason
@@ -356,6 +367,7 @@ function AssistantMessage({
 							key={key}
 							text={part.text}
 							citations={citations}
+							numbers={numbers}
 							remainingBookIds={remainingBookIds}
 						/>
 					) : null;
@@ -363,6 +375,7 @@ function AssistantMessage({
 				if (isToolPart(part)) return <ToolActivity key={key} part={part} />;
 				return null;
 			})}
+			<SourcesList sources={sources} />
 			{note && <p className="text-xs text-muted-foreground">{note}</p>}
 		</div>
 	);
