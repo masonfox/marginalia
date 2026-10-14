@@ -13,17 +13,17 @@ import {
 	AssistantText,
 	type ChatMeta,
 	citationIndex,
-	isToolPart,
 	numberCitations,
 	SourcesList,
-	ToolActivity,
 } from "#/components/chat";
 import {
 	DeleteConversation,
 	RenameConversation,
 } from "#/components/conversation-controls";
+import { ResearchTrail } from "#/components/research-trail";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
+import { groupParts } from "#/lib/research-trail";
 import type { CitationRecord } from "#/modules/conversation";
 
 type Msg = UIMessage<ChatMeta, { citations: CitationRecord[] }>;
@@ -223,6 +223,7 @@ function ConversationPage() {
 								message={m}
 								remainingBookIds={remainingBookIds}
 								stopped={m.id === stoppedId}
+								streaming={busy && m.id === last?.id}
 							/>
 						)}
 					</li>
@@ -333,10 +334,12 @@ function AssistantMessage({
 	message,
 	remainingBookIds,
 	stopped,
+	streaming,
 }: {
 	message: Msg;
 	remainingBookIds: Set<string>;
 	stopped: boolean;
+	streaming: boolean;
 }) {
 	const citations = useMemo(
 		() => citationIndex(citationsOf(message)),
@@ -356,25 +359,28 @@ function AssistantMessage({
 		: message.metadata?.finishReason
 			? FINISH_NOTES[message.metadata.finishReason]
 			: undefined;
-	let offset = 0;
+	const blocks = groupParts(message.parts);
+	const hasReply = blocks.some((b) => b.type === "text");
 	return (
 		<div className="space-y-2">
-			{message.parts.map((part) => {
-				const key = offset++;
-				if (part.type === "text") {
-					return part.text ? (
-						<AssistantText
-							key={key}
-							text={part.text}
-							citations={citations}
-							numbers={numbers}
-							remainingBookIds={remainingBookIds}
-						/>
-					) : null;
-				}
-				if (isToolPart(part)) return <ToolActivity key={key} part={part} />;
-				return null;
-			})}
+			{blocks.map((block) =>
+				block.type === "text" ? (
+					<AssistantText
+						key={block.index}
+						text={block.part.text}
+						citations={citations}
+						numbers={numbers}
+						remainingBookIds={remainingBookIds}
+					/>
+				) : (
+					<ResearchTrail
+						key={block.index}
+						parts={block.parts}
+						hasReply={hasReply}
+						streaming={streaming}
+					/>
+				),
+			)}
 			<SourcesList sources={sources} />
 			{note && <p className="text-xs text-muted-foreground">{note}</p>}
 		</div>
