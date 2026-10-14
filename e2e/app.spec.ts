@@ -340,6 +340,7 @@ test.describe("reading scope", () => {
 		await page.goto(`/books/${id}`);
 		await page.getByRole("button", { name: "Start conversation" }).click();
 		const dialog = page.getByTestId("new-conversation-dialog");
+		await dialog.getByRole("button", { name: /^I'm partway through/ }).click();
 		await dialog
 			.getByRole("radio", { name: "II: Proletarians and Communists" })
 			.check();
@@ -362,6 +363,7 @@ test.describe("reading scope", () => {
 		await entry.locator(`a[href="/c/${conversationId}"]`).click();
 		await page.getByRole("button", { name: /^Widen scope/ }).click();
 		const widen = page.getByTestId("widen-scope-dialog");
+		await widen.getByRole("button", { name: /^I'm partway through/ }).click();
 		await expect(
 			widen.getByRole("radio", { name: "I: Bourgeois and Proletarians" }),
 		).toHaveCount(0);

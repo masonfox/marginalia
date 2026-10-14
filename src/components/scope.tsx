@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { BookOpenCheck, TriangleAlert } from "lucide-react";
+import { cn } from "cn";
+import { BookOpenCheck, ChevronDown, TriangleAlert } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
@@ -48,7 +49,74 @@ function groupUnits(units: ReadingUnit[]) {
 	return groups;
 }
 
-/** Radio choices: the units grouped by parent, then "Whole book". Nothing is preselected. */
+/**
+ * The numbers of labels that are all the same word followed by a number
+ * ("Chapter 1", "Chapter 2", …), or null when any label is not.
+ */
+function numbering(labels: string[]) {
+	let prefix: string | undefined;
+	const numbers: string[] = [];
+	for (const label of labels) {
+		const match = /^(\D*?)\s*(\d+)$/.exec(label);
+		if (!match || (prefix !== undefined && match[1] !== prefix)) return null;
+		prefix = match[1];
+		numbers.push(match[2] as string);
+	}
+	return numbers;
+}
+
+const optionClass =
+	"relative cursor-pointer rounded-md text-sm transition-colors hover:bg-accent has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:checked]:bg-primary has-[:checked]:font-medium has-[:checked]:text-primary-foreground";
+
+/** A choice whose radio is a transparent overlay, so its label shows the state. */
+function Option({
+	choice,
+	label,
+	value,
+	onChange,
+	read,
+	className,
+	children,
+}: {
+	choice: Choice;
+	/** Accessible name, when it differs from what is shown. */
+	label: string;
+	value: Choice | null;
+	onChange: (choice: Choice) => void;
+	/** Shade as read: at or before the chosen unit. */
+	read?: boolean;
+	className?: string;
+	children: ReactNode;
+}) {
+	return (
+		<label
+			title={label}
+			className={cn(
+				optionClass,
+				read && "bg-accent/60 text-foreground",
+				className,
+			)}
+		>
+			<input
+				type="radio"
+				name="scope"
+				className="absolute inset-0 cursor-pointer appearance-none opacity-0"
+				value={choice}
+				aria-label={label}
+				checked={value === choice}
+				onChange={() => onChange(choice)}
+			/>
+			{children}
+		</label>
+	);
+}
+
+/**
+ * "Whole book", then a collapsed "partway through" section that opens to the
+ * units grouped by parent, shown as a grid of numbers when a group is plainly
+ * numbered. Units up to the chosen one are shaded as read. Nothing is
+ * preselected.
+ */
 function ScopeChoices({
 	units,
 	value,
@@ -58,40 +126,102 @@ function ScopeChoices({
 	value: Choice | null;
 	onChange: (choice: Choice) => void;
 }) {
-	const option = (choice: Choice, label: string) => (
-		<label
-			key={choice}
-			className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent/50"
-		>
-			<input
-				type="radio"
-				name="scope"
-				value={choice}
-				checked={value === choice}
-				onChange={() => onChange(choice)}
-			/>
-			{label}
-		</label>
-	);
+	const chosenEnd =
+		value === null
+			? -1
+			: value === "whole"
+				? Number.POSITIVE_INFINITY
+				: Number(value.slice(5));
+	const shared = { value, onChange };
+	const [expanded, setExpanded] = useState(false);
+	const chosen = units.find((u) => `unit:${u.endPosition}` === value);
 	return (
-		<fieldset className="max-h-[50vh] space-y-2 overflow-y-auto rounded-md border p-2">
+		<fieldset className="space-y-3">
 			<legend className="sr-only">How far you have read</legend>
-			{groupUnits(units).map((group) => (
-				<div key={`${group.parent}:${group.units[0]?.ordinal}`}>
-					{group.parent && (
-						<p className="px-2 pt-1 text-xs font-medium text-muted-foreground">
-							{group.parent}
-						</p>
+			<Option
+				{...shared}
+				choice="whole"
+				label="Whole book"
+				className="flex flex-col border px-3 py-2"
+			>
+				<span>Whole book</span>
+				<span className="text-xs font-normal opacity-70">
+					I've finished it. Later events are fair game.
+				</span>
+			</Option>
+			{units.length > 0 && (
+				<button
+					type="button"
+					aria-expanded={expanded}
+					aria-controls="scope-units"
+					onClick={() => setExpanded((e) => !e)}
+					className={cn(
+						"flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+						chosen && "border-primary",
 					)}
-					{group.units.map((u) =>
-						option(
-							`unit:${u.endPosition}`,
-							group.parent ? u.label.slice(group.parent.length + 3) : u.label,
-						),
-					)}
+				>
+					<span className="flex flex-1 flex-col">
+						<span>I'm partway through</span>
+						<span className="text-xs text-muted-foreground">
+							{chosen
+								? `Through ${chosen.label}`
+								: "Choose the last chapter you finished."}
+						</span>
+					</span>
+					<ChevronDown
+						className={cn(
+							"size-4 shrink-0 text-muted-foreground transition-transform",
+							expanded && "rotate-180",
+						)}
+						aria-hidden
+					/>
+				</button>
+			)}
+			{units.length > 0 && expanded && (
+				<div
+					id="scope-units"
+					className="max-h-[40vh] overflow-y-auto rounded-md border"
+				>
+					{groupUnits(units).map((group) => {
+						const short = (u: ReadingUnit) =>
+							group.parent ? u.label.slice(group.parent.length + 3) : u.label;
+						const numbers = numbering(group.units.map(short));
+						return (
+							<div key={`${group.parent}:${group.units[0]?.ordinal}`}>
+								{group.parent && (
+									<p className="sticky top-0 z-10 border-b bg-background/95 px-3 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur">
+										{group.parent}
+									</p>
+								)}
+								<div
+									className={
+										numbers
+											? "grid grid-cols-[repeat(auto-fill,minmax(2.5rem,1fr))] gap-1 p-2"
+											: "space-y-0.5 p-1"
+									}
+								>
+									{group.units.map((u, i) => (
+										<Option
+											{...shared}
+											key={u.endPosition}
+											choice={`unit:${u.endPosition}`}
+											label={short(u)}
+											read={u.endPosition <= chosenEnd}
+											className={
+												numbers
+													? "flex h-9 items-center justify-center tabular-nums"
+													: "block px-3 py-1.5"
+											}
+										>
+											{numbers ? numbers[i] : short(u)}
+										</Option>
+									))}
+								</div>
+							</div>
+						);
+					})}
 				</div>
-			))}
-			{option("whole", "Whole book")}
+			)}
 		</fieldset>
 	);
 }
