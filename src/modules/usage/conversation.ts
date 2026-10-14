@@ -138,3 +138,25 @@ export function totalOf(
 	}
 	return total;
 }
+
+/** Sums of preprocessing usage per model for one edition, including failed attempts. */
+export async function usageForEdition(
+	db: Executor,
+	editionId: string,
+): Promise<ConversationUsage["byModel"]> {
+	return db
+		.select({
+			model: aiUsage.model,
+			inputTokens: sum(aiUsage.inputTokens),
+			outputTokens: sum(aiUsage.outputTokens),
+			cacheReadTokens: sum(aiUsage.cacheReadTokens),
+			cacheWriteTokens: sum(aiUsage.cacheWriteTokens),
+			reasoningTokens: sum(aiUsage.reasoningTokens),
+		})
+		.from(aiUsage)
+		.where(
+			and(eq(aiUsage.editionId, editionId), eq(aiUsage.purpose, "preprocess")),
+		)
+		.groupBy(aiUsage.model)
+		.orderBy(aiUsage.model);
+}

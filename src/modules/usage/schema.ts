@@ -8,6 +8,7 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { conversations, messages } from "#/modules/conversation";
+import { editions } from "#/modules/library";
 
 /**
  * One row per AI call. Token columns are null when the provider did not
@@ -18,8 +19,14 @@ export const aiUsage = pgTable(
 	"ai_usage",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
-		purpose: text("purpose", { enum: ["conversation"] }).notNull(),
+		purpose: text("purpose", {
+			enum: ["conversation", "preprocess"],
+		}).notNull(),
 		conversationId: uuid("conversation_id").references(() => conversations.id, {
+			onDelete: "cascade",
+		}),
+		/** Set for `preprocess` rows. */
+		editionId: uuid("edition_id").references(() => editions.id, {
 			onDelete: "cascade",
 		}),
 		messageId: uuid("message_id").references(() => messages.id, {
@@ -44,5 +51,6 @@ export const aiUsage = pgTable(
 	(t) => [
 		index("ai_usage_conversation_idx").on(t.conversationId),
 		index("ai_usage_message_idx").on(t.messageId),
+		index("ai_usage_edition_idx").on(t.editionId),
 	],
 );
