@@ -286,11 +286,18 @@ describe("chat endpoint access control", () => {
 describe("assistant-response context", () => {
 	it("rejects malformed contexts without writes or provider calls", async () => {
 		const id = await newConversation();
-		const model = modelWith(() => []);
+		const model = modelWith(() => [
+			{ type: "text-delta", id: "t1", delta: "Answer" },
+		]);
+		const source = await appendMessage(t.db, {
+			conversationId: id,
+			role: "assistant",
+			parts: [{ type: "text", text: "saved" }],
+		});
 		for (const replyContext of [
 			{ messageId: "bad", text: "x" },
-			{ messageId: id, text: " " },
-			{ messageId: id, text: "x".repeat(2001) },
+			{ messageId: source.id, text: " " },
+			{ messageId: source.id, text: "x".repeat(2001) },
 		]) {
 			expect(
 				(
@@ -307,13 +314,27 @@ describe("assistant-response context", () => {
 					enabled(model),
 					post({
 						conversationId: id,
-						replyContext: { messageId: id, text: "quote" },
+						replyContext: { messageId: source.id, text: "quote" },
 					}),
 				)
 			).status,
 		).toBe(400);
 		expect(model.doStreamCalls).toHaveLength(0);
-		expect((await getConversation(t.db, id))?.messages).toEqual([]);
+		expect(
+			(await getConversation(t.db, id))?.messages.map((m) => m.id),
+		).toEqual([source.id]);
+
+		const res = await chat(
+			enabled(model),
+			post({
+				conversationId: id,
+				message: "why",
+				replyContext: { messageId: source.id, text: "x".repeat(2000) },
+			}),
+		);
+		expect(res.status).toBe(200);
+		await res.text();
+		expect(model.doStreamCalls).toHaveLength(1);
 	});
 	it("validates source membership and accepts saved incomplete responses", async () => {
 		const id = await newConversation();
