@@ -46,9 +46,9 @@ Depends on: A for status and usage queries (UI wiring), B for the job kind (star
 - [x] 4.1 Add `AI_PREPROCESS_MODEL` and `AI_PREPROCESS_AUTO` (default false) with validation; `AiConfig.preprocessModel` defaults to `model`; startup error naming the variable when set without a provider
 - [x] 4.2 Add `getPreprocessModel()` in `modules/ai` using the existing provider, key, caching and effort handling; show the model in provider status
 - [x] 4.3 Config tests for defaults, invalid values, and missing provider
-- [ ] 4.4 Server functions `getPreprocessStatus` and `startPreprocess` in `src/fns` (reject when AI is unconfigured or the edition is not ready)
-- [ ] 4.5 Preprocessing card on the book detail page: status, progress, model, spend with estimate label, start and regenerate action, privacy warning, polling while active
-- [ ] 4.6 Component or route tests for states: not started, running, complete, stale, failed, AI unconfigured
+- [x] 4.4 Server functions `getPreprocessStatus` and `startPreprocess` in `src/fns` (reject when AI is unconfigured or the edition is not ready)
+- [x] 4.5 Preprocessing card on the book detail page: status, progress, model, spend with estimate label, start and regenerate action, privacy warning, polling while active
+- [x] 4.6 Component or route tests for states: not started, running, complete, stale, failed, AI unconfigured
 - [x] 4.7 Document the variables, whole-book privacy, cost figures, and recommendations in `docs/deployment.md`; pass the variables through `compose.yaml` without enabling auto; update the env list in `README.md` and satisfy `server/docs.test.ts`
 
 ## 5. Section E: Integration and verification (after A, B, C, D merge)

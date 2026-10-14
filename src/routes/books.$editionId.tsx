@@ -9,6 +9,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { MessageSquare, MessageSquarePlus, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
+import { PreprocessCard } from "#/components/preprocess-card";
 import { NewConversationDialog } from "#/components/scope";
 import {
 	AlertDialog,
@@ -157,6 +158,8 @@ function BookPage() {
 					inLibraryFolder={edition.sources.some((s) => s.kind === "filesystem")}
 				/>
 			</section>
+
+			{edition.status === "ready" && <PreprocessCard editionId={edition.id} />}
 
 			{edition.status === "ready" && <BookSearch editionId={edition.id} />}
 
