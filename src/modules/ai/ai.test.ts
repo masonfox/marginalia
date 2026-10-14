@@ -5,6 +5,7 @@ import { createAi } from "./index";
 const cfg = (over: Partial<AiConfig>): AiConfig => ({
 	provider: "openai",
 	model: "m1",
+	preprocessModel: "m1",
 	apiKey: "sk-secret",
 	baseUrl: undefined,
 	maxSteps: 8,
@@ -53,6 +54,7 @@ describe("createAi", () => {
 		expect(ai.status).toEqual({
 			enabled: true,
 			provider: "anthropic",
+			preprocessModel: "m1",
 			model: "claude-x",
 		});
 		expect(JSON.stringify(ai.status)).not.toContain("sk-secret");

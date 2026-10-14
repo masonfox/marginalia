@@ -168,6 +168,7 @@ describe("loadConfig", () => {
 			expect(c.ai).toEqual({
 				provider: "anthropic",
 				model: "claude-x",
+				preprocessModel: "claude-x",
 				apiKey: "k",
 				baseUrl: undefined,
 				maxSteps: 8,
@@ -230,6 +231,43 @@ describe("loadConfig", () => {
 				temperature: 0.7,
 				maxSteps: 4,
 			});
+		});
+
+		it("defaults preprocessing off and to the main model", () => {
+			const c = loadConfig(anthropic);
+			expect(c.preprocessAuto).toBe(false);
+			expect(c.ai?.preprocessModel).toBe("claude-x");
+		});
+
+		it("loads the preprocess model and auto flag", () => {
+			const c = loadConfig({
+				...anthropic,
+				AI_PREPROCESS_MODEL: "cheap",
+				AI_PREPROCESS_AUTO: "true",
+			});
+			expect(c.preprocessAuto).toBe(true);
+			expect(c.ai?.preprocessModel).toBe("cheap");
+		});
+
+		it("names an invalid AI_PREPROCESS_AUTO", () => {
+			expect(
+				errorOf({ ...anthropic, AI_PREPROCESS_AUTO: "maybe" }).issues.map(
+					(i) => i.split(" ")[0],
+				),
+			).toEqual(["AI_PREPROCESS_AUTO"]);
+		});
+
+		it("names preprocess variables set without a provider", () => {
+			expect(
+				errorOf({
+					...base,
+					AI_PREPROCESS_MODEL: "m",
+					AI_PREPROCESS_AUTO: "true",
+				}).issues,
+			).toEqual([
+				"AI_PREPROCESS_MODEL requires AI_PROVIDER to be set",
+				"AI_PREPROCESS_AUTO requires AI_PROVIDER to be set",
+			]);
 		});
 
 		it("names a missing model", () => {
