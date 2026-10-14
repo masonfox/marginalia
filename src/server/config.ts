@@ -23,6 +23,57 @@ const boolean = (fallback: boolean) =>
 			.transform((v) => v === "true" || v === "1" || v === "yes"),
 	);
 
+export const REASONING_EFFORTS = [
+	"none",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+/** USD per million tokens. A missing cache price falls back to the input price. */
+export interface ModelPrice {
+	input: number;
+	output: number;
+	cacheRead?: number;
+	cacheWrite?: number;
+}
+
+const PRICES_FORMAT =
+	'must be JSON like {"<model>": {"input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75}} with non-negative USD per million tokens';
+
+const priceSchema = z
+	.object({
+		input: z.number().nonnegative(),
+		output: z.number().nonnegative(),
+		cacheRead: z.number().nonnegative().optional(),
+		cacheWrite: z.number().nonnegative().optional(),
+	})
+	.strict();
+
+/** Parses AI_PRICES. The issue states the expected format only, never the value. */
+function parsePrices(
+	raw: string,
+	ctx: z.RefinementCtx<string>,
+): Record<string, ModelPrice> {
+	let json: unknown;
+	try {
+		json = JSON.parse(raw);
+	} catch {
+		json = undefined;
+	}
+	const parsed = z.record(z.string().min(1), priceSchema).safeParse(json);
+	if (!parsed.success) {
+		ctx.addIssue({ code: "custom", message: PRICES_FORMAT });
+		return z.NEVER;
+	}
+	return parsed.data;
+}
+
 export const envSchema = z.object({
 	DATABASE_URL: optional(
 		z.string({ error: "is required (a PostgreSQL connection string)" }),
@@ -90,6 +141,15 @@ export const envSchema = z.object({
 			.max(2, { error: "must be a number between 0 and 2" })
 			.optional(),
 	),
+	AI_EFFORT: optional(
+		z
+			.enum(REASONING_EFFORTS, {
+				error: `must be one of ${REASONING_EFFORTS.join(", ")}`,
+			})
+			.optional(),
+	),
+	AI_PROMPT_CACHE: boolean(true),
+	AI_PRICES: optional(z.string().transform(parsePrices).optional()),
 	LOG_LEVEL: optional(
 		z
 			.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"], {
@@ -113,6 +173,11 @@ export interface AiConfig {
 	baseUrl: string | undefined;
 	maxSteps: number;
 	temperature: number | undefined;
+	/** Undefined means the provider's default. */
+	effort: ReasoningEffort | undefined;
+	promptCache: boolean;
+	/** Price overrides from AI_PRICES, keyed by model id. */
+	prices: Record<string, ModelPrice>;
 }
 
 export interface Config {
@@ -205,6 +270,9 @@ function buildAiConfig(e: Env): AiConfig | undefined {
 		baseUrl: e.AI_BASE_URL,
 		maxSteps: e.AI_MAX_STEPS,
 		temperature: e.AI_TEMPERATURE,
+		effort: e.AI_EFFORT,
+		promptCache: e.AI_PROMPT_CACHE,
+		prices: e.AI_PRICES ?? {},
 	};
 }
 
@@ -229,6 +297,9 @@ export function redactedConfig(config: Config) {
 			baseUrl: ai.baseUrl,
 			maxSteps: ai.maxSteps,
 			temperature: ai.temperature,
+			effort: ai.effort,
+			promptCache: ai.promptCache,
+			prices: ai.prices,
 			apiKeySet: ai.apiKey !== undefined,
 		},
 		databaseUrl: redactUrlPassword(databaseUrl),

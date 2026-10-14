@@ -234,6 +234,8 @@ export async function pruneEmptyConversations(db: Executor): Promise<number> {
 }
 
 export interface NewMessage {
+	/** Chosen by the caller when the client already knows the message by this id. */
+	id?: string;
 	conversationId: string;
 	role: "user" | "assistant";
 	parts: Json[];
@@ -264,6 +266,7 @@ export async function appendMessage(
 		const [row] = await tx
 			.insert(messages)
 			.values({
+				id: m.id,
 				conversationId: m.conversationId,
 				seq: next,
 				role: m.role,

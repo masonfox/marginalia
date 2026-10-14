@@ -4,6 +4,7 @@ import {
 	check,
 	index,
 	integer,
+	json,
 	jsonb,
 	pgTable,
 	primaryKey,
@@ -90,8 +91,12 @@ export const messages = pgTable(
 			.references(() => conversations.id, { onDelete: "cascade" }),
 		seq: integer("seq").notNull(),
 		role: text("role", { enum: ["user", "assistant"] }).notNull(),
-		/** AI SDK UIMessage parts, stored verbatim. */
-		parts: jsonb("parts").$type<Json[]>().notNull(),
+		/**
+		 * AI SDK UIMessage parts, stored verbatim. `json`, not `jsonb`: jsonb
+		 * reorders object keys, so replayed tool results would differ from what
+		 * the model was first sent and miss the prompt cache.
+		 */
+		parts: json("parts").$type<Json[]>().notNull(),
 		citations: jsonb("citations")
 			.$type<CitationRecord[]>()
 			.notNull()

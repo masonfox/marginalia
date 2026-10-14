@@ -1,7 +1,14 @@
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { asc, eq } from "drizzle-orm";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { AiRuntime } from "#/modules/ai";
+import {
+	aiUsage,
+	priceTable,
+	totalOf,
+	usageForConversation,
+} from "#/modules/usage";
 import { createTestDb, type TestDb } from "../../../test/db";
 import { buildEpub } from "../../../test/epub-builder";
 import { ingestBook, tempDataDir } from "../../../test/library";
@@ -18,14 +25,15 @@ let t: TestDb;
 let editionId: string;
 let shortId: string;
 
+/** Per-step usage: cache writes are left unreported, as some providers do. */
 const usage = {
 	inputTokens: {
-		total: 1,
-		noCache: 1,
-		cacheRead: undefined,
+		total: 10,
+		noCache: 4,
+		cacheRead: 6,
 		cacheWrite: undefined,
 	},
-	outputTokens: { total: 1, text: 1, reasoning: undefined },
+	outputTokens: { total: 2, text: 1, reasoning: 1 },
 };
 const finish = (unified: "stop" | "tool-calls") => ({
 	type: "finish" as const,
@@ -66,6 +74,8 @@ function runtime(model: MockLanguageModelV4, maxSteps = 5): AiRuntime {
 		status: { enabled: true, provider: "openai", model: "mock-1" },
 		maxSteps,
 		temperature: undefined,
+		reasoning: undefined,
+		providerOptions: {},
 	};
 }
 
@@ -106,6 +116,21 @@ async function saved(conversationId: string, count: number) {
 			return c && c.messages.length >= count ? c : null;
 		},
 		{ what: `${count} stored messages` },
+	);
+}
+
+/** Usage rows of a conversation, oldest first, once at least `count` exist. */
+async function usageRows(conversationId: string, count = 1) {
+	return waitFor(
+		async () => {
+			const rows = await t.db
+				.select()
+				.from(aiUsage)
+				.where(eq(aiUsage.conversationId, conversationId))
+				.orderBy(asc(aiUsage.createdAt));
+			return rows.length >= count ? rows : null;
+		},
+		{ what: `${count} usage rows` },
 	);
 }
 
@@ -347,6 +372,8 @@ describe("startChat", () => {
 			status: { enabled: false },
 			maxSteps: 8,
 			temperature: undefined,
+			reasoning: undefined,
+			providerOptions: {},
 		};
 		const disabled = await startChat(deps(off), {
 			conversationId: id,
@@ -362,5 +389,208 @@ describe("startChat", () => {
 		});
 		expect(missing.status).toBe("not_found");
 		expect(model.doStreamCalls).toHaveLength(0);
+	});
+});
+
+describe("usage and provider options", () => {
+	it("passes effort and provider options to every model call", async () => {
+		const id = await newConversation();
+		const model = scripted(
+			toolCall("c1", { query: "light" }),
+			textReply("Done."),
+		);
+		const ai: AiRuntime = {
+			...runtime(model),
+			reasoning: "low",
+			providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+		};
+		await (await run(ai, id, "Go")).text();
+		expect(model.doStreamCalls).toHaveLength(2);
+		for (const call of model.doStreamCalls) {
+			expect(call.reasoning).toBe("low");
+			expect(call.providerOptions).toEqual({
+				anthropic: { cacheControl: { type: "ephemeral" } },
+			});
+		}
+	});
+
+	it("stores summed usage for a finished multi-step reply under the streamed message id", async () => {
+		const id = await newConversation();
+		const model = scripted(
+			toolCall("c1", { query: "light" }),
+			textReply("Done."),
+		);
+		const chunks = await readChunks(await run(runtime(model), id, "Go"));
+		const conv = await saved(id, 2);
+		const reply = conv.messages[1];
+		// The client knows the reply by the id it is stored under.
+		expect(chunks.find((c) => c.type === "start")?.messageId).toBe(reply?.id);
+
+		const [row] = await usageRows(id);
+		expect(row).toMatchObject({
+			purpose: "conversation",
+			messageId: reply?.id,
+			provider: "openai",
+			model: "mock-1",
+			inputTokens: 20,
+			outputTokens: 4,
+			cacheReadTokens: 12,
+			cacheWriteTokens: null,
+			reasoningTokens: 2,
+			steps: 2,
+			complete: true,
+		});
+	});
+
+	it("stores the completed steps of a stopped reply as incomplete", async () => {
+		const id = await newConversation();
+		const controller = new AbortController();
+		let calls = 0;
+		const model = new MockLanguageModelV4({
+			doStream: async ({ abortSignal }) => {
+				if (calls++ === 0) {
+					return { stream: streamOf(toolCall("c1", { query: "x" })) as never };
+				}
+				return {
+					stream: new ReadableStream({
+						start(c) {
+							c.enqueue({ type: "stream-start", warnings: [] });
+							c.enqueue({ type: "text-start", id: "t1" });
+							c.enqueue({ type: "text-delta", id: "t1", delta: "Half an" });
+							abortSignal?.addEventListener("abort", () => {
+								try {
+									c.error(new DOMException("aborted", "AbortError"));
+								} catch {}
+							});
+						},
+					}) as never,
+				};
+			},
+		});
+		const result = await startChat(deps(runtime(model)), {
+			conversationId: id,
+			message: "Go",
+			abortSignal: controller.signal,
+		});
+		if (result.status !== "ok") throw new Error(result.status);
+		const reader =
+			result.response.body?.getReader() as ReadableStreamDefaultReader;
+		const decoder = new TextDecoder();
+		let seen = "";
+		while (!seen.includes("Half an")) {
+			const { value, done } = await reader.read();
+			if (done) break;
+			seen += decoder.decode(value);
+		}
+		controller.abort();
+		await reader.cancel().catch(() => {});
+
+		const conv = await saved(id, 2);
+		const [row] = await usageRows(id);
+		expect(row).toMatchObject({
+			messageId: conv.messages[1]?.id,
+			inputTokens: 10,
+			outputTokens: 2,
+			steps: 1,
+			complete: false,
+		});
+	});
+
+	it("keeps a failed attempt's usage in the total after a retry", async () => {
+		const id = await newConversation();
+		const failing = scripted(toolCall("c1", { query: "x" }), [
+			{ type: "stream-start", warnings: [] },
+			{ type: "error", error: new Error("overloaded") },
+		]);
+		await (await run(runtime(failing), id, "Hello?")).text();
+		const failed = await saved(id, 2);
+		expect(failed.messages[1]?.finishReason).toBe("error");
+		const [first] = await usageRows(id);
+		expect(first).toMatchObject({
+			messageId: failed.messages[1]?.id,
+			// Two model calls; the failed one reported no tokens.
+			steps: 2,
+			inputTokens: 10,
+			complete: false,
+		});
+
+		await (await run(runtime(scripted(textReply("Recovered."))), id)).text();
+		const rows = await usageRows(id, 2);
+		const retried = await getConversation(t.db, id);
+		expect(rows[0]?.messageId).toBeNull();
+		expect(rows[1]?.messageId).toBe(retried?.messages[1]?.id);
+
+		const usage = await usageForConversation(t.db, id);
+		expect(Object.keys(usage.byMessage)).toEqual([retried?.messages[1]?.id]);
+		expect(totalOf(usage, priceTable()).inputTokens).toBe(20);
+	});
+
+	it("logs each distinct provider warning once per request", async () => {
+		const id = await newConversation();
+		const warning = { type: "unsupported", feature: "temperature" };
+		const withWarning = (chunks: Chunk[]) =>
+			chunks.map((c) =>
+				c.type === "stream-start" ? { ...c, warnings: [warning] } : c,
+			);
+		const model = scripted(
+			withWarning(toolCall("c1", { query: "x" })),
+			withWarning(textReply("Done.")),
+		);
+		const warn = vi.fn();
+		const r = await startChat(
+			{ db: t.db, ai: runtime(model), log: { warn, error() {} } },
+			{ conversationId: id, message: "Go" },
+		);
+		if (r.status !== "ok") throw new Error(r.status);
+		await r.response.text();
+		await saved(id, 2);
+		expect(model.doStreamCalls).toHaveLength(2);
+		expect(warn).toHaveBeenCalledTimes(1);
+		expect(warn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				conversationId: id,
+				warning: expect.objectContaining({ feature: "temperature" }),
+			}),
+			"AI provider warning",
+		);
+	});
+});
+
+describe("request prefix", () => {
+	it("sends the same system prompt and tools on every step and turn, and replays history unchanged", async () => {
+		const id = await newConversation();
+		const model = scripted(
+			toolCall("c1", { query: "green light" }),
+			textReply("First answer."),
+			textReply("Second answer."),
+		);
+		const ai = runtime(model);
+		await (await run(ai, id, "one")).text();
+		await saved(id, 2);
+		await (await run(ai, id, "two")).text();
+		await saved(id, 4);
+
+		const calls = model.doStreamCalls;
+		expect(calls).toHaveLength(3);
+		const system = (i: number) =>
+			JSON.stringify(calls[i]?.prompt.filter((m) => m.role === "system"));
+		const tools = (i: number) => JSON.stringify(calls[i]?.tools);
+		for (const i of [1, 2]) {
+			expect(system(i)).toBe(system(0));
+			expect(tools(i)).toBe(tools(0));
+		}
+		expect(system(0)).toContain("Chat Book");
+		expect(calls[0]?.tools?.map((t) => t.name)).toEqual([
+			"searchBooks",
+			"readPassage",
+			"getOutline",
+		]);
+
+		// Turn 2 starts with exactly what turn 1's last step sent.
+		const lastOfTurn1 = calls[1]?.prompt ?? [];
+		const turn2 = calls[2]?.prompt ?? [];
+		expect(JSON.stringify(turn2.slice(0, lastOfTurn1.length))).toBe(
+			JSON.stringify(lastOfTurn1),
+		);
 	});
 });

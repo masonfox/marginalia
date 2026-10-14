@@ -22,6 +22,20 @@
       "when": 1791991865475,
       "tag": "0002_conversations",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791998973869,
+      "tag": "0003_ai_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792001017994,
+      "tag": "0004_message_parts_json",
+      "breakpoints": true
     }
   ]
 }

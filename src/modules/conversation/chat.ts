@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
 	APICallError,
 	convertToModelMessages,
@@ -10,6 +11,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import type { AiRuntime } from "#/modules/ai";
 import { createRetrieval } from "#/modules/retrieval";
+import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
 import type { Database } from "#/server/db";
 import type { Logger } from "#/server/logger";
 import { buildSystemPrompt, PROMPT_VERSION } from "./prompt";
@@ -138,10 +140,16 @@ function generate(
 		books: conversation.books,
 	});
 	const modelName = ai.status.model ?? null;
+	// The reply's id from the start, so the client's message and the stored one match.
+	const replyId = randomUUID();
 
 	let failure: string | null = null;
 	let citations: CitationRecord[] | null = null;
 	let text = "";
+	// Summed per completed step: totalUsage is unavailable after a stop.
+	let usage = NO_USAGE;
+	let steps = 0;
+	const warned = new Set<string>();
 
 	const stream = createUIMessageStream<ChatUIMessage>({
 		onError: describeError,
@@ -156,13 +164,29 @@ function generate(
 				tools,
 				stopWhen: stepCountIs(ai.maxSteps),
 				temperature: ai.temperature,
+				reasoning: ai.reasoning,
+				providerOptions: ai.providerOptions,
 				abortSignal,
+				onStepEnd: (step) => {
+					usage = addUsage(usage, step.usage);
+					steps += 1;
+					for (const warning of step.warnings ?? []) {
+						const key = JSON.stringify(warning);
+						if (warned.has(key)) continue;
+						warned.add(key);
+						log.warn(
+							{ warning, conversationId: conversation.id, model: modelName },
+							"AI provider warning",
+						);
+					}
+				},
 				onError: () => {
 					// Surfaced through the stream's error chunk below.
 				},
 			});
 			for await (const chunk of result.toUIMessageStream({
 				onError: describeError,
+				generateMessageId: () => replyId,
 			})) {
 				if (chunk.type === "text-delta") text += chunk.delta;
 				if (chunk.type === "error") failure = chunk.errorText;
@@ -191,7 +215,8 @@ function generate(
 						? []
 						: (citations ??
 							(await verifyCitations(verifyDeps, finalText).catch(() => [])));
-				await appendMessage(db, {
+				const saved = await appendMessage(db, {
+					id: replyId,
 					conversationId: conversation.id,
 					role: "assistant",
 					parts: message.parts.filter(
@@ -207,6 +232,24 @@ function generate(
 					promptVersion: PROMPT_VERSION,
 					error: failure,
 				});
+				try {
+					await recordUsage(db, {
+						...usage,
+						purpose: "conversation",
+						conversationId: conversation.id,
+						messageId: saved.id,
+						provider: ai.status.provider ?? "unknown",
+						model: modelName ?? "unknown",
+						steps,
+						complete: !(aborted || failure !== null),
+					});
+				} catch (err) {
+					// The reply is saved; only its cost goes unrecorded.
+					log.error(
+						{ err, conversationId: conversation.id },
+						"could not record usage",
+					);
+				}
 			} catch (err) {
 				log.error(
 					{ err, conversationId: conversation.id },

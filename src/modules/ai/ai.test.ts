@@ -9,6 +9,9 @@ const cfg = (over: Partial<AiConfig>): AiConfig => ({
 	baseUrl: undefined,
 	maxSteps: 8,
 	temperature: undefined,
+	effort: undefined,
+	promptCache: true,
+	prices: {},
 	...over,
 });
 
@@ -59,5 +62,34 @@ describe("createAi", () => {
 		const ai = createAi(cfg({ maxSteps: 3, temperature: 0.2 }));
 		expect(ai.maxSteps).toBe(3);
 		expect(ai.temperature).toBe(0.2);
+	});
+
+	it("requests prompt caching from Anthropic by default", () => {
+		const ai = createAi(cfg({ provider: "anthropic" }));
+		expect(ai.providerOptions).toEqual({
+			anthropic: { cacheControl: { type: "ephemeral" } },
+		});
+	});
+
+	it("sends no cache instruction when caching is off", () => {
+		const ai = createAi(cfg({ provider: "anthropic", promptCache: false }));
+		expect(ai.providerOptions).toEqual({});
+	});
+
+	it.each([
+		"openai",
+		"google",
+		"openai-compatible",
+	] as const)("needs no provider options for %s", (provider) => {
+		const ai = createAi(
+			cfg({ provider, baseUrl: "http://localhost:11434/v1" }),
+		);
+		expect(ai.providerOptions).toEqual({});
+	});
+
+	it("passes effort through and leaves it unset by default", () => {
+		expect(createAi(cfg({ effort: "low" })).reasoning).toBe("low");
+		expect(createAi(cfg({})).reasoning).toBeUndefined();
+		expect(createAi(undefined).reasoning).toBeUndefined();
 	});
 });

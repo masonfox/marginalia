@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createAi } from "#/modules/ai";
 import { deleteEdition, ensureEdition } from "#/modules/library";
+import { priceTable, recordUsage } from "#/modules/usage";
+import { loadConfig } from "#/server/config";
 import { createTestDb, type TestDb } from "../../../test/db";
 import { silentLog, tempDataDir } from "../../../test/library";
 import {
@@ -9,6 +11,7 @@ import {
 	createConversationForEdition,
 	deleteConversation,
 	getConversation,
+	getConversationWithUsage,
 	listConversationsForEdition,
 	pruneEmptyConversations,
 	renameConversation,
@@ -30,6 +33,95 @@ beforeAll(async () => {
 });
 
 describe("conversation operations behind the server functions", () => {
+	it("returns per-reply usage with estimates and a total, without secrets", async () => {
+		const config = loadConfig({
+			DATABASE_URL: "postgres://u:dbsecret@localhost:5432/m",
+			AUTH_PASSWORD: "pw-secret",
+			AI_PROVIDER: "anthropic",
+			AI_MODEL: "claude-sonnet-5-5",
+			AI_API_KEY: SECRET,
+			AI_PRICES: '{"local-model": {"input": 1, "output": 1}}',
+		});
+		const created = await createConversationForEdition(t.db, readyId);
+		if (!created) throw new Error("expected a conversation");
+		const id = created.id;
+		await appendMessage(t.db, {
+			conversationId: id,
+			role: "user",
+			parts: [{ type: "text", text: "hi" }],
+		});
+		const old = await appendMessage(t.db, {
+			conversationId: id,
+			role: "assistant",
+			parts: [{ type: "text", text: "Old reply." }],
+		});
+		const priced = await appendMessage(t.db, {
+			conversationId: id,
+			role: "assistant",
+			parts: [{ type: "text", text: "Priced." }],
+		});
+		const local = await appendMessage(t.db, {
+			conversationId: id,
+			role: "assistant",
+			parts: [{ type: "text", text: "Local." }],
+		});
+		const base = {
+			purpose: "conversation" as const,
+			conversationId: id,
+			provider: "anthropic",
+			inputTokens: 1_000_000,
+			outputTokens: 100_000,
+			cacheReadTokens: 800_000,
+			cacheWriteTokens: 0,
+			reasoningTokens: null,
+			steps: 3,
+		};
+		await recordUsage(t.db, {
+			...base,
+			messageId: priced.id,
+			model: "claude-sonnet-5-5",
+			complete: false,
+		});
+		await recordUsage(t.db, {
+			...base,
+			messageId: local.id,
+			model: "local-model",
+			complete: true,
+		});
+
+		const got = await getConversationWithUsage(
+			t.db,
+			id,
+			priceTable(config.ai?.prices),
+		);
+		if (!got) throw new Error("expected a conversation");
+		expect(got.messages).toHaveLength(4);
+		expect(got.usage[old.id]).toBeUndefined();
+		expect(got.usage[priced.id]).toMatchObject({
+			model: "claude-sonnet-5-5",
+			steps: 3,
+			complete: false,
+		});
+		// 200K uncached × $2 + 800K cached × $0.10 + 100K out × $10, per MTok.
+		expect(got.usage[priced.id]?.estimatedCost).toBeCloseTo(1.48);
+		// Priced from AI_PRICES, cache reads at the input price.
+		expect(got.usage[local.id]?.estimatedCost).toBeCloseTo(1.1);
+		expect(got.usageTotal).toMatchObject({
+			inputTokens: 2_000_000,
+			outputTokens: 200_000,
+			missing: 1,
+		});
+		expect(got.usageTotal.estimatedCost).toBeCloseTo(2.58);
+
+		const sent = JSON.stringify(got);
+		for (const secret of [SECRET, "dbsecret", "pw-secret"]) {
+			expect(sent).not.toContain(secret);
+		}
+		expect(
+			await getConversationWithUsage(t.db, crypto.randomUUID(), {}),
+		).toBeNull();
+	});
+
 	it("creates, lists, gets, renames, and deletes a conversation", async () => {
 		const created = await createConversationForEdition(t.db, readyId);
 		if (!created) throw new Error("expected a conversation");
@@ -85,6 +177,9 @@ describe("conversation operations behind the server functions", () => {
 			baseUrl: undefined,
 			maxSteps: 8,
 			temperature: undefined,
+			effort: undefined,
+			promptCache: true,
+			prices: {},
 		});
 		expect(ai.status).toEqual({
 			enabled: true,

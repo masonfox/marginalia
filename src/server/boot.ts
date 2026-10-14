@@ -58,6 +58,8 @@ async function start(): Promise<AppContext> {
 		},
 	});
 
+	// Model warnings are logged per request by the chat code, so the SDK's own console output is off.
+	globalThis.AI_SDK_LOG_WARNINGS = false;
 	const ai = createAi(config.ai);
 	const ctx: AppContext = {
 		config,

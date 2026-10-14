@@ -58,12 +58,16 @@ const enabled = (model: MockLanguageModelV4): AiRuntime => ({
 	status: { enabled: true, provider: "openai", model: "mock" },
 	maxSteps: 4,
 	temperature: undefined,
+	reasoning: undefined,
+	providerOptions: {},
 });
 const disabled: AiRuntime = {
 	model: null,
 	status: { enabled: false },
 	maxSteps: 8,
 	temperature: undefined,
+	reasoning: undefined,
+	providerOptions: {},
 };
 
 const post = (body: unknown, headers: Record<string, string> = {}) =>

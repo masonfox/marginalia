@@ -23,4 +23,8 @@ export {
 	searchBooks,
 	type ToolDeps,
 } from "./tools";
+export {
+	type ConversationWithUsage,
+	getConversationWithUsage,
+} from "./usage";
 export { type VerifyDeps, verifyCitations } from "./verify";
