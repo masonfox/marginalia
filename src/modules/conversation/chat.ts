@@ -9,19 +9,19 @@ import {
 	type UIMessage,
 } from "ai";
 import { and, eq } from "drizzle-orm";
-import type { AiRuntime } from "#/modules/ai";
-import { createRetrieval } from "#/modules/retrieval";
-import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
-import type { Database } from "#/server/db";
-import type { Logger } from "#/server/logger";
-import { buildSystemPrompt, PROMPT_VERSION } from "./prompt";
 import {
 	projectReplyContext,
 	type ReplyContext,
 	replyContextPart,
 	replyContextSchema,
 	type StoredReplyContext,
-} from "./reply-context";
+} from "#/lib/reply-context";
+import type { AiRuntime } from "#/modules/ai";
+import { createRetrieval } from "#/modules/retrieval";
+import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
+import type { Database } from "#/server/db";
+import type { Logger } from "#/server/logger";
+import { buildSystemPrompt, PROMPT_VERSION } from "./prompt";
 import {
 	appendMessage,
 	type ConversationDetail,

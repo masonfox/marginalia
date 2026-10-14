@@ -1,7 +1,6 @@
 import { z } from "zod";
+import { replyContextSchema } from "#/lib/reply-context";
 import { type ChatDeps, startChat } from "./chat";
-
-import { replyContextSchema } from "./reply-context";
 
 const chatBody = z
 	.object({

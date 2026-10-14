@@ -27,17 +27,17 @@ import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
-import { groupParts } from "#/lib/research-trail";
-import { exactUsage, replyUsageLine, totalUsageLine } from "#/lib/usage-format";
-import type {
-	CitationRecord,
-	ConversationWithUsage,
-} from "#/modules/conversation";
 import {
 	type ReplyContext,
 	replyContextOf,
 	replyContextPart,
 	type StoredReplyContext,
+} from "#/lib/reply-context";
+import { groupParts } from "#/lib/research-trail";
+import { exactUsage, replyUsageLine, totalUsageLine } from "#/lib/usage-format";
+import type {
+	CitationRecord,
+	ConversationWithUsage,
 } from "#/modules/conversation";
 
 type Msg = UIMessage<

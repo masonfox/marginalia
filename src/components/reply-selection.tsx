@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { REPLY_CONTEXT_LIMIT, type ReplyContext } from "#/modules/conversation";
+import { REPLY_CONTEXT_LIMIT, type ReplyContext } from "#/lib/reply-context";
 
 /** Inspect every intersected subtree, including controls between text endpoints. */
 export function captureReplySelection(
