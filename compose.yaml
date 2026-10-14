@@ -30,6 +30,13 @@ services:
       # empty disables the login: anyone who can reach the instance can use it.
       AUTH_PASSWORD: ${AUTH_PASSWORD:-}
       MARGINALIA_LIBRARY_PATHS: /library
+      # AI conversations are off unless AI_PROVIDER is set (see docs/deployment.md).
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MAX_STEPS: ${AI_MAX_STEPS:-}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-}
       # Behind a TLS-terminating reverse proxy, also set:
       # MARGINALIA_PUBLIC_URL: https://books.example.com
       # MARGINALIA_TRUST_PROXY: "true"

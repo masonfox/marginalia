@@ -1,4 +1,5 @@
 import { LoginRateLimiter, setupPassword } from "#/modules/access";
+import { createAi } from "#/modules/ai";
 import {
 	type Config,
 	ConfigError,
@@ -57,7 +58,15 @@ async function start(): Promise<AppContext> {
 		},
 	});
 
-	const ctx: AppContext = { config, log, db, enqueue: jobs.enqueue, access };
+	const ai = createAi(config.ai);
+	const ctx: AppContext = {
+		config,
+		log,
+		db,
+		ai,
+		enqueue: jobs.enqueue,
+		access,
+	};
 	setAppContext(ctx);
 	await onStarted(ctx, log);
 

@@ -46,10 +46,42 @@ All configuration comes from environment variables. They are validated at startu
 | `MARGINALIA_TRUST_PROXY` | `false` | Trust `X-Forwarded-For` and `X-Forwarded-Proto` from a reverse proxy. See [the proxy section](#trusting-the-proxy). |
 | `MARGINALIA_SESSION_DAYS` | `30` | How long a login lasts. |
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, or `silent`. Logs are JSON on stdout. |
+| `AI_PROVIDER` | *(unset)* | `openai`, `anthropic`, `google`, or `openai-compatible`. Unset disables AI: the library, search, and reading work as before, and conversations show setup guidance. See [AI conversations](#ai-conversations). |
+| `AI_MODEL` | *(unset)* | The model name, e.g. `gpt-5`, `claude-sonnet-4-5`, `gemini-2.5-pro`, or `llama3.1`. Required when `AI_PROVIDER` is set. |
+| `AI_API_KEY` | *(unset)* | The provider API key. Required for every provider except `openai-compatible`, where it is optional. Never logged or shown in the UI. |
+| `AI_BASE_URL` | *(unset)* | The provider endpoint. Required for `openai-compatible` (e.g. `http://ollama:11434/v1`), and an optional override for the others (for example a proxy). |
+| `AI_MAX_STEPS` | `8` | The most tool calls (search, read, outline) the assistant may chain while answering one message. |
+| `AI_TEMPERATURE` | *(unset)* | Sampling temperature from 0 to 2. Unset uses the provider default. |
 | `MARGINALIA_MIGRATIONS_DIR` | `/app/drizzle` (in the image) | Location of the database migrations. Only change this if you build your own image layout. |
 | `NODE_ENV` | `production` (in the image) | Runtime mode. Leave as is. |
 
 Database migrations run automatically at startup, before the server accepts requests. Several instances starting at once are safe: a PostgreSQL advisory lock makes them apply each migration exactly once. If a migration fails, the container exits with a non-zero status and logs the failing migration.
+
+## AI conversations
+
+Conversations let you discuss a book with a language model that searches and quotes the actual text. They are off until you choose a provider. Configuration is by environment variables only; if a provider is set but its model, key, or base URL is missing, Marginalia refuses to start and names the variable (it never prints the key).
+
+**Hosted provider** (in `.env`, then `docker compose up -d`):
+
+```sh
+AI_PROVIDER=anthropic
+AI_MODEL=claude-sonnet-4-5
+AI_API_KEY=sk-ant-...
+```
+
+**Local model with an OpenAI-compatible endpoint** (for example Ollama), where nothing leaves your network:
+
+```sh
+AI_PROVIDER=openai-compatible
+AI_BASE_URL=http://host.docker.internal:11434/v1
+AI_MODEL=llama3.1
+```
+
+Small local models vary in how well they call tools and follow the citation format. Citations are always checked against the book regardless, and anything that does not match is shown as unverified.
+
+**What is sent to the provider.** Each message you send, the earlier messages of that conversation, and every passage the assistant reads or searches for are sent to the configured provider to produce a reply. With a hosted provider, that text leaves your instance. Use a local endpoint if that is not acceptable. Marginalia has no reading progress yet, so the assistant can read, and may reveal, any part of the book.
+
+Conversations are stored in your PostgreSQL database. Deleting a book deletes the conversations about it.
 
 ## Setting a password
 
@@ -89,7 +121,7 @@ Books are identified by the SHA-256 of their bytes:
 
 ### Deleting books
 
-**Delete book** on a book's page permanently removes it: its passages, search entries, cover, and (for uploads) the stored EPUB in `/data`. There is no undo, and links to its passages stop resolving.
+**Delete book** on a book's page permanently removes it: its passages, search entries, cover, and (for uploads) the stored EPUB in `/data`. Conversations about the book are deleted with it. There is no undo, and links to its passages stop resolving.
 
 Marginalia never deletes files in library folders. Instead it remembers the deleted book's SHA-256, and scans skip any file with those bytes, at any path, including on a full rescan. To bring the book back, upload the same file: this clears the exclusion and imports it again, with the same citation locators as before. Any library copies show up as sources again. To get rid of the file itself, delete it from the folder yourself.
 

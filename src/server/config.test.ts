@@ -150,4 +150,102 @@ describe("loadConfig", () => {
 			expect(logged).not.toContain("dbsecret");
 		});
 	});
+
+	describe("AI provider", () => {
+		it("is disabled when AI_PROVIDER is unset", () => {
+			const c = loadConfig(base);
+			expect(c.ai).toBeUndefined();
+			expect(redactedConfig(c).ai).toBeUndefined();
+		});
+
+		it("loads a hosted provider with defaults", () => {
+			const c = loadConfig({
+				...base,
+				AI_PROVIDER: "anthropic",
+				AI_MODEL: "claude-x",
+				AI_API_KEY: "k",
+			});
+			expect(c.ai).toEqual({
+				provider: "anthropic",
+				model: "claude-x",
+				apiKey: "k",
+				baseUrl: undefined,
+				maxSteps: 8,
+				temperature: undefined,
+			});
+		});
+
+		it("allows openai-compatible without a key", () => {
+			const c = loadConfig({
+				...base,
+				AI_PROVIDER: "openai-compatible",
+				AI_MODEL: "llama3",
+				AI_BASE_URL: "http://localhost:11434/v1",
+				AI_TEMPERATURE: "0.7",
+				AI_MAX_STEPS: "4",
+			});
+			expect(c.ai).toMatchObject({
+				apiKey: undefined,
+				temperature: 0.7,
+				maxSteps: 4,
+			});
+		});
+
+		it("names a missing model", () => {
+			expect(
+				errorOf({ ...base, AI_PROVIDER: "openai", AI_API_KEY: "k" }).issues,
+			).toEqual(["AI_MODEL is required when AI_PROVIDER is set"]);
+		});
+
+		it("names a missing key", () => {
+			expect(
+				errorOf({ ...base, AI_PROVIDER: "google", AI_MODEL: "m" }).issues,
+			).toEqual(["AI_API_KEY is required when AI_PROVIDER is google"]);
+		});
+
+		it("names a missing base URL for openai-compatible", () => {
+			expect(
+				errorOf({ ...base, AI_PROVIDER: "openai-compatible", AI_MODEL: "m" })
+					.issues,
+			).toEqual([
+				"AI_BASE_URL is required when AI_PROVIDER is openai-compatible",
+			]);
+		});
+
+		it("rejects an unknown provider and bad numbers", () => {
+			const names = errorOf({
+				...base,
+				AI_PROVIDER: "bing",
+				AI_MAX_STEPS: "0",
+				AI_TEMPERATURE: "hot",
+			}).issues.map((i) => i.split(" ")[0]);
+			expect(names.sort()).toEqual([
+				"AI_MAX_STEPS",
+				"AI_PROVIDER",
+				"AI_TEMPERATURE",
+			]);
+		});
+
+		it("never exposes the key in errors or the loggable config", () => {
+			const secret = "sk-very-secret-key";
+			const err = errorOf({
+				...base,
+				AI_PROVIDER: "openai",
+				AI_API_KEY: secret,
+			});
+			expect(err.message).not.toContain(secret);
+			expect(JSON.stringify(err)).not.toContain(secret);
+			expect(String(err.stack)).not.toContain(secret);
+
+			const c = loadConfig({
+				...base,
+				AI_PROVIDER: "openai",
+				AI_MODEL: "m",
+				AI_API_KEY: secret,
+			});
+			const logged = JSON.stringify(redactedConfig(c));
+			expect(logged).not.toContain(secret);
+			expect(redactedConfig(c).ai?.apiKeySet).toBe(true);
+		});
+	});
 });
