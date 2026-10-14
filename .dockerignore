@@ -1,0 +1,14 @@
+.git
+.claude
+.dev-data
+.output
+.nitro
+.tanstack
+.vscode
+node_modules
+openspec
+test-results
+playwright-report
+coverage
+*.log
+.env

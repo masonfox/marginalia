@@ -1,0 +1,46 @@
+# Reference deployment: Marginalia plus PostgreSQL.
+# Copy .env.example to .env and adjust, then: docker compose up -d
+name: marginalia
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: marginalia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-marginalia}
+      POSTGRES_DB: marginalia
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marginalia -d marginalia"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    image: ${MARGINALIA_IMAGE:-ghcr.io/OWNER/marginalia:latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://marginalia:${POSTGRES_PASSWORD:-marginalia}@db:5432/marginalia
+      # Set AUTH_PASSWORD (in .env or your shell) to require a login. Leaving it
+      # empty disables the login: anyone who can reach the instance can use it.
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      MARGINALIA_LIBRARY_PATHS: /library
+      # Behind a TLS-terminating reverse proxy, also set:
+      # MARGINALIA_PUBLIC_URL: https://books.example.com
+      # MARGINALIA_TRUST_PROXY: "true"
+    ports:
+      # Bound to localhost; put a reverse proxy in front to expose it.
+      - "127.0.0.1:${MARGINALIA_PORT:-3000}:3000"
+    volumes:
+      - app-data:/data
+      # Your EPUB folder, mounted read-only. Marginalia never writes to it.
+      - ${MARGINALIA_LIBRARY_DIR:-./library}:/library:ro
+
+volumes:
+  db-data:
+  app-data:
