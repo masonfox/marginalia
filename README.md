@@ -1,6 +1,6 @@
 # Marginalia
 
-Marginalia is a self-hosted companion for reading your own EPUBs. It turns each book into precise, ordered, searchable passages, each with a stable citation locator. Later releases build AI discussion on top of this foundation: discussing a partly read novel without spoilers, with citations you can verify.
+Marginalia is a self-hosted companion for reading your own EPUBs. It turns each book into precise, ordered, searchable passages, each with a stable citation locator. On top of that foundation it offers AI discussion of a book, with citations you can verify.
 
 This release (0.1) provides the text foundation and a small reading UI:
 
@@ -8,6 +8,7 @@ This release (0.1) provides the text foundation and a small reading UI:
 - **Structure**: metadata, cover, table of contents, spine-ordered sections, block-level passages, and footnotes and endnotes. Each passage has a reading-order position.
 - **Citation locators** like `3f9a1c07b2de:v1:12.47`. They stay valid when the parser improves, because old locators forward to the passage that now holds their text.
 - **Search** with PostgreSQL full-text search, using language-aware stemming, phrases, and highlighted snippets.
+- **AI conversations** (optional): discuss a book with a model you configure (OpenAI, Anthropic, Google, or a local OpenAI-compatible endpoint). The assistant searches the book through tools, separates quoted evidence from its own interpretation, pushes back on weak readings, and every quote it cites is checked against the text on the server. Unverifiable citations are flagged. Passages and messages go to the configured provider; see [AI conversations](docs/deployment.md#ai-conversations). There is no spoiler protection yet: the assistant can read the whole book.
 - **Optional single-password login**, persistent sessions, and login rate limiting.
 - **One container plus PostgreSQL**, for `amd64` and `arm64`.
 
@@ -60,6 +61,8 @@ src/
     epub/          pure EPUB parser: bytes → structure (no database)
     catalog/       storing parsed structure, locator forwarding on reparse
     retrieval/     search, citation resolution, quote verification (read-only)
+    ai/            language model selection from environment configuration
+    conversation/  conversations, retrieval tools, citations, chat streaming
 ```
 
 ### Parser versions

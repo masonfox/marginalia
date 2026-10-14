@@ -6,7 +6,7 @@ import {
 	useNavigate,
 } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, Trash2 } from "lucide-react";
+import { MessageSquare, MessageSquarePlus, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
 import {
@@ -23,6 +23,7 @@ import {
 import { Badge } from "#/components/ui/badge";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
+import { createConversationFn } from "#/fns/conversations";
 import { deleteEditionFn, getEditionFn } from "#/fns/library";
 import { searchPassagesFn } from "#/fns/retrieval";
 import type { TocNode } from "#/modules/catalog";
@@ -109,6 +110,9 @@ function BookPage() {
 							{edition.error}
 						</p>
 					)}
+					{edition.status === "ready" && (
+						<ConversationActions editionId={edition.id} />
+					)}
 					<dl className="mt-4 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
 						{facts
 							.filter(([, v]) => v)
@@ -172,6 +176,51 @@ function BookPage() {
 	);
 }
 
+function ConversationActions({ editionId }: { editionId: string }) {
+	const navigate = useNavigate();
+	const create = useServerFn(createConversationFn);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	return (
+		<div className="mt-4">
+			<div className="flex flex-wrap gap-2">
+				<Button
+					type="button"
+					size="sm"
+					disabled={busy}
+					onClick={async () => {
+						setBusy(true);
+						setError(null);
+						try {
+							const created = await create({ data: { editionId } });
+							if (!created) throw new Error("not ready");
+							await navigate({
+								to: "/c/$conversationId",
+								params: { conversationId: created.id },
+							});
+						} catch {
+							setError("Could not start a conversation. Please try again.");
+							setBusy(false);
+						}
+					}}
+				>
+					<MessageSquarePlus aria-hidden /> Start conversation
+				</Button>
+				<Link
+					to="/books/$editionId/conversations"
+					params={{ editionId }}
+					className={buttonVariants({ variant: "outline", size: "sm" })}
+				>
+					<MessageSquare aria-hidden /> Conversations
+				</Link>
+			</div>
+			{error && (
+				<p className="mt-2 text-sm text-destructive-foreground">{error}</p>
+			)}
+		</div>
+	);
+}
+
 function DeleteBook({
 	editionId,
 	title,
@@ -198,8 +247,8 @@ function DeleteBook({
 				<AlertDialogHeader>
 					<AlertDialogTitle>Delete “{title}”?</AlertDialogTitle>
 					<AlertDialogDescription>
-						This removes the book, its passages, and its cover from Marginalia.
-						This cannot be undone.
+						This removes the book, its passages, its cover, and every
+						conversation about it from Marginalia. This cannot be undone.
 					</AlertDialogDescription>
 					{inLibraryFolder && (
 						<AlertDialogDescription>

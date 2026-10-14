@@ -15,6 +15,13 @@
       "when": 1791985089105,
       "tag": "0001_excluded_editions",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791991865475,
+      "tag": "0002_conversations",
+      "breakpoints": true
     }
   ]
 }

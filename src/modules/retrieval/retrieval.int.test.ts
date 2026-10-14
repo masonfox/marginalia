@@ -141,6 +141,32 @@ describe("search", () => {
 		);
 	});
 
+	it("limits results to a set of editions with per-edition bounds", async () => {
+		const both = await retrieval.search({
+			query: "green light",
+			editionIds: [
+				{ editionId: big.id, maxPosition: 500 },
+				{ editionId: other.id },
+			],
+			limit: 50,
+		});
+		expect(new Set(both.map((h) => h.editionId))).toEqual(
+			new Set([big.id, other.id]),
+		);
+		const inBig = both.filter((h) => h.editionId === big.id);
+		expect(inBig.every((h) => h.revealPosition <= 500)).toBe(true);
+		expect(inBig.map((h) => h.position)).not.toContain(900);
+
+		const onlyOther = await retrieval.search({
+			query: "green light",
+			editionIds: [{ editionId: other.id }],
+		});
+		expect(onlyOther.every((h) => h.editionId === other.id)).toBe(true);
+		expect(
+			await retrieval.search({ query: "green light", editionIds: [] }),
+		).toEqual([]);
+	});
+
 	it("matches stemmed forms in English", async () => {
 		const hits = await retrieval.search({ editionId: big.id, query: "dreams" });
 		expect(hits.map((h) => h.position)).toEqual([300]);
@@ -233,6 +259,7 @@ describe("search", () => {
 			config: {} as never,
 			log: silentLog,
 			enqueue: async () => null,
+			ai: {} as never,
 			access: {} as never,
 		});
 		const input = {

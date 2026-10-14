@@ -65,6 +65,31 @@ export const envSchema = z.object({
 	AUTH_PASSWORD: optional(z.string().optional()),
 	MARGINALIA_SESSION_DAYS: integer(1, 30, "a positive whole number of days"),
 	MARGINALIA_TRUST_PROXY: boolean(false),
+	AI_PROVIDER: optional(
+		z
+			.enum(["openai", "anthropic", "google", "openai-compatible"], {
+				error: "must be openai, anthropic, google, or openai-compatible",
+			})
+			.optional(),
+	),
+	AI_MODEL: optional(z.string().optional()),
+	AI_API_KEY: optional(z.string().optional()),
+	AI_BASE_URL: optional(
+		z
+			.url({
+				protocol: /^https?$/,
+				error: "must be an absolute http(s) URL",
+			})
+			.optional(),
+	),
+	AI_MAX_STEPS: integer(1, 8, "a positive whole number"),
+	AI_TEMPERATURE: optional(
+		z.coerce
+			.number({ error: "must be a number between 0 and 2" })
+			.min(0, { error: "must be a number between 0 and 2" })
+			.max(2, { error: "must be a number between 0 and 2" })
+			.optional(),
+	),
 	LOG_LEVEL: optional(
 		z
 			.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"], {
@@ -73,6 +98,22 @@ export const envSchema = z.object({
 			.default("info"),
 	),
 });
+
+export type AiProviderName =
+	| "openai"
+	| "anthropic"
+	| "google"
+	| "openai-compatible";
+
+/** Language model settings. Absent from Config when AI is not configured. Never log `apiKey`. */
+export interface AiConfig {
+	provider: AiProviderName;
+	model: string;
+	apiKey: string | undefined;
+	baseUrl: string | undefined;
+	maxSteps: number;
+	temperature: number | undefined;
+}
 
 export interface Config {
 	databaseUrl: string;
@@ -91,6 +132,8 @@ export interface Config {
 	sessionDays: number;
 	trustProxy: boolean;
 	logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
+	/** Undefined when no AI provider is configured. */
+	ai: AiConfig | undefined;
 }
 
 export class ConfigError extends Error {
@@ -115,6 +158,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		);
 	}
 	const e = result.data;
+	const ai = buildAiConfig(e);
 	return {
 		databaseUrl: e.DATABASE_URL,
 		port: e.PORT,
@@ -130,6 +174,37 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		sessionDays: e.MARGINALIA_SESSION_DAYS,
 		trustProxy: e.MARGINALIA_TRUST_PROXY,
 		logLevel: e.LOG_LEVEL,
+		ai,
+	};
+}
+
+type Env = z.infer<typeof envSchema>;
+
+/** Cross-field validation for the AI variables. Messages name variables only, never values. */
+function buildAiConfig(e: Env): AiConfig | undefined {
+	if (e.AI_PROVIDER === undefined) return undefined;
+	const issues: string[] = [];
+	if (e.AI_MODEL === undefined) {
+		issues.push("AI_MODEL is required when AI_PROVIDER is set");
+	}
+	if (e.AI_PROVIDER !== "openai-compatible" && e.AI_API_KEY === undefined) {
+		issues.push(`AI_API_KEY is required when AI_PROVIDER is ${e.AI_PROVIDER}`);
+	}
+	if (e.AI_PROVIDER === "openai-compatible" && e.AI_BASE_URL === undefined) {
+		issues.push(
+			"AI_BASE_URL is required when AI_PROVIDER is openai-compatible",
+		);
+	}
+	if (issues.length > 0 || e.AI_MODEL === undefined) {
+		throw new ConfigError(issues);
+	}
+	return {
+		provider: e.AI_PROVIDER,
+		model: e.AI_MODEL,
+		apiKey: e.AI_API_KEY,
+		baseUrl: e.AI_BASE_URL,
+		maxSteps: e.AI_MAX_STEPS,
+		temperature: e.AI_TEMPERATURE,
 	};
 }
 
@@ -145,9 +220,17 @@ export function servesWeb(config: Config): boolean {
 
 /** A loggable view of the config: secrets are replaced by whether they are set. */
 export function redactedConfig(config: Config) {
-	const { authPassword, databaseUrl, ...rest } = config;
+	const { authPassword, databaseUrl, ai, ...rest } = config;
 	return {
 		...rest,
+		ai: ai && {
+			provider: ai.provider,
+			model: ai.model,
+			baseUrl: ai.baseUrl,
+			maxSteps: ai.maxSteps,
+			temperature: ai.temperature,
+			apiKeySet: ai.apiKey !== undefined,
+		},
 		databaseUrl: redactUrlPassword(databaseUrl),
 		authEnabled: authPassword !== undefined,
 	};
