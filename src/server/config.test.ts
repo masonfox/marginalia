@@ -172,7 +172,48 @@ describe("loadConfig", () => {
 				baseUrl: undefined,
 				maxSteps: 8,
 				temperature: undefined,
+				effort: undefined,
+				promptCache: true,
+				prices: {},
 			});
+		});
+
+		const anthropic = {
+			...base,
+			AI_PROVIDER: "anthropic",
+			AI_MODEL: "claude-x",
+			AI_API_KEY: "k",
+		};
+
+		it("loads effort, caching, and price overrides", () => {
+			const c = loadConfig({
+				...anthropic,
+				AI_EFFORT: "low",
+				AI_PROMPT_CACHE: "false",
+				AI_PRICES:
+					'{"claude-x": {"input": 2, "output": 10, "cacheRead": 0.2}, "local": {"input": 0, "output": 0}}',
+			});
+			expect(c.ai).toMatchObject({
+				effort: "low",
+				promptCache: false,
+				prices: {
+					"claude-x": { input: 2, output: 10, cacheRead: 0.2 },
+					local: { input: 0, output: 0 },
+				},
+			});
+		});
+
+		it.each([
+			["AI_EFFORT", "extreme"],
+			["AI_PRICES", "not json"],
+			["AI_PRICES", '{"m": {"input": -1, "output": 1}}'],
+			["AI_PRICES", '{"m": {"input": 1}}'],
+			["AI_PRICES", '{"m": {"input": 1, "output": 1, "cached": 1}}'],
+			["AI_PRICES", '[{"input": 1, "output": 1}]'],
+			["AI_PROMPT_CACHE", "sometimes"],
+		])("names an invalid %s (%s)", (name, value) => {
+			const issues = errorOf({ ...anthropic, [name]: value }).issues;
+			expect(issues.map((i) => i.split(" ")[0])).toEqual([name]);
 		});
 
 		it("allows openai-compatible without a key", () => {
@@ -242,8 +283,11 @@ describe("loadConfig", () => {
 				AI_PROVIDER: "openai",
 				AI_MODEL: "m",
 				AI_API_KEY: secret,
+				AI_EFFORT: "medium",
+				AI_PRICES: '{"m": {"input": 1, "output": 2}}',
 			});
 			const logged = JSON.stringify(redactedConfig(c));
+			expect(redactedConfig(c).ai?.effort).toBe("medium");
 			expect(logged).not.toContain(secret);
 			expect(redactedConfig(c).ai?.apiKeySet).toBe(true);
 		});

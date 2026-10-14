@@ -47,11 +47,14 @@ All configuration comes from environment variables. They are validated at startu
 | `MARGINALIA_SESSION_DAYS` | `30` | How long a login lasts. |
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, or `silent`. Logs are JSON on stdout. |
 | `AI_PROVIDER` | *(unset)* | `openai`, `anthropic`, `google`, or `openai-compatible`. Unset disables AI: the library, search, and reading work as before, and conversations show setup guidance. See [AI conversations](#ai-conversations). |
-| `AI_MODEL` | *(unset)* | The model name, e.g. `gpt-5`, `claude-sonnet-4-5`, `gemini-2.5-pro`, or `llama3.1`. Required when `AI_PROVIDER` is set. |
+| `AI_MODEL` | *(unset)* | The model name, e.g. `claude-sonnet-5-5`, `gpt-5`, `gemini-2.5-pro`, or `llama3.1`. Required when `AI_PROVIDER` is set. See [choosing a model](#choosing-a-model-and-controlling-cost). |
 | `AI_API_KEY` | *(unset)* | The provider API key. Required for every provider except `openai-compatible`, where it is optional. Never logged or shown in the UI. |
 | `AI_BASE_URL` | *(unset)* | The provider endpoint. Required for `openai-compatible` (e.g. `http://ollama:11434/v1`), and an optional override for the others (for example a proxy). |
 | `AI_MAX_STEPS` | `8` | The most tool calls (search, read, outline) the assistant may chain while answering one message. |
-| `AI_TEMPERATURE` | *(unset)* | Sampling temperature from 0 to 2. Unset uses the provider default. |
+| `AI_TEMPERATURE` | *(unset)* | Sampling temperature from 0 to 2. Unset uses the provider default. **Ignored by current Anthropic models** (Claude Sonnet 5.5, Opus 5.5, Haiku 5.5), which reject sampling settings: the request goes ahead without it and a warning is logged. Unset it for those models. |
+| `AI_EFFORT` | *(unset)* | Reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. Unset uses the model's default. A level the model does not support is adjusted or dropped by the provider library, with a logged warning, not an error. See [controlling cost](#choosing-a-model-and-controlling-cost). |
+| `AI_PROMPT_CACHE` | `true` | Ask the provider to cache the unchanged start of each request (Anthropic). Set `false` to turn it off. OpenAI and Google cache on their own and ignore this. |
+| `AI_PRICES` | *(unset)* | Price overrides for the cost estimates shown in conversations, as JSON in USD per million tokens: `{"my-model": {"input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75}}`. `cacheRead` and `cacheWrite` are optional and default to the input price. Entries add to or replace the built-in Anthropic prices. |
 | `MARGINALIA_MIGRATIONS_DIR` | `/app/drizzle` (in the image) | Location of the database migrations. Only change this if you build your own image layout. |
 | `NODE_ENV` | `production` (in the image) | Runtime mode. Leave as is. |
 
@@ -65,8 +68,9 @@ Conversations let you discuss a book with a language model that searches and quo
 
 ```sh
 AI_PROVIDER=anthropic
-AI_MODEL=claude-sonnet-4-5
+AI_MODEL=claude-sonnet-5-5
 AI_API_KEY=sk-ant-...
+AI_EFFORT=medium
 ```
 
 **Local model with an OpenAI-compatible endpoint** (for example Ollama), where nothing leaves your network:
@@ -82,6 +86,21 @@ Small local models vary in how well they call tools and follow the citation form
 **What is sent to the provider.** Each message you send, the earlier messages of that conversation, and every passage the assistant reads or searches for are sent to the configured provider to produce a reply. With a hosted provider, that text leaves your instance. Use a local endpoint if that is not acceptable. Marginalia has no reading progress yet, so the assistant can read, and may reveal, any part of the book.
 
 Conversations are stored in your PostgreSQL database. Deleting a book deletes the conversations about it.
+
+### Choosing a model and controlling cost
+
+**Recommended setup.** Use **Claude Sonnet 5.5** (`claude-sonnet-5-5`) for conversations. It is a current model and costs less per token than Sonnet 4.5 ($2 / $10 per million input / output tokens, against $3 / $15). For higher-quality discussion at about twice the price, use **Claude Opus 5.5** (`claude-opus-5-5`). A small model such as **Claude Haiku 5.5** (`claude-haiku-5-5`) is meant for bulk background work, not conversations.
+
+Most of a conversation's cost is input, not output. To answer one message the assistant runs a loop of tool calls (search, read, outline), and each step sends the instructions, the tool descriptions, and everything retrieved so far back to the model. Two settings keep that in check:
+
+- **Prompt caching** (`AI_PROMPT_CACHE`, on by default). With Anthropic, Marginalia asks the provider to cache the unchanged start of each request. Every step after the first then pays the cached rate (a tenth of the input price or less) for what it repeats, and so does a follow-up message sent within about five minutes. After a longer pause the first step writes the cache again, at a little above the input price. OpenAI and Google cache automatically; local endpoints do not cache.
+- **Reasoning effort** (`AI_EFFORT`). Current Claude models always reason before answering, and that reasoning is billed as output. Effort sets how much. Sonnet 5.5 defaults to `high`; start with `medium`, and try `low`, which often holds up well for discussion. Higher levels cost more and are rarely needed here.
+
+`AI_TEMPERATURE` has no effect on current Anthropic models. If you set it for an older model, remove it when you switch; leaving it set only logs a warning on each reply.
+
+**Seeing what conversations cost.** Each assistant reply shows a small line with its input tokens (and how many of them came from the cache), its output tokens, and an estimated cost. The conversation header shows the running total, including failed attempts that were retried. Replies from before this feature show no usage, and the total says so. A reply you stopped is marked "partial", because a step cut off mid-stream is not counted.
+
+**Costs are estimates.** They are computed from token counts and a built-in table of Anthropic prices, and can differ from your provider's bill (for example after a price change, or when a provider bills differently, such as Haiku 5.5's higher price for prompts over 100,000 tokens). The token counts are exact. For other providers or models, add prices with `AI_PRICES`; a model with no known price shows tokens and no cost. Correcting a price also corrects the estimates for earlier replies, since costs are computed when shown.
 
 ## Setting a password
 

@@ -26,9 +26,17 @@ import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
 import { groupParts } from "#/lib/research-trail";
-import type { CitationRecord } from "#/modules/conversation";
+import { exactUsage, replyUsageLine, totalUsageLine } from "#/lib/usage-format";
+import type {
+	CitationRecord,
+	ConversationWithUsage,
+} from "#/modules/conversation";
 
 type Msg = UIMessage<ChatMeta, { citations: CitationRecord[] }>;
+type ReplyUsage = ConversationWithUsage["usage"][string];
+
+/** How many times to refetch while a finished reply's usage is not stored yet. */
+const USAGE_REFETCHES = 5;
 
 export const Route = createFileRoute("/c/$conversationId")({
 	loader: async ({ params }) => {
@@ -95,14 +103,37 @@ function ConversationPage() {
 			}),
 		[conversationId],
 	);
+	// After a stop the server saves the reply (and its usage) after the client
+	// is done, so the first refetch can miss it. Retry a few times.
+	const [awaitingUsage, setAwaitingUsage] = useState<{
+		id: string;
+		tries: number;
+	} | null>(null);
 	const chat = useChat<Msg>({
 		id: conversationId,
 		messages: initial,
 		transport,
-		onFinish: () => {
+		// Runs after a finish, a stop, and an error alike.
+		onFinish: ({ message }) => {
+			setAwaitingUsage({ id: message.id, tries: 0 });
 			void router.invalidate();
 		},
 	});
+	useEffect(() => {
+		if (!awaitingUsage) return;
+		if (
+			conversation.usage[awaitingUsage.id] ||
+			awaitingUsage.tries >= USAGE_REFETCHES
+		) {
+			setAwaitingUsage(null);
+			return;
+		}
+		const timer = setTimeout(() => {
+			setAwaitingUsage({ ...awaitingUsage, tries: awaitingUsage.tries + 1 });
+			void router.invalidate();
+		}, 600);
+		return () => clearTimeout(timer);
+	}, [awaitingUsage, conversation.usage, router]);
 	const { messages, status, error } = chat;
 	const busy = status === "submitted" || status === "streaming";
 	// The reply the reader stopped, so it can be marked incomplete before it is reloaded.
@@ -175,6 +206,7 @@ function ConversationPage() {
 							· {ai.provider} · {ai.model}
 						</span>
 					)}
+					<UsageTotal total={conversation.usageTotal} />
 				</p>
 				{conversation.books.length > 0 && (
 					<ul className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -242,6 +274,7 @@ function ConversationPage() {
 								remainingBookIds={remainingBookIds}
 								stopped={m.id === stoppedId}
 								streaming={busy && m.id === last?.id}
+								usage={conversation.usage[m.id]}
 							/>
 						)}
 					</li>
@@ -353,11 +386,13 @@ function AssistantMessage({
 	remainingBookIds,
 	stopped,
 	streaming,
+	usage,
 }: {
 	message: Msg;
 	remainingBookIds: Set<string>;
 	stopped: boolean;
 	streaming: boolean;
+	usage: ReplyUsage | undefined;
 }) {
 	const citations = useMemo(
 		() => citationIndex(citationsOf(message)),
@@ -401,6 +436,36 @@ function AssistantMessage({
 			)}
 			<SourcesList sources={sources} />
 			{note && <p className="text-xs text-muted-foreground">{note}</p>}
+			{usage && !streaming && (
+				<p
+					className="text-xs text-muted-foreground/70 tabular-nums"
+					title={exactUsage(usage)}
+					data-testid="reply-usage"
+				>
+					{replyUsageLine(usage)}
+					{!usage.complete && " · partial"}
+				</p>
+			)}
 		</div>
+	);
+}
+
+/** The running total in the header. Costs are estimates; replies without usage are counted out loud. */
+function UsageTotal({ total }: { total: ConversationWithUsage["usageTotal"] }) {
+	const hasUsage = total.inputTokens !== null || total.outputTokens !== null;
+	if (!hasUsage && total.missing === 0) return null;
+	const missing =
+		total.missing > 0
+			? `${total.missing} ${total.missing === 1 ? "reply has" : "replies have"} no recorded usage`
+			: null;
+	return (
+		<span
+			className="tabular-nums"
+			title={hasUsage ? exactUsage(total) : undefined}
+			data-testid="usage-total"
+		>
+			{hasUsage && <> · {totalUsageLine(total)}</>}
+			{missing && <> · {missing}</>}
+		</span>
 	);
 }

@@ -37,6 +37,9 @@ services:
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_MAX_STEPS: ${AI_MAX_STEPS:-}
       AI_TEMPERATURE: ${AI_TEMPERATURE:-}
+      AI_EFFORT: ${AI_EFFORT:-}
+      AI_PROMPT_CACHE: ${AI_PROMPT_CACHE:-}
+      AI_PRICES: ${AI_PRICES:-}
       # Behind a TLS-terminating reverse proxy, also set:
       # MARGINALIA_PUBLIC_URL: https://books.example.com
       # MARGINALIA_TRUST_PROXY: "true"

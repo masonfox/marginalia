@@ -4,11 +4,12 @@ import { getReadingUnits } from "#/modules/catalog";
 import {
 	createConversationForEdition,
 	deleteConversation,
-	getConversation,
+	getConversationWithUsage,
 	listConversationsForEdition,
 	renameConversation,
 	widenConversationScope,
 } from "#/modules/conversation";
+import { priceTable } from "#/modules/usage";
 import { appContext } from "#/server/context";
 
 // Only server functions are exported here: anything else would pull server code into the client bundle.
@@ -56,9 +57,17 @@ export const widenScopeFn = createServerFn({ method: "POST" })
 	)
 	.handler(({ data }) => widenConversationScope(appContext().db, data));
 
+/** A conversation with per-reply usage and the running total. Costs are estimates. */
 export const getConversationFn = createServerFn({ method: "GET" })
 	.validator(z.object({ conversationId: z.uuid() }))
-	.handler(({ data }) => getConversation(appContext().db, data.conversationId));
+	.handler(({ data }) => {
+		const { db, config } = appContext();
+		return getConversationWithUsage(
+			db,
+			data.conversationId,
+			priceTable(config.ai?.prices),
+		);
+	});
 
 export const renameConversationFn = createServerFn({ method: "POST" })
 	.validator(

@@ -3,8 +3,12 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogle } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { LanguageModel } from "ai";
-import type { AiConfig, AiProviderName } from "#/server/config";
+import type { LanguageModel, streamText } from "ai";
+import type {
+	AiConfig,
+	AiProviderName,
+	ReasoningEffort,
+} from "#/server/config";
 
 /** What the UI may know about the AI setup. Never contains the API key. */
 export interface AiStatus {
@@ -13,12 +17,20 @@ export interface AiStatus {
 	model?: string;
 }
 
+export type ProviderOptions = NonNullable<
+	Parameters<typeof streamText>[0]["providerOptions"]
+>;
+
 export interface AiRuntime {
 	/** The configured model, or null when AI is disabled. */
 	model: LanguageModel | null;
 	status: AiStatus;
 	maxSteps: number;
 	temperature: number | undefined;
+	/** Reasoning effort for every call; undefined leaves the provider default. */
+	reasoning: ReasoningEffort | undefined;
+	/** Provider-specific call options, such as Anthropic prompt caching. */
+	providerOptions: ProviderOptions;
 }
 
 /** Maps configuration to an AI SDK model. Returns a disabled runtime when no provider is set. */
@@ -29,6 +41,8 @@ export function createAi(config: AiConfig | undefined): AiRuntime {
 			status: { enabled: false },
 			maxSteps: 8,
 			temperature: undefined,
+			reasoning: undefined,
+			providerOptions: {},
 		};
 	}
 	return {
@@ -36,7 +50,21 @@ export function createAi(config: AiConfig | undefined): AiRuntime {
 		status: { enabled: true, provider: config.provider, model: config.model },
 		maxSteps: config.maxSteps,
 		temperature: config.temperature,
+		reasoning: config.effort,
+		providerOptions: buildProviderOptions(config),
 	};
+}
+
+/**
+ * Anthropic caches only when asked. A request-level cache instruction caches
+ * up to the last cacheable block, so each tool-loop step and the next turn
+ * read the earlier prefix. OpenAI and Google cache on their own.
+ */
+function buildProviderOptions(c: AiConfig): ProviderOptions {
+	if (c.provider === "anthropic" && c.promptCache) {
+		return { anthropic: { cacheControl: { type: "ephemeral" } } };
+	}
+	return {};
 }
 
 function buildModel(c: AiConfig): LanguageModel {
