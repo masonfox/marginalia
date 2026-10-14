@@ -34,10 +34,10 @@ Depends on: A (schema and write helpers), and the config contract from D1 (can s
 
 Depends on: A's query signatures (code against the contract; integrate-test after A merges). Independent of B and D.
 
-- [ ] 3.1 Extend `buildSystemPrompt` with per-book maps, the guide-not-evidence instruction, the size cap and deterministic shortening, and bump `PROMPT_VERSION` to 5
-- [ ] 3.2 Load maps in `chat.ts` at the start of each turn using each book's bound; omit for books without current preprocessing
-- [ ] 3.3 Add the `lookupObservations` tool appended last in the fixed tool order: book check, bound, caps, unavailable and not-found messages
-- [ ] 3.4 Tests: map limited by scope, identical prompt across turns, tool order stable, other-book rejection, no-preprocessing behavior
+- [x] 3.1 Extend `buildSystemPrompt` with per-book maps, the guide-not-evidence instruction, the size cap and deterministic shortening, and bump `PROMPT_VERSION` to 5
+- [x] 3.2 Load maps in `chat.ts` at the start of each turn using each book's bound; omit for books without current preprocessing
+- [x] 3.3 Add the `lookupObservations` tool appended last in the fixed tool order: book check, bound, caps, unavailable and not-found messages
+- [x] 3.4 Tests: map limited by scope, identical prompt across turns, tool order stable, other-book rejection, no-preprocessing behavior
 
 ## 4. Section D: UI, config, and docs (owner: `src/server/config.ts`, `config.test.ts`, `src/modules/ai/*`, `src/routes/**` book detail, `src/fns/*`, `src/components/*` for the new card, `compose.yaml`, `docs/deployment.md`, `README.md`)
 
@@ -46,9 +46,9 @@ Depends on: A for status and usage queries (UI wiring), B for the job kind (star
 - [x] 4.1 Add `AI_PREPROCESS_MODEL` and `AI_PREPROCESS_AUTO` (default false) with validation; `AiConfig.preprocessModel` defaults to `model`; startup error naming the variable when set without a provider
 - [x] 4.2 Add `getPreprocessModel()` in `modules/ai` using the existing provider, key, caching and effort handling; show the model in provider status
 - [x] 4.3 Config tests for defaults, invalid values, and missing provider
-- [ ] 4.4 Server functions `getPreprocessStatus` and `startPreprocess` in `src/fns` (reject when AI is unconfigured or the edition is not ready)
-- [ ] 4.5 Preprocessing card on the book detail page: status, progress, model, spend with estimate label, start and regenerate action, privacy warning, polling while active
-- [ ] 4.6 Component or route tests for states: not started, running, complete, stale, failed, AI unconfigured
+- [x] 4.4 Server functions `getPreprocessStatus` and `startPreprocess` in `src/fns` (reject when AI is unconfigured or the edition is not ready)
+- [x] 4.5 Preprocessing card on the book detail page: status, progress, model, spend with estimate label, start and regenerate action, privacy warning, polling while active
+- [x] 4.6 Component or route tests for states: not started, running, complete, stale, failed, AI unconfigured
 - [x] 4.7 Document the variables, whole-book privacy, cost figures, and recommendations in `docs/deployment.md`; pass the variables through `compose.yaml` without enabling auto; update the env list in `README.md` and satisfy `server/docs.test.ts`
 
 ## 5. Section E: Integration and verification (after A, B, C, D merge)

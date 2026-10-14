@@ -60,6 +60,38 @@ describe("request prefix", () => {
 			"readPassage",
 			"readSection",
 			"getOutline",
+			"lookupObservations",
 		]);
+	});
+	it("keeps stored maps byte-identical across turns and updates on scope changes", () => {
+		const first = {
+			unitOrdinal: 0,
+			unitLabel: "Chapter 1",
+			summary: "A lantern appears.",
+		};
+		const later = {
+			unitOrdinal: 1,
+			unitLabel: "Chapter 2",
+			summary: "A lantern vanishes.",
+		};
+		const bounded = [
+			{
+				...(books[0] as ConversationBook),
+				maxPosition: 20,
+				scopeLabel: "Chapter 1",
+			},
+		];
+		const options = { ...opts, bookMaps: { b1: [first] } };
+		const prompt = buildSystemPrompt(bounded, options);
+		expect(
+			buildSystemPrompt(structuredClone(bounded), structuredClone(options)),
+		).toBe(prompt);
+		expect(prompt).not.toContain(later.summary);
+		const widened = buildSystemPrompt(books, {
+			...opts,
+			bookMaps: { b1: [first, later] },
+		});
+		expect(widened).toContain(later.summary);
+		expect(widened).not.toBe(prompt);
 	});
 });
