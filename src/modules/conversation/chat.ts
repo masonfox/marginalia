@@ -9,6 +9,13 @@ import {
 	type UIMessage,
 } from "ai";
 import { and, eq } from "drizzle-orm";
+import {
+	projectReplyContext,
+	type ReplyContext,
+	replyContextPart,
+	replyContextSchema,
+	type StoredReplyContext,
+} from "#/lib/reply-context";
 import type { AiRuntime } from "#/modules/ai";
 import { createRetrieval } from "#/modules/retrieval";
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
@@ -27,7 +34,10 @@ import { createConversationTools } from "./tools";
 import { verifyCitations } from "./verify";
 
 /** The UI message shape: text and tool parts plus a data part carrying verified citations. */
-export type ChatUIMessage = UIMessage<unknown, { citations: CitationRecord[] }>;
+export type ChatUIMessage = UIMessage<
+	unknown,
+	{ citations: CitationRecord[]; "reply-context": StoredReplyContext }
+>;
 
 export interface ChatDeps {
 	db: Database;
@@ -39,10 +49,12 @@ export type ChatInput = {
 	conversationId: string;
 	/** The reader's new message. Omit to retry after a failed generation. */
 	message?: string;
+	replyContext?: ReplyContext;
 	abortSignal?: AbortSignal;
 };
 
 export type ChatStart =
+	| { status: "invalid_context" }
 	| { status: "disabled" }
 	| { status: "not_found" }
 	| { status: "busy" }
@@ -66,9 +78,26 @@ export async function startChat(
 	const conversation = await getConversation(db, input.conversationId);
 	if (!conversation) return { status: "not_found" };
 	if (inFlight.has(conversation.id)) return { status: "busy" };
+	if (input.replyContext) {
+		const context = replyContextSchema.safeParse(input.replyContext);
+		if (
+			!input.message?.trim() ||
+			!context.success ||
+			!conversation.messages.some(
+				(m) => m.id === context.data.messageId && m.role === "assistant",
+			)
+		)
+			return { status: "invalid_context" };
+		input = { ...input, replyContext: context.data };
+	}
 	inFlight.add(conversation.id);
 	try {
-		const history = await prepareHistory(db, conversation, input.message);
+		const history = await prepareHistory(
+			db,
+			conversation,
+			input.message,
+			input.replyContext,
+		);
 		if (!history) {
 			inFlight.delete(conversation.id);
 			return { status: "nothing_to_retry" };
@@ -86,6 +115,7 @@ async function prepareHistory(
 	db: Database,
 	conversation: ConversationDetail,
 	text: string | undefined,
+	replyContext?: ReplyContext,
 ): Promise<StoredMessage[] | null> {
 	const stored = [...conversation.messages];
 	if (text === undefined) {
@@ -103,7 +133,10 @@ async function prepareHistory(
 		}
 		return stored.at(-1)?.role === "user" ? stored : null;
 	}
-	const parts: Json[] = [{ type: "text", text }];
+	const parts: Json[] = [
+		...(replyContext ? [replyContextPart(replyContext)] : []),
+		{ type: "text", text },
+	];
 	const saved = await appendMessage(db, {
 		conversationId: conversation.id,
 		role: "user",
@@ -269,7 +302,12 @@ function generate(
 }
 
 function toUIMessage(m: StoredMessage): Omit<ChatUIMessage, "id"> {
-	return { role: m.role, parts: replayableParts(m.parts) };
+	return {
+		role: m.role,
+		parts: replayableParts(
+			m.role === "user" ? projectReplyContext(m.parts) : m.parts,
+		),
+	};
 }
 
 /** Parts that can be replayed to a model: text and finished tool calls. */

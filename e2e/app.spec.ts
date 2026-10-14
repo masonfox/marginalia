@@ -380,3 +380,113 @@ test.describe("reading scope", () => {
 		).toHaveCount(0);
 	});
 });
+
+test.describe("reply to an assistant selection", () => {
+	test("attaches without changing the draft, submits structured context, and reopens", async ({
+		page,
+	}) => {
+		const { id: editionId } = await manifesto();
+		const conversationId = randomUUID();
+		const sourceId = randomUUID();
+		await db.query(
+			"insert into conversations (id,title) values ($1,'Reply selection test')",
+			[conversationId],
+		);
+		try {
+			await db.query(
+				"insert into conversation_editions (conversation_id,edition_id,ordinal) values ($1,$2,0)",
+				[conversationId, editionId],
+			);
+			await db.query(
+				"insert into messages (id,conversation_id,seq,role,parts,finish_reason) values ($1,$2,1,'assistant',$3,'aborted')",
+				[
+					sourceId,
+					conversationId,
+					JSON.stringify([
+						{
+							// The citation renders as a pill button; selections across it must still work.
+							type: "text",
+							text: 'A **particular claim** [[cite locator="x:v1:0.0" quote="claim"]] worth discussing.',
+						},
+					]),
+				],
+			);
+			await login(page);
+			await page.goto(`/c/${conversationId}`);
+			test.skip(
+				await page
+					.getByText("AI is not configured", { exact: true })
+					.isVisible(),
+				"Selection creation requires configured AI",
+			);
+			await page.getByLabel("Message", { exact: true }).fill("Why this claim?");
+			await page
+				.locator(`[data-reply-source="${sourceId}"]`)
+				.evaluate((element) => {
+					const range = document.createRange();
+					range.selectNodeContents(element);
+					const selection = window.getSelection();
+					selection?.removeAllRanges();
+					selection?.addRange(range);
+					document.dispatchEvent(new Event("selectionchange"));
+				});
+			await page
+				.getByRole("button", { name: "Reply to selection", exact: true })
+				.click();
+			await expect(page.getByLabel("Message", { exact: true })).toHaveValue(
+				"Why this claim?",
+			);
+			await expect(page.getByTestId("reply-quote")).toContainText(
+				"A particular claim worth discussing.",
+			);
+			let body:
+				| { message: string; replyContext: { messageId: string; text: string } }
+				| undefined;
+			let attempts = 0;
+			await page.route("**/api/chat", async (route) => {
+				body = route.request().postDataJSON();
+				if (attempts++ === 0) {
+					await route.fulfill({
+						status: 400,
+						contentType: "application/json",
+						body: JSON.stringify({ error: "Rejected before storage" }),
+					});
+					return;
+				}
+				await db.query(
+					"insert into messages (conversation_id,seq,role,parts) values ($1,2,'user',$2)",
+					[
+						conversationId,
+						JSON.stringify([
+							{
+								type: "data-reply-context",
+								data: { version: 1, ...body?.replyContext },
+							},
+							{ type: "text", text: body?.message },
+						]),
+					],
+				);
+				await route.fulfill({
+					status: 200,
+					contentType: "text/event-stream",
+					headers: { "x-vercel-ai-ui-message-stream": "v1" },
+					body: 'data: {"type":"start","messageId":"reply"}\n\ndata: {"type":"text-start","id":"t"}\n\ndata: {"type":"text-delta","id":"t","delta":"Follow-up answer"}\n\ndata: {"type":"text-end","id":"t"}\n\ndata: {"type":"finish"}\n\ndata: [DONE]\n\n',
+				});
+			});
+			await page.getByRole("button", { name: "Send", exact: true }).click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
+			await expect(
+				page.getByText("Follow-up answer", { exact: true }),
+			).toBeVisible();
+			expect(body?.replyContext.messageId).toBe(sourceId);
+			expect(body?.message).toBe("Why this claim?");
+			await page.reload();
+			await expect(page.getByTestId("reply-quote")).toContainText(
+				"A particular claim worth discussing.",
+			);
+			await expect(page.getByLabel("Message", { exact: true })).toHaveValue("");
+		} finally {
+			await db.query("delete from conversations where id=$1", [conversationId]);
+		}
+	});
+});

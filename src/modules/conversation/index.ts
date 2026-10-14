@@ -1,6 +1,7 @@
 // Conversations, messages, retrieval tools, citations, and chat orchestration.
 
 export { type CitationMarker, parseCitationMarkers } from "#/lib/citations";
+export * from "#/lib/reply-context";
 export {
 	type ChatDeps,
 	type ChatInput,
