@@ -157,6 +157,15 @@ function ConversationPage() {
 		() => new Set(conversation.books.map((b) => b.editionId)),
 		[conversation.books],
 	);
+	const savedAssistantIds = useMemo(
+		() =>
+			new Set(
+				conversation.messages
+					.filter((m) => m.role === "assistant")
+					.map((m) => m.id),
+			),
+		[conversation.messages],
+	);
 
 	const [draft, setDraft] = useState("");
 	const [pendingQuote, setPendingQuote] = useState<ReplyContext | null>(null);
@@ -354,9 +363,7 @@ function ConversationPage() {
 								message={m}
 								eligible={
 									ai.enabled &&
-									conversation.messages.some(
-										(saved) => saved.id === m.id && saved.role === "assistant",
-									) &&
+									savedAssistantIds.has(m.id) &&
 									!(busy && m.id === last?.id)
 								}
 								remainingBookIds={remainingBookIds}
