@@ -1,8 +1,17 @@
 import { Link } from "@tanstack/react-router";
-import { TriangleAlert } from "lucide-react";
-import { Popover } from "radix-ui";
-import type { ComponentProps } from "react";
-import { memo, useMemo } from "react";
+import { ChevronRight, TriangleAlert } from "lucide-react";
+import { Collapsible, Popover } from "radix-ui";
+import type { ComponentProps, ReactNode } from "react";
+import {
+	createContext,
+	memo,
+	useCallback,
+	useContext,
+	useEffect,
+	useId,
+	useMemo,
+	useState,
+} from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { parseCitationMarkers } from "#/lib/citations";
@@ -224,6 +233,7 @@ function CitationMarker({
 	record: CitationRecord | undefined;
 	number: number | undefined;
 }) {
+	const sources = useContext(SourcesContext);
 	if (record?.status === "verified" && record.currentLocator && number) {
 		const verified = record as VerifiedCitation;
 		return (
@@ -256,6 +266,17 @@ function CitationMarker({
 								{sourceLabel(verified) || "Passage"} · open in book →
 							</p>
 						</Link>
+						{sources && (
+							<Popover.Close asChild>
+								<button
+									type="button"
+									onClick={() => sources.reveal(number)}
+									className="mt-2 cursor-pointer rounded-sm text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+								>
+									Show in sources
+								</button>
+							</Popover.Close>
+						)}
 					</Popover.Content>
 				</Popover.Portal>
 			</Popover.Root>
@@ -294,29 +315,132 @@ function CitationMarker({
 	);
 }
 
-/** Numbered list of the passages cited in a message; each entry opens the passage. */
-export function SourcesList({ sources }: { sources: VerifiedCitation[] }) {
-	if (sources.length === 0) return null;
+interface SourcesState {
+	open: boolean;
+	setOpen: (open: boolean) => void;
+	/** The entry last asked for from an inline marker; `seq` makes a repeat ask count. */
+	revealed: { number: number; seq: number } | null;
+	reveal: (number: number) => void;
+	idFor: (number: number) => string;
+}
+
+const SourcesContext = createContext<SourcesState | null>(null);
+
+/**
+ * Shares one message's sources list state with its inline markers, so a marker
+ * can open the list at its entry.
+ */
+export function SourcesScope({
+	defaultOpen = false,
+	children,
+}: {
+	defaultOpen?: boolean;
+	children: ReactNode;
+}) {
+	const [open, setOpen] = useState(defaultOpen);
+	const [revealed, setRevealed] = useState<SourcesState["revealed"]>(null);
+	const id = useId();
+	const idFor = useCallback((n: number) => `${id}-source-${n}`, [id]);
+	const reveal = useCallback((number: number) => {
+		setOpen(true);
+		setRevealed((r) => ({ number, seq: (r?.seq ?? 0) + 1 }));
+	}, []);
+	const value = useMemo(
+		() => ({ open, setOpen, revealed, reveal, idFor }),
+		[open, revealed, reveal, idFor],
+	);
 	return (
-		<section aria-label="Sources" className="mt-3 border-t pt-2 text-sm">
-			<h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				Sources
-			</h3>
-			<ol className="space-y-1">
-				{sources.map((s, i) => (
-					<li key={keyOf(s.locator, s.quote)} className="flex gap-2">
-						<span className="w-5 shrink-0 text-right text-muted-foreground">
-							{i + 1}.
-						</span>
-						<Link {...passageLink(s)} className="min-w-0 hover:underline">
-							<span className="font-serif italic">“{s.quote}”</span>
-							<span className="ml-1.5 text-xs text-muted-foreground">
-								{sourceLabel(s) || "passage"} →
-							</span>
-						</Link>
-					</li>
-				))}
-			</ol>
-		</section>
+		<SourcesContext.Provider value={value}>{children}</SourcesContext.Provider>
+	);
+}
+
+const REVEAL_MS = 2000;
+
+/**
+ * The passages cited in a message, numbered to match the inline markers. Collapsed
+ * to a one-line summary by default; each entry is one line and opens the passage.
+ */
+export function SourcesList({ sources }: { sources: VerifiedCitation[] }) {
+	const ctx = useContext(SourcesContext);
+	const [localOpen, setLocalOpen] = useState(false);
+	const open = ctx?.open ?? localOpen;
+	const setOpen = ctx?.setOpen ?? setLocalOpen;
+	const revealed = ctx?.revealed;
+	const idFor = ctx?.idFor;
+	const [highlighted, setHighlighted] = useState<number | null>(null);
+
+	useEffect(() => {
+		if (!revealed || !idFor) return;
+		// After the popover has closed and handed focus back to its marker.
+		const frame = requestAnimationFrame(() => {
+			const link = document.getElementById(idFor(revealed.number));
+			link?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+			link?.focus({ preventScroll: true });
+		});
+		setHighlighted(revealed.number);
+		const timer = setTimeout(() => setHighlighted(null), REVEAL_MS);
+		return () => {
+			cancelAnimationFrame(frame);
+			clearTimeout(timer);
+		};
+	}, [revealed, idFor]);
+
+	if (sources.length === 0) return null;
+	const books = [...new Set(sources.map((s) => s.bookTitle).filter(Boolean))];
+	const oneBook = books.length <= 1;
+	return (
+		<Collapsible.Root
+			open={open}
+			onOpenChange={setOpen}
+			className="mt-3 border-t pt-2 text-sm"
+			data-testid="sources"
+		>
+			<Collapsible.Trigger className="flex max-w-full cursor-pointer items-center gap-1 rounded-sm py-0.5 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+				<ChevronRight
+					className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+					aria-hidden
+				/>
+				<span className="shrink-0 font-medium uppercase tracking-wide">
+					Sources ({sources.length})
+				</span>
+				{books.length > 0 && (
+					<span className="min-w-0 truncate">· {books.join(", ")}</span>
+				)}
+			</Collapsible.Trigger>
+			<Collapsible.Content>
+				<ol aria-label="Sources" className="mt-1 space-y-0.5">
+					{sources.map((s, i) => {
+						const number = i + 1;
+						// The summary already names a lone book, so rows only need the chapter.
+						const where =
+							(oneBook ? s.sectionTitle || s.bookTitle : sourceLabel(s)) ||
+							"passage";
+						return (
+							<li
+								key={keyOf(s.locator, s.quote)}
+								className={`flex gap-2 rounded-sm transition-colors ${highlighted === number ? "bg-highlight/60" : ""}`}
+							>
+								<span className="w-5 shrink-0 text-right text-muted-foreground tabular-nums">
+									{number}.
+								</span>
+								<Link
+									{...passageLink(s)}
+									id={idFor?.(number)}
+									title={`“${s.quote}” · ${sourceLabel(s) || "passage"}`}
+									className="flex min-w-0 flex-1 items-baseline gap-1.5 rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+								>
+									<span className="min-w-0 truncate font-serif italic">
+										“{s.quote}”
+									</span>
+									<span className="ml-auto max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">
+										{where} →
+									</span>
+								</Link>
+							</li>
+						);
+					})}
+				</ol>
+			</Collapsible.Content>
+		</Collapsible.Root>
 	);
 }

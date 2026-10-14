@@ -15,6 +15,7 @@ import {
 	citationIndex,
 	numberCitations,
 	SourcesList,
+	SourcesScope,
 } from "#/components/chat";
 import {
 	DeleteConversation,
@@ -415,38 +416,40 @@ function AssistantMessage({
 	const blocks = groupParts(message.parts);
 	const hasReply = blocks.some((b) => b.type === "text");
 	return (
-		<div className="space-y-2">
-			{blocks.map((block) =>
-				block.type === "text" ? (
-					<AssistantText
-						key={block.index}
-						text={block.part.text}
-						citations={citations}
-						numbers={numbers}
-						remainingBookIds={remainingBookIds}
-					/>
-				) : (
-					<ResearchTrail
-						key={block.index}
-						parts={block.parts}
-						hasReply={hasReply}
-						streaming={streaming}
-					/>
-				),
-			)}
-			<SourcesList sources={sources} />
-			{note && <p className="text-xs text-muted-foreground">{note}</p>}
-			{usage && !streaming && (
-				<p
-					className="text-xs text-muted-foreground/70 tabular-nums"
-					title={exactUsage(usage)}
-					data-testid="reply-usage"
-				>
-					{replyUsageLine(usage)}
-					{!usage.complete && " · partial"}
-				</p>
-			)}
-		</div>
+		<SourcesScope>
+			<div className="space-y-2">
+				{blocks.map((block) =>
+					block.type === "text" ? (
+						<AssistantText
+							key={block.index}
+							text={block.part.text}
+							citations={citations}
+							numbers={numbers}
+							remainingBookIds={remainingBookIds}
+						/>
+					) : (
+						<ResearchTrail
+							key={block.index}
+							parts={block.parts}
+							hasReply={hasReply}
+							streaming={streaming}
+						/>
+					),
+				)}
+				<SourcesList sources={sources} />
+				{note && <p className="text-xs text-muted-foreground">{note}</p>}
+				{usage && !streaming && (
+					<p
+						className="text-xs text-muted-foreground/70 tabular-nums"
+						title={exactUsage(usage)}
+						data-testid="reply-usage"
+					>
+						{replyUsageLine(usage)}
+						{!usage.complete && " · partial"}
+					</p>
+				)}
+			</div>
+		</SourcesScope>
 	);
 }
 
