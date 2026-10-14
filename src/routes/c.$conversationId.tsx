@@ -226,7 +226,7 @@ function ConversationPage() {
 				} else await chat.regenerate();
 			} else if (snapshot) {
 				chat.setMessages(messages.filter((m) => m.id !== snapshot.id));
-				await chat.sendMessage({ parts: snapshot.parts });
+				await chat.sendMessage({ id: snapshot.id, parts: snapshot.parts });
 			}
 		} catch (err) {
 			setRecoveryError(
