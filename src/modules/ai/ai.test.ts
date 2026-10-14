@@ -54,6 +54,7 @@ describe("createAi", () => {
 		expect(ai.status).toEqual({
 			enabled: true,
 			provider: "anthropic",
+			preprocessModel: "m1",
 			model: "claude-x",
 		});
 		expect(JSON.stringify(ai.status)).not.toContain("sk-secret");
