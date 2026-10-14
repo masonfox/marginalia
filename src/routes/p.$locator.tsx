@@ -5,10 +5,13 @@ import {
 	useRouter,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { z } from "zod";
 import { getSectionViewFn } from "#/fns/retrieval";
+import { parseHighlight } from "#/lib/citations";
 import type { SectionPassage, SectionView } from "#/modules/retrieval";
 
 export const Route = createFileRoute("/p/$locator")({
+	validateSearch: z.object({ hl: z.string().max(20).optional() }),
 	loader: async ({ params }) => {
 		const view = await getSectionViewFn({ data: { locator: params.locator } });
 		// Locators from an earlier parse forward to the passage that holds their text now.
@@ -36,6 +39,7 @@ export const Route = createFileRoute("/p/$locator")({
 
 function PassagePage() {
 	const view = Route.useLoaderData();
+	const { hl } = Route.useSearch();
 
 	if (view.status === "not_found") {
 		return (
@@ -70,12 +74,18 @@ function PassagePage() {
 			</main>
 		);
 	}
-	return <SectionText view={view} />;
+	return <SectionText view={view} range={parseHighlight(hl)} />;
 }
 
 type FoundView = Extract<SectionView, { status: "found" }>;
 
-function SectionText({ view }: { view: FoundView }) {
+function SectionText({
+	view,
+	range,
+}: {
+	view: FoundView;
+	range: { start: number; end: number } | null;
+}) {
 	const target = view.currentLocator;
 	const router = useRouter();
 	useEffect(() => {
@@ -113,6 +123,7 @@ function SectionText({ view }: { view: FoundView }) {
 						key={p.locator}
 						passage={p}
 						highlighted={p.locator === target}
+						range={p.locator === target ? range : null}
 					/>
 				))}
 			</article>
@@ -162,9 +173,11 @@ function domId(locator: string) {
 function PassageBlock({
 	passage,
 	highlighted,
+	range,
 }: {
 	passage: SectionPassage;
 	highlighted: boolean;
+	range: { start: number; end: number } | null;
 }) {
 	const className = [
 		"my-3 scroll-mt-24 whitespace-pre-line rounded-sm",
@@ -181,7 +194,20 @@ function PassageBlock({
 			className={className}
 			aria-current={highlighted ? "true" : undefined}
 		>
-			{passage.text}
+			{range && range.end <= passage.text.length ? (
+				<>
+					{passage.text.slice(0, range.start)}
+					<mark
+						data-testid="quote-highlight"
+						className="rounded-sm bg-primary/25 px-0.5 text-foreground"
+					>
+						{passage.text.slice(range.start, range.end)}
+					</mark>
+					{passage.text.slice(range.end)}
+				</>
+			) : (
+				passage.text
+			)}
 			{passage.notes.length > 0 && (
 				<div className="mt-1 space-y-1 font-sans text-sm">
 					{passage.notes.map((note, i) => (
