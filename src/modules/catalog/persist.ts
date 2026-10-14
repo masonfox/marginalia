@@ -26,7 +26,24 @@ export interface ReplaceOptions {
 	coverPath: string | null;
 	/** Rows per INSERT statement. */
 	batchSize?: number;
+	/**
+	 * Called inside the transaction after a reparse under a new parser
+	 * version, so dependents (conversation bounds) can re-anchor atomically.
+	 */
+	onReplaced?: ReplacedHook;
 }
+
+/**
+ * Maps a position bound from the old structure to the new one: the greatest
+ * new position holding text from an old linear passage at or before it, or
+ * -1 when there is none. Never moves a bound past the text it covered.
+ */
+export type Rebase = (oldBound: number) => number;
+
+export type ReplacedHook = (
+	tx: Executor,
+	change: { editionId: string; rebase: Rebase },
+) => Promise<void>;
 
 /**
  * Replaces an edition's sections, TOC, passages, and note links with `parsed`
@@ -62,20 +79,22 @@ export async function replaceEditionStructure(
 	);
 
 	const old = await tx
-		.select({ locator: passages.locator, text: passages.text })
+		.select({
+			locator: passages.locator,
+			text: passages.text,
+			position: passages.position,
+		})
 		.from(passages)
 		.where(eq(passages.editionId, edition.id))
 		.orderBy(asc(passages.spineIndex), asc(passages.blockIndex));
 	const oldVersion = old[0]
 		? parseLocator(old[0].locator)?.parserVersion
 		: undefined;
+	let rebase: Rebase | null = null;
 	if (oldVersion !== undefined && oldVersion !== parsed.parserVersion) {
-		await writeAliases(
-			tx,
-			edition.id,
-			matchLocators(old, newPassages),
-			batchSize,
-		);
+		const matches = matchLocators(old, newPassages);
+		await writeAliases(tx, edition.id, matches, batchSize);
+		rebase = buildRebase(old, matches, newPassages);
 	}
 
 	// Sections cascade to passages and note links; TOC entries go first (they reference passages).
@@ -139,6 +158,10 @@ export async function replaceEditionStructure(
 
 	await insertToc(tx, edition.id, parsed.toc, null, idOf);
 
+	if (rebase && options.onReplaced) {
+		await options.onReplaced(tx, { editionId: edition.id, rebase });
+	}
+
 	await markEditionReady(tx, edition.id, {
 		...parsed.metadata,
 		coverPath: options.coverPath,
@@ -181,6 +204,34 @@ async function insertToc(
 			idOf,
 		);
 	}
+}
+
+/** Builds the bound mapping from the old-to-new passage match (design D5). */
+export function buildRebase(
+	old: { locator: string; position: number | null }[],
+	matches: Map<string, LocatorMatch>,
+	newPassages: { locator: string; position: number | null }[],
+): Rebase {
+	const newPosition = new Map(newPassages.map((p) => [p.locator, p.position]));
+	// New linear position -> the latest old linear position whose text it holds.
+	const latestSource = new Map<number, number>();
+	for (const p of old) {
+		if (p.position === null) continue;
+		const target = matches.get(p.locator)?.target;
+		const to = target ? newPosition.get(target) : null;
+		if (to == null) continue;
+		latestSource.set(to, Math.max(latestSource.get(to) ?? 0, p.position));
+	}
+	return (oldBound) => {
+		let bound = -1;
+		let firstLater = Number.POSITIVE_INFINITY;
+		for (const [to, source] of latestSource) {
+			// A merged passage that also holds later text stays hidden.
+			if (source <= oldBound) bound = Math.max(bound, to);
+			else firstLater = Math.min(firstLater, to);
+		}
+		return Math.min(bound, firstLater - 1);
+	};
 }
 
 /**

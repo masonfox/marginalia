@@ -1,11 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { getReadingUnits } from "#/modules/catalog";
 import {
 	createConversationForEdition,
 	deleteConversation,
 	getConversation,
 	listConversationsForEdition,
 	renameConversation,
+	widenConversationScope,
 } from "#/modules/conversation";
 import { appContext } from "#/server/context";
 
@@ -22,12 +24,37 @@ export const listConversationsFn = createServerFn({ method: "GET" })
 		listConversationsForEdition(appContext().db, data.editionId),
 	);
 
-/** Starts a single-book conversation. Returns null when the book is missing or not ready. */
-export const createConversationFn = createServerFn({ method: "POST" })
+const scopeSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("whole") }),
+	z.object({ kind: z.literal("unit"), endPosition: z.number().int() }),
+]);
+
+/** The book's reading units, for choosing a conversation's scope. */
+export const getReadingUnitsFn = createServerFn({ method: "GET" })
 	.validator(z.object({ editionId: z.uuid() }))
+	.handler(({ data }) => getReadingUnits(appContext().db, data.editionId));
+
+/**
+ * Starts a single-book conversation with the reader's chosen scope. Returns
+ * null when the book is missing or not ready, and `stale_scope` when the
+ * chosen unit no longer exists (reload the units and choose again).
+ */
+export const createConversationFn = createServerFn({ method: "POST" })
+	.validator(z.object({ editionId: z.uuid(), scope: scopeSchema }))
 	.handler(({ data }) =>
-		createConversationForEdition(appContext().db, data.editionId),
+		createConversationForEdition(appContext().db, data.editionId, data.scope),
 	);
+
+/** Widens one book's scope in a conversation; never narrows it. */
+export const widenScopeFn = createServerFn({ method: "POST" })
+	.validator(
+		z.object({
+			conversationId: z.uuid(),
+			editionId: z.uuid(),
+			scope: scopeSchema,
+		}),
+	)
+	.handler(({ data }) => widenConversationScope(appContext().db, data));
 
 export const getConversationFn = createServerFn({ method: "GET" })
 	.validator(z.object({ conversationId: z.uuid() }))

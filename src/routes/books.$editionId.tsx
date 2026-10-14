@@ -9,6 +9,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { MessageSquare, MessageSquarePlus, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
+import { NewConversationDialog } from "#/components/scope";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -23,7 +24,6 @@ import {
 import { Badge } from "#/components/ui/badge";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
-import { createConversationFn } from "#/fns/conversations";
 import { deleteEditionFn, getEditionFn } from "#/fns/library";
 import { searchPassagesFn } from "#/fns/retrieval";
 import type { TocNode } from "#/modules/catalog";
@@ -177,46 +177,20 @@ function BookPage() {
 }
 
 function ConversationActions({ editionId }: { editionId: string }) {
-	const navigate = useNavigate();
-	const create = useServerFn(createConversationFn);
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	return (
-		<div className="mt-4">
-			<div className="flex flex-wrap gap-2">
-				<Button
-					type="button"
-					size="sm"
-					disabled={busy}
-					onClick={async () => {
-						setBusy(true);
-						setError(null);
-						try {
-							const created = await create({ data: { editionId } });
-							if (!created) throw new Error("not ready");
-							await navigate({
-								to: "/c/$conversationId",
-								params: { conversationId: created.id },
-							});
-						} catch {
-							setError("Could not start a conversation. Please try again.");
-							setBusy(false);
-						}
-					}}
-				>
+		<div className="mt-4 flex flex-wrap gap-2">
+			<NewConversationDialog editionId={editionId}>
+				<Button type="button" size="sm">
 					<MessageSquarePlus aria-hidden /> Start conversation
 				</Button>
-				<Link
-					to="/books/$editionId/conversations"
-					params={{ editionId }}
-					className={buttonVariants({ variant: "outline", size: "sm" })}
-				>
-					<MessageSquare aria-hidden /> Conversations
-				</Link>
-			</div>
-			{error && (
-				<p className="mt-2 text-sm text-destructive-foreground">{error}</p>
-			)}
+			</NewConversationDialog>
+			<Link
+				to="/books/$editionId/conversations"
+				params={{ editionId }}
+				className={buttonVariants({ variant: "outline", size: "sm" })}
+			>
+				<MessageSquare aria-hidden /> Conversations
+			</Link>
 		</div>
 	);
 }
