@@ -6,6 +6,8 @@ import { createConversationTools, type ToolDeps } from "./tools";
 
 // Prompt caching only works when this prefix is byte-identical between requests.
 
+const opts = { maxSteps: 8 };
+
 const books: ConversationBook[] = [
 	{
 		editionId: "00000000-0000-0000-0000-000000000001",
@@ -38,8 +40,8 @@ async function serializedTools() {
 
 describe("request prefix", () => {
 	it("builds an identical system prompt for the same books", () => {
-		expect(buildSystemPrompt(structuredClone(books))).toBe(
-			buildSystemPrompt(structuredClone(books)),
+		expect(buildSystemPrompt(structuredClone(books), opts)).toBe(
+			buildSystemPrompt(structuredClone(books), opts),
 		);
 	});
 
@@ -56,6 +58,7 @@ describe("request prefix", () => {
 		expect(Object.keys(tools)).toEqual([
 			"searchBooks",
 			"readPassage",
+			"readSection",
 			"getOutline",
 		]);
 	});

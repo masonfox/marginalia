@@ -341,6 +341,29 @@ describe("startChat", () => {
 		expect(conv.messages[1]?.finishReason).toBe("tool-calls");
 	});
 
+	it("disables tools on the last step so the reply ends with an answer", async () => {
+		const id = await newConversation();
+		// Calls a tool whenever it may, as the runaway readPassage loop did.
+		const model = new MockLanguageModelV4({
+			doStream: async ({ toolChoice }) => ({
+				stream: streamOf(
+					toolChoice?.type === "none"
+						? textReply("What I found so far.")
+						: toolCall("loop", { query: "light" }),
+				) as never,
+			}),
+		});
+		await (await run(runtime(model, 3), id, "Keep searching")).text();
+		const conv = await saved(id, 2);
+		const choices = model.doStreamCalls.map((c) => c.toolChoice?.type);
+		expect(choices).toEqual(["auto", "auto", "none"]);
+		expect(conv.messages[1]?.finishReason).toBe("stop");
+		expect(JSON.stringify(conv.messages[1]?.parts)).toContain(
+			"What I found so far.",
+		);
+		expect((await usageRows(id))[0]?.steps).toBe(3);
+	});
+
 	it("rejects a second generation while one is running, leaving the conversation untouched", async () => {
 		const id = await newConversation();
 		let release: () => void = () => {};
@@ -584,6 +607,7 @@ describe("request prefix", () => {
 		expect(calls[0]?.tools?.map((t) => t.name)).toEqual([
 			"searchBooks",
 			"readPassage",
+			"readSection",
 			"getOutline",
 		]);
 

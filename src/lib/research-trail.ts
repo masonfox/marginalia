@@ -46,7 +46,7 @@ function kindOf(part: ToolPartLike): StepKind {
 			? String((part as { toolName?: unknown }).toolName ?? "")
 			: toolName(part.type);
 	if (name === "searchBooks") return "search";
-	if (name === "readPassage") return "read";
+	if (name === "readPassage" || name === "readSection") return "read";
 	if (name === "getOutline") return "outline";
 	return "other";
 }
@@ -126,18 +126,29 @@ function describeRead(
 		: [];
 	const section = str(output.section);
 	const label = path.length > 0 ? path.join(" › ") : (section ?? fallback);
+	const shape = (locator: string, text: unknown): StepPassage => ({
+		locator,
+		text: typeof text === "string" ? text : "",
+		section: section ?? (path.length > 0 ? path.at(-1) : undefined),
+		bookTitle: str(output.bookTitle),
+	});
+	// readSection returns a run of passages; readPassage returns one.
+	if (Array.isArray(output.passages)) {
+		const passages: StepPassage[] = [];
+		for (const p of output.passages) {
+			const locator = isRecord(p) ? str(p.locator) : undefined;
+			if (locator && isRecord(p)) passages.push(shape(locator, p.text));
+		}
+		return {
+			status: "ok",
+			label,
+			detail: plural(passages.length, "passage"),
+			passages,
+		};
+	}
 	const passage = isRecord(output.passage) ? output.passage : undefined;
 	const locator = str(passage?.locator) ?? str(input.locator);
-	const passages: StepPassage[] = locator
-		? [
-				{
-					locator,
-					text: typeof passage?.text === "string" ? passage.text : "",
-					section: section ?? (path.length > 0 ? path.at(-1) : undefined),
-					bookTitle: str(output.bookTitle),
-				},
-			]
-		: [];
+	const passages = locator ? [shape(locator, passage?.text)] : [];
 	return { status: "ok", label, passages };
 }
 
@@ -179,7 +190,9 @@ export function describeStep(part: ToolPartLike): Step {
 					? `Searching for “${str(input.query)}”…`
 					: "Searching…"
 				: kind === "read"
-					? "Reading passage…"
+					? toolName(part.type) === "readSection"
+						? "Reading section…"
+						: "Reading passage…"
 					: kind === "outline"
 						? "Browsing the table of contents…"
 						: `${genericLabel(part)}…`;
@@ -243,9 +256,14 @@ export function groupParts<P extends { type: string; text?: string }>(
 	return blocks;
 }
 
-export function summarizeTrail(steps: Pick<Step, "kind">[]): string {
+/** Counts passages actually read, so one readSection step can count many. */
+export function summarizeTrail(
+	steps: Pick<Step, "kind" | "passages">[],
+): string {
 	const searches = steps.filter((s) => s.kind === "search").length;
-	const reads = steps.filter((s) => s.kind === "read").length;
+	const reads = steps
+		.filter((s) => s.kind === "read")
+		.reduce((n, s) => n + s.passages.length, 0);
 	const bits = ["Researched"];
 	if (searches > 0) bits.push(plural(searches, "search", "searches"));
 	if (reads > 0) bits.push(`${plural(reads, "passage")} read`);

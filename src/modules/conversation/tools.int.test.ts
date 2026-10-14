@@ -19,6 +19,7 @@ import {
 	searchBooks,
 	type ToolDeps,
 } from ".";
+import { readSection } from "./tools";
 
 let t: TestDb;
 let dataDir: string;
@@ -195,6 +196,170 @@ describe("readPassage", () => {
 	});
 });
 
+describe("readSection", () => {
+	let gamma: ConversationBook;
+	const gammaDeps = (maxPosition: number | null = null): ToolDeps => ({
+		...deps,
+		books: [{ ...gamma, maxPosition }],
+	});
+	const filler = "word ".repeat(200);
+	const paragraphs = (r: { passages: { text: string }[] }) =>
+		r.passages.map((p) => Number(/paragraph (\d+)/.exec(p.text)?.[1]));
+	const start = async (d: ToolDeps, chapter: number) => {
+		const r = await getOutline(
+			{ ...d, books: d.books.map((b) => ({ ...b, maxPosition: null })) },
+			{},
+		);
+		if (r.status !== "ok") throw new Error("expected ok");
+		return r.outlines[0]?.entries[chapter - 1]?.locator as string;
+	};
+
+	beforeAll(async () => {
+		const g = await ingestBook(
+			t.db,
+			dataDir,
+			await buildEpub({
+				title: "Gamma",
+				language: "en",
+				chapters: [60, 3].map((count, c) => ({
+					href: `g${c + 1}.xhtml`,
+					title: `Part ${c + 1}`,
+					body: Array.from(
+						{ length: count },
+						(_, k) => `<p>Gamma paragraph ${c * 60 + k + 1}. ${filler}</p>`,
+					).join(""),
+				})),
+			}),
+			"gamma.epub",
+		);
+		gamma = book(g, "Gamma", 0);
+	});
+
+	it("reads a section's consecutive passages and points at the next section", async () => {
+		const unbounded = { ...deps, books: [{ ...alpha, maxPosition: null }] };
+		const r = await readSection(unbounded, {
+			locator: await start(unbounded, 1),
+		});
+		if (r.status !== "ok") throw new Error("expected ok");
+		expect(r).toMatchObject({
+			book: "b1",
+			section: "Chapter 1",
+			truncated: false,
+			next: null,
+			endOfSection: true,
+			nextSection: await start(unbounded, 2),
+		});
+		expect(paragraphs(r)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+		expect(r).not.toHaveProperty("continuesBeyondScope");
+	});
+
+	it("starts mid-section at any passage locator", async () => {
+		const unbounded = { ...deps, books: [{ ...alpha, maxPosition: null }] };
+		const first = await readSection(unbounded, {
+			locator: await start(unbounded, 1),
+		});
+		if (first.status !== "ok") throw new Error("expected ok");
+		const r = await readSection(unbounded, {
+			locator: first.passages[15]?.locator as string,
+		});
+		if (r.status !== "ok") throw new Error("expected ok");
+		expect(paragraphs(r)).toEqual([16, 17, 18, 19, 20]);
+	});
+
+	it("packs passages up to the budget and continues from `next` without gaps", async () => {
+		const d = gammaDeps();
+		const seen: string[] = [];
+		const read: number[] = [];
+		let locator: string | null = await start(d, 1);
+		let calls = 0;
+		let last: Awaited<ReturnType<typeof readSection>> | undefined;
+		while (locator !== null) {
+			const r = await readSection(d, { locator });
+			if (r.status !== "ok") throw new Error("expected ok");
+			expect(JSON.stringify(r.passages).length).toBeLessThanOrEqual(
+				LIMITS.sectionChars + r.passages.length,
+			);
+			expect(
+				r.passages.every((p) => p.text.length <= LIMITS.passageChars),
+			).toBe(true);
+			expect(r.truncated).toBe(r.next !== null);
+			seen.push(...r.passages.map((p) => p.locator));
+			read.push(...paragraphs(r));
+			locator = r.next;
+			last = r;
+			calls++;
+		}
+		expect(calls).toBeGreaterThan(1);
+		expect(new Set(seen).size).toBe(seen.length);
+		expect(read).toEqual(Array.from({ length: 60 }, (_, i) => i + 1));
+		expect(last).toMatchObject({ endOfSection: true });
+		const second = await readSection(d, {
+			locator: (last as { nextSection: string }).nextSection,
+		});
+		if (second.status !== "ok") throw new Error("expected ok");
+		expect(second.section).toBe("Part 2");
+		expect(paragraphs(second)).toEqual([61, 62, 63]);
+	});
+
+	it("stops at the reading-scope bound and offers no cursor beyond it", async () => {
+		const d = gammaDeps(30);
+		const read: number[] = [];
+		let locator: string | null = await start(d, 1);
+		let last: Awaited<ReturnType<typeof readSection>> | undefined;
+		while (locator !== null) {
+			const r = await readSection(d, { locator });
+			if (r.status !== "ok") throw new Error("expected ok");
+			read.push(...paragraphs(r));
+			locator = r.next;
+			last = r;
+		}
+		expect(read).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+		expect(last).toMatchObject({
+			next: null,
+			truncated: false,
+			endOfSection: false,
+			continuesBeyondScope: true,
+		});
+		expect(last).not.toHaveProperty("nextSection");
+
+		// Bound exactly at the section's end: no next section past it.
+		const atEnd = await readSection(
+			{ ...deps, books: [{ ...alpha, maxPosition: 20 }] },
+			{ locator: await start(deps, 1) },
+		);
+		expect(atEnd).toMatchObject({
+			status: "ok",
+			endOfSection: true,
+			nextSection: null,
+			continuesBeyondScope: true,
+		});
+		const small = await readSection(deps, { locator: await start(deps, 1) });
+		if (small.status !== "ok") throw new Error("expected ok");
+		expect(paragraphs(small)).toEqual([1, 2]);
+		expect(small.next).toBeNull();
+	});
+
+	it("reports not_found beyond the bound and for bad locators", async () => {
+		expect(
+			await readSection(deps, { locator: await start(deps, 2) }),
+		).toMatchObject({ status: "not_found" });
+		expect(await readSection(deps, { locator: "nonsense" })).toMatchObject({
+			status: "not_found",
+		});
+		expect(
+			await readSection(deps, { locator: `${alpha.shortId}:v1:99.99` }),
+		).toMatchObject({ status: "not_found" });
+	});
+
+	it("refuses a locator from outside the conversation", async () => {
+		const locator = `${outsider.shortId}:v1:0.0`;
+		expect(await readSection(deps, { locator })).toEqual({
+			status: "not_in_conversation",
+			locator,
+		});
+	});
+});
+
 describe("getOutline", () => {
 	const unbounded = () => ({
 		...deps,
@@ -301,6 +466,22 @@ describe("superseded and removed locators", () => {
 		});
 		expect(
 			await readPassage(scoped, { locator: `${versions.shortId}:v1:2.1` }),
+		).toEqual({ status: "removed", locator: `${versions.shortId}:v1:2.1` });
+	});
+
+	it("reads a section forward from a superseded locator", async () => {
+		const scoped = { ...deps, books: [book(versions, "V", 0)] };
+		const r = await readSection(scoped, {
+			locator: `${versions.shortId}:v1:1.1`,
+		});
+		expect(r).toMatchObject({ status: "ok", superseded: true });
+		if (r.status !== "ok") throw new Error("expected ok");
+		expect(r.passages[0]).toMatchObject({
+			locator: `${versions.shortId}:v2:1.2`,
+			text: "Third.",
+		});
+		expect(
+			await readSection(scoped, { locator: `${versions.shortId}:v1:2.1` }),
 		).toEqual({ status: "removed", locator: `${versions.shortId}:v1:2.1` });
 	});
 });
