@@ -1,0 +1,1 @@
+ALTER TABLE "preprocess_runs" ADD COLUMN "cancelled_job_id" uuid;

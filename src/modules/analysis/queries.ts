@@ -1,5 +1,6 @@
 import { and, asc, count, eq, lte, ne, sql } from "drizzle-orm";
 import { redactSecrets } from "#/modules/ai";
+import { getReadingUnits } from "#/modules/catalog";
 import { editions } from "#/modules/library";
 import type { Executor } from "#/server/db";
 import {
@@ -305,25 +306,72 @@ export async function updateRun(
 	return true;
 }
 
-/** Makes `attempt` the run row's owner and writes `progress`. */
+/**
+ * Makes `attempt` of queue job `jobId` the run row's owner and writes
+ * `progress`, unless cancelRun already fenced out that job. One statement, so
+ * a cancellation that lands first always wins. Returns whether it claimed.
+ */
 export async function claimRun(
 	db: Executor,
 	editionId: string,
+	jobId: string,
 	attempt: string,
 	progress: RunProgress,
-): Promise<void> {
-	await updateRun(db, editionId, { ...progress, attemptId: attempt });
+): Promise<boolean> {
+	const set = { ...progress, attemptId: attempt, cancelledJobId: null };
+	const claimed = await db
+		.insert(preprocessRuns)
+		.values({ editionId, status: "queued", ...set })
+		.onConflictDoUpdate({
+			target: preprocessRuns.editionId,
+			set,
+			setWhere: sql`${preprocessRuns.cancelledJobId} is distinct from ${jobId}`,
+		})
+		.returning({ editionId: preprocessRuns.editionId });
+	return claimed.length > 0;
 }
 
 /**
  * Marks an unfinished run cancelled and releases it from its attempt, so a
  * still-running attempt stops at its next progress write and cannot
- * overwrite the cancellation. Units already saved are kept.
+ * overwrite the cancellation. Units already saved are kept. With
+ * `cancelledJobId`, also fences that job out of claimRun, recording a
+ * cancelled row when the job was cancelled before it wrote one.
  */
 export async function cancelRun(
 	db: Executor,
 	editionId: string,
+	cancelledJobId: string | null,
 ): Promise<void> {
+	if (cancelledJobId !== null) {
+		// The fence first: a later claim by the job is refused, and an earlier
+		// one is released by the update below. A complete run keeps its status.
+		const [[edition], units, current] = await Promise.all([
+			db
+				.select({ id: editions.id })
+				.from(editions)
+				.where(eq(editions.id, editionId)),
+			getReadingUnits(db, editionId),
+			getCurrentUnits(db, editionId),
+		]);
+		// A deleted book has no run left to fence.
+		if (edition) {
+			await db
+				.insert(preprocessRuns)
+				.values({
+					editionId,
+					status: "cancelled",
+					totalUnits: units.length,
+					doneUnits: current.length,
+					cancelledJobId,
+					finishedAt: new Date(),
+				})
+				.onConflictDoUpdate({
+					target: preprocessRuns.editionId,
+					set: { cancelledJobId },
+				});
+		}
+	}
 	await db
 		.update(preprocessRuns)
 		.set({

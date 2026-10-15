@@ -516,7 +516,7 @@ describe("preprocessing run lifecycle", () => {
 
 	it("a run left active by a vanished attempt reads as retryable", async () => {
 		const id = await newEdition("Crashed");
-		await claimRun(t.db, id, randomUUID(), {
+		await claimRun(t.db, id, randomUUID(), randomUUID(), {
 			status: "running",
 			totalUnits: 3,
 		});
@@ -548,7 +548,7 @@ describe("preprocessing run lifecycle", () => {
 
 	it("never clobbers a running state a fast worker already wrote", async () => {
 		const id = await newEdition("Fast");
-		await claimRun(t.db, id, randomUUID(), {
+		await claimRun(t.db, id, randomUUID(), randomUUID(), {
 			status: "running",
 			totalUnits: 3,
 		});
@@ -560,8 +560,11 @@ describe("preprocessing run lifecycle", () => {
 	it("ignores writes from an obsolete attempt", async () => {
 		const id = await newEdition("Obsolete");
 		const old = randomUUID();
-		await claimRun(t.db, id, old, { status: "running", totalUnits: 3 });
-		await claimRun(t.db, id, randomUUID(), {
+		await claimRun(t.db, id, randomUUID(), old, {
+			status: "running",
+			totalUnits: 3,
+		});
+		await claimRun(t.db, id, randomUUID(), randomUUID(), {
 			status: "running",
 			totalUnits: 3,
 		});
@@ -585,7 +588,7 @@ describe("preprocessing run lifecycle", () => {
 			doGenerate: async (options) => {
 				calls++;
 				// The reader cancels while the first unit is with the provider.
-				if (calls === 1) await cancelRun(t.db, id);
+				if (calls === 1) await cancelRun(t.db, id, null);
 				return inner.doGenerate(options);
 			},
 		});
@@ -617,7 +620,7 @@ describe("preprocessing run lifecycle", () => {
 		let calls = 0;
 		const m = new MockLanguageModelV4({
 			doGenerate: async (options) => {
-				if (++calls === 1) await cancelRun(t.db, id);
+				if (++calls === 1) await cancelRun(t.db, id, null);
 				return inner.doGenerate(options);
 			},
 		});
@@ -638,8 +641,76 @@ describe("preprocessing run lifecycle", () => {
 	it("cancelling leaves a complete run alone", async () => {
 		const id = await newEdition("CancelDone");
 		await preprocessEdition(deps(model()), id);
-		await cancelRun(t.db, id);
+		await cancelRun(t.db, id, null);
 		expect((await getPreprocessStatus(t.db, id, null)).status).toBe("complete");
+	});
+
+	it("a job cancelled while loading its snapshot never claims the run", async () => {
+		const id = await newEdition("CancelBeforeClaim");
+		const job = randomUUID();
+		const inner = model();
+		let calls = 0;
+		const m = new MockLanguageModelV4({
+			doGenerate: async (options) => {
+				calls++;
+				return inner.doGenerate(options);
+			},
+		});
+		// The reader cancels after the worker started but before its claim.
+		const loading = t.db.transaction.bind(t.db);
+		const db = Object.create(t.db) as typeof t.db;
+		db.transaction = (async (...args: Parameters<typeof t.db.transaction>) => {
+			const snapshot = await loading(...args);
+			await cancelRun(t.db, id, job);
+			return snapshot;
+		}) as typeof t.db.transaction;
+		await expect(
+			preprocessEdition({ ...deps(m), db }, id, { id: job }),
+		).rejects.toThrow(NonRetryableError);
+		expect(calls).toBe(0);
+		expect(await getPreprocessStatus(t.db, id, null)).toMatchObject({
+			status: "cancelled",
+			totalUnits: chapters.length,
+			doneUnits: 0,
+		});
+		// A retry of the same job is still refused; a new job resumes.
+		await expect(preprocessEdition(deps(m), id, { id: job })).rejects.toThrow(
+			NonRetryableError,
+		);
+		expect(calls).toBe(0);
+		await preprocessEdition(deps(model()), id, { id: randomUUID() });
+		expect(await getPreprocessStatus(t.db, id, null)).toMatchObject({
+			status: "complete",
+			doneUnits: chapters.length,
+		});
+	});
+
+	it("cancelling a first queued job reads as cancelled, not not started", async () => {
+		const id = await newEdition("CancelQueuedFirst");
+		await cancelRun(t.db, id, randomUUID());
+		expect(await getPreprocessStatus(t.db, id, null)).toMatchObject({
+			status: "cancelled",
+			totalUnits: chapters.length,
+			doneUnits: 0,
+		});
+		// A deleted book has nothing to record.
+		await expect(
+			cancelRun(t.db, randomUUID(), randomUUID()),
+		).resolves.toBeUndefined();
+	});
+
+	it("a regeneration job cancelled before its claim leaves a complete run alone", async () => {
+		const id = await newEdition("CancelRegenBeforeClaim");
+		await preprocessEdition(deps(model()), id);
+		await t.db.transaction((tx) => markDerivedStale(tx, id));
+		const job = randomUUID();
+		await cancelRun(t.db, id, job);
+		const prompts: string[] = [];
+		await expect(
+			preprocessEdition(deps(model({ prompts })), id, { id: job }),
+		).rejects.toThrow(NonRetryableError);
+		expect(prompts).toHaveLength(0);
+		expect((await getPreprocessStatus(t.db, id, null)).status).toBe("stale");
 	});
 
 	it("masks credential-shaped values in stored, shown, and thrown errors", async () => {

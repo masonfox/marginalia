@@ -111,6 +111,8 @@ export const preprocessRuns = pgTable(
 		model: text("model"),
 		/** The job attempt that owns the row; writes from an older attempt are ignored. */
 		attemptId: uuid("attempt_id"),
+		/** The queue job last cancelled; that job may not claim the row. */
+		cancelledJobId: uuid("cancelled_job_id"),
 		lastError: text("last_error"),
 		startedAt: timestamp("started_at", { withTimezone: true }),
 		finishedAt: timestamp("finished_at", { withTimezone: true }),

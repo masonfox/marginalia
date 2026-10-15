@@ -247,13 +247,13 @@ describe("job runtime", () => {
 		const url = await createEmptyDatabase();
 		const editionId = randomUUID();
 		const web = await start(url, {}, { worker: false });
-		expect(await web.cancelJob("analysis.preprocess", { editionId })).toBe(
-			false,
+		expect(await web.cancelJob("analysis.preprocess", { editionId })).toEqual(
+			[],
 		);
-		await web.enqueue("analysis.preprocess", { editionId });
-		expect(await web.cancelJob("analysis.preprocess", { editionId })).toBe(
-			true,
-		);
+		const queued = await web.enqueue("analysis.preprocess", { editionId });
+		expect(await web.cancelJob("analysis.preprocess", { editionId })).toEqual([
+			queued,
+		]);
 		expect(await web.pendingJob("analysis.preprocess", { editionId })).toBe(
 			null,
 		);
@@ -275,16 +275,16 @@ describe("job runtime", () => {
 			},
 			{ heartbeatRefreshSeconds: 0.5 },
 		);
-		await web.enqueue("analysis.preprocess", { editionId });
+		const running = await web.enqueue("analysis.preprocess", { editionId });
 		await waitFor(
 			async () =>
 				(await web.pendingJob("analysis.preprocess", { editionId })) ===
 				"active",
 			{ what: "job to become active" },
 		);
-		expect(await web.cancelJob("analysis.preprocess", { editionId })).toBe(
-			true,
-		);
+		expect(await web.cancelJob("analysis.preprocess", { editionId })).toEqual([
+			running,
+		]);
 		await waitFor(async () => aborted, { what: "handler signal to abort" });
 		expect(await web.pendingJob("analysis.preprocess", { editionId })).toBe(
 			null,

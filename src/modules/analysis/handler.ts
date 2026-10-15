@@ -38,12 +38,13 @@ export interface PreprocessDeps {
  * structure generation: if a reparse replaces the structure mid-run, nothing
  * more is saved and the run fails retryably, so the retry starts over from
  * the new structure. A run cancelled from outside (see cancelRun) stops after
- * the unit in progress, or sooner when the job's signal aborts.
+ * the unit in progress, or sooner when the job's signal aborts; a job
+ * cancelled before it claims the run never calls the model.
  */
 export async function preprocessEdition(
 	deps: PreprocessDeps,
 	editionId: string,
-	ctx: { signal?: AbortSignal } = {},
+	ctx: { id?: string; signal?: AbortSignal } = {},
 ): Promise<void> {
 	const { db, log } = deps;
 	if (!deps.model) {
@@ -77,7 +78,9 @@ export async function preprocessEdition(
 	let lastError: string | null = null;
 	// Later writes are ignored once a newer attempt claims the row.
 	const attempt = randomUUID();
-	await claimRun(db, editionId, attempt, {
+	// A direct call outside the queue has no job that could be cancelled.
+	const jobId = ctx.id ?? randomUUID();
+	const claimed = await claimRun(db, editionId, jobId, attempt, {
 		status: "running",
 		totalUnits: units.length,
 		doneUnits: done,
@@ -87,6 +90,10 @@ export async function preprocessEdition(
 		startedAt: new Date(),
 		finishedAt: null,
 	});
+	if (!claimed) {
+		log.info({ editionId }, "preprocessing job was cancelled; stopping");
+		throw new NonRetryableError(RUN_RELEASED);
+	}
 	const processDeps: ProcessDeps = {
 		db,
 		model: deps.model,

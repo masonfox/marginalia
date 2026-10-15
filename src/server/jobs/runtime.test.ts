@@ -29,7 +29,7 @@ function fakeBoss(states: string[], onPage?: (after?: string) => void) {
 		},
 		async cancel(_kind: string, ids: string[]) {
 			cancelled.push(...ids);
-			return { affected: ids.length };
+			return { affected: ids.length, settled: ids };
 		},
 	};
 	return boss;
@@ -58,7 +58,7 @@ describe("JobRuntime live job lookup", () => {
 		const boss = fakeBoss([...history(1000), "retry"]);
 		expect(
 			await runtime(boss).cancelJob("analysis.preprocess", { editionId }),
-		).toBe(true);
+		).toEqual(["job-1000"]);
 		expect(boss.cancelled).toEqual(["job-1000"]);
 	});
 

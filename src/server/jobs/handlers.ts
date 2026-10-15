@@ -74,7 +74,7 @@ export function jobHandlers(): JobHandlers {
 					providerOptions: ai.providerOptions,
 				},
 				editionId,
-				{ signal: ctx.signal },
+				{ id: ctx.id, signal: ctx.signal },
 			);
 		},
 		"access.purge-sessions": async () => {

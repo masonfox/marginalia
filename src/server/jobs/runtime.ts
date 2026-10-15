@@ -230,12 +230,12 @@ export class JobRuntime {
 
 	cancelJob: CancelJob = async (kind, payload) => {
 		const ids = (await this.liveJobs(kind, payload)).map((j) => j.id);
-		if (ids.length === 0) return false;
-		// pg-boss returns { affected } but types the response as an empty interface.
+		if (ids.length === 0) return [];
+		// pg-boss returns the cancelled ids as `settled` but types the response as an empty interface.
 		const result = (await this.boss.cancel(kind, ids)) as {
-			affected?: number;
+			settled?: string[];
 		};
-		return (result.affected ?? 0) > 0;
+		return result.settled ?? [];
 	};
 
 	/** Stops polling and waits up to `timeoutMs` for running jobs to finish. */

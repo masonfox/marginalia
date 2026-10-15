@@ -55,6 +55,7 @@ export const cancelPreprocessFn = createServerFn({ method: "POST" })
 		const cancelled = await cancelJob("analysis.preprocess", {
 			editionId: data.editionId,
 		});
-		await cancelRun(db, data.editionId);
-		return { cancelled };
+		// The exclusive queue holds at most one live job per edition.
+		await cancelRun(db, data.editionId, cancelled[0] ?? null);
+		return { cancelled: cancelled.length > 0 };
 	});
