@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { OBSERVATION_KINDS } from "./schema";
+import { OBSERVATION_KINDS, type ObservationKind } from "./schema";
 
 /** Instructions for the per-unit call. Changing them requires bumping PREPROCESS_PROMPT_VERSION. */
 export const UNIT_SYSTEM_PROMPT = `You prepare reading notes for one section (chapter) of a book.
@@ -20,19 +20,57 @@ const citation = z.object({ locator: nonblank, quote: nonblank });
 /** At least one citation is required; unsupported output fails the unit. */
 const citations = z.array(citation).min(1);
 
+/** Near-miss kinds models produce, mapped onto the allowed kinds. */
+const KIND_ALIASES: Record<string, ObservationKind> = {
+	person: "character",
+	people: "character",
+	creature: "character",
+	location: "place",
+	setting: "place",
+	item: "object",
+	artifact: "object",
+	artefact: "object",
+	theme: "motif",
+	symbol: "motif",
+};
+
+function normalizeKind(kind: unknown): ObservationKind | null {
+	if (typeof kind !== "string") return null;
+	const k = kind.trim().toLowerCase();
+	if ((OBSERVATION_KINDS as readonly string[]).includes(k))
+		return k as ObservationKind;
+	return KIND_ALIASES[k] ?? null;
+}
+
+/**
+ * Normalizes observation kinds and drops observations whose kind is still
+ * unknown, so one stray kind (e.g. "event") does not fail the whole unit.
+ */
+function keepKnownKinds(value: unknown): unknown {
+	if (!Array.isArray(value)) return value;
+	return value.flatMap((o) => {
+		if (typeof o !== "object" || o === null) return [o];
+		const kind = normalizeKind((o as { kind?: unknown }).kind);
+		return kind ? [{ ...o, kind }] : [];
+	});
+}
+
 export const unitOutputSchema = z.object({
 	summary: z.string().min(1),
 	citations,
-	observations: z
-		.array(
-			z.object({
-				name: z.string().min(1),
-				kind: z.enum(OBSERVATION_KINDS),
-				note: z.string().min(1),
-				citations,
-			}),
-		)
-		.default([]),
+	observations: z.preprocess(
+		keepKnownKinds,
+		z
+			.array(
+				z.object({
+					name: z.string().min(1),
+					kind: z.enum(OBSERVATION_KINDS),
+					note: z.string().min(1),
+					citations,
+				}),
+			)
+			.default([]),
+	),
 });
 export type UnitOutput = z.infer<typeof unitOutputSchema>;
 

@@ -57,6 +57,24 @@ describe("parseUnitOutput", () => {
 		}
 	});
 
+	it("normalizes near-miss kinds and drops unknown ones", () => {
+		const out = parseUnitOutput(
+			reply({
+				summary: "Anna sails.",
+				citations: [cite],
+				observations: [
+					{ ...anna, kind: "Character" },
+					{ ...anna, name: "Harbour", kind: "location" },
+					{ ...anna, name: "Storm", kind: "event" },
+				],
+			}),
+		);
+		expect(out.observations.map((o) => [o.name, o.kind])).toEqual([
+			["Anna", "character"],
+			["Harbour", "place"],
+		]);
+	});
+
 	it("rejects an unterminated object", () => {
 		expect(() => parseUnitOutput('{"summary": "Anna')).toThrow(/incomplete/);
 	});
