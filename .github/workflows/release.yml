@@ -2,16 +2,28 @@ name: Release image
 
 on:
   push:
+    branches: [main]
     tags: ["v*.*.*"]
 
 permissions:
   contents: read
-  packages: write
+
+# A newer push to main supersedes an in-flight build, so `latest` never moves backwards.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
 
 jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+
   image:
+    needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
@@ -25,12 +37,15 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
-          # X.Y.Z and X.Y; `latest` only for the newest stable (non-prerelease) version.
+          # main: `latest`, `main` and `sha-<short>`. Version tags: X.Y.Z and X.Y.
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
           flavor: |
-            latest=auto
+            latest=false
       - uses: docker/build-push-action@v7
         with:
           context: .
