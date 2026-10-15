@@ -6,7 +6,6 @@ import {
 	useRouter,
 } from "@tanstack/react-router";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { Send, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import {
@@ -16,7 +15,14 @@ import {
 	numberCitations,
 	SourcesList,
 	SourcesScope,
+	UserMarkdown,
 } from "#/components/chat";
+import { Composer } from "#/components/composer/composer";
+import {
+	type Attachment,
+	attachmentOf,
+	useComposer,
+} from "#/components/composer/use-composer";
 import {
 	DeleteConversation,
 	RenameConversation,
@@ -27,24 +33,15 @@ import { ResearchTrail } from "#/components/research-trail";
 import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import {
-	checkPassageRefFn,
-	getAiStatusFn,
-	getConversationFn,
-} from "#/fns/conversations";
-import { parseHighlight } from "#/lib/citations";
+import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
 import {
 	attachmentKey,
 	type PassageRef,
-	type PassageSnapshot,
-	parsePassageLink,
 	passageContextOf,
 	passageContextPart,
-	passageRefSchema,
 	type StoredPassageContext,
 } from "#/lib/passage-ref";
 import {
-	type ReplyContext,
 	replyContextOf,
 	replyContextPart,
 	type StoredReplyContext,
@@ -53,7 +50,6 @@ import { groupParts } from "#/lib/research-trail";
 import { exactUsage, replyUsageLine, totalUsageLine } from "#/lib/usage-format";
 import type {
 	CitationRecord,
-	ConversationBook,
 	ConversationWithUsage,
 } from "#/modules/conversation";
 
@@ -67,52 +63,8 @@ type Msg = UIMessage<
 >;
 type ReplyUsage = ConversationWithUsage["usage"][string];
 
-/** The composer holds at most one attachment, so the kinds replace each other. */
-type Attachment =
-	| { kind: "quote"; quote: ReplyContext }
-	| { kind: "passage"; snapshot: PassageSnapshot };
-
-/** Why a passage was not attached, or that it is being checked. */
-type PassageStatus =
-	| { kind: "checking" }
-	| {
-			kind: "out_of_scope";
-			ref: PassageRef;
-			editionId: string;
-			unitLabel: string | null;
-	  }
-	| { kind: "invalid"; ref: PassageRef; message: string; reason?: string };
-
-const INVALID_PASSAGE: Record<string, string> = {
-	not_found: "That passage was not found.",
-	removed: "That passage was removed in a newer parse of its book.",
-	not_in_conversation: "That passage is from a book outside this conversation.",
-	bad_range: "The selected part of that passage no longer matches its text.",
-	too_long:
-		"That passage is too long to attach. Select at most 4,000 characters.",
-	no_conversation: "This conversation no longer exists.",
-};
-
 /** How many times to refetch while a finished reply's usage is not stored yet. */
 const USAGE_REFETCHES = 5;
-
-/** Unsent drafts by conversation, so leaving for a passage and coming back keeps them. */
-const drafts = new Map<string, string>();
-
-function attachmentOf(parts: unknown[]): Attachment | null {
-	const quote = replyContextOf(parts);
-	if (quote)
-		return {
-			kind: "quote",
-			quote: { messageId: quote.messageId, text: quote.text },
-		};
-	const passage = passageContextOf(parts);
-	if (passage) {
-		const { version: _, ...snapshot } = passage;
-		return { kind: "passage", snapshot };
-	}
-	return null;
-}
 
 export const Route = createFileRoute("/c/$conversationId")({
 	// A passage reference handed over from the passage view; removed once attached.
@@ -238,105 +190,31 @@ function ConversationPage() {
 		[conversation.messages],
 	);
 
-	const [draft, setDraft] = useState(() => drafts.get(conversationId) ?? "");
-	const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(
-		null,
-	);
-	const [passageStatus, setPassageStatus] = useState<PassageStatus | null>(
-		null,
-	);
 	const [recoveryError, setRecoveryError] = useState("");
 	const submission = useRef<Msg | null>(null);
 	const submissionBase = useRef(0);
-	const inputRef = useRef<HTMLTextAreaElement>(null);
-	/** Drops check results that arrive after a newer check or a navigation. */
-	const checkSeq = useRef(0);
-	const draftOwner = useRef(conversationId);
-	// Before the reset below, so a navigation never files the old draft under the new conversation.
-	useEffect(() => {
-		if (draftOwner.current === conversationId)
-			drafts.set(conversationId, draft);
-	}, [conversationId, draft]);
-	useEffect(() => {
-		if (draftOwner.current === conversationId) return;
-		draftOwner.current = conversationId;
-		checkSeq.current++;
-		setDraft(drafts.get(conversationId) ?? "");
-		setPendingAttachment(null);
-		setPassageStatus(null);
-		submission.current = null;
-	}, [conversationId]);
-
-	/** Checks a passage reference with the server and attaches it, or explains why not. */
-	const attachPassage = async (ref: PassageRef) => {
-		const seq = ++checkSeq.current;
-		setPassageStatus({ kind: "checking" });
-		const fail = (message: string, reason?: string) =>
-			setPassageStatus({ kind: "invalid", ref, message, reason });
-		try {
-			const result = await checkPassageRefFn({
-				data: { conversationId, ref },
-			});
-			if (seq !== checkSeq.current) return;
-			if (result.status === "ok") {
-				setPendingAttachment({ kind: "passage", snapshot: result.snapshot });
-				setPassageStatus(null);
-				inputRef.current?.focus();
-			} else if (result.status === "out_of_scope") {
-				setPassageStatus({
-					kind: "out_of_scope",
-					ref,
-					editionId: result.editionId,
-					unitLabel: result.unitLabel,
-				});
-			} else {
-				const reason =
-					result.status === "invalid" ? result.reason : result.status;
-				fail(
-					INVALID_PASSAGE[reason] ?? "That passage cannot be attached.",
-					reason,
-				);
-			}
-		} catch {
-			if (seq === checkSeq.current)
-				fail("Could not check the passage. Please try again.");
-		}
-	};
-
-	// A reference from the passage view: attach it once, and drop it from the URL so a reload does not.
 	const search = Route.useSearch();
 	const navigate = Route.useNavigate();
-	// biome-ignore lint/correctness/useExhaustiveDependencies: runs once per handed-over reference
+	const composer = useComposer(conversationId, {
+		savedAssistantIds,
+		books: conversation.books,
+		aiEnabled: ai.enabled,
+		handoff: search,
+		clearHandoff: () => void navigate({ search: {}, replace: true }),
+	});
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new conversation has no submission
 	useEffect(() => {
-		if (!search.ref) return;
-		const ref = passageRefSchema.safeParse({
-			locator: search.ref,
-			range: parseHighlight(search.hl) ?? undefined,
-		});
-		void navigate({ search: {}, replace: true });
-		if (!ai.enabled) return;
-		if (ref.success) void attachPassage(ref.data);
-		else
-			setPassageStatus({
-				kind: "invalid",
-				ref: { locator: search.ref },
-				message: INVALID_PASSAGE.not_found as string,
-			});
-	}, [search.ref, search.hl]);
-
-	// After the reader widens the scope from the notice, try the passage again.
-	const bounds = conversation.books
-		.map((b) => `${b.editionId}:${b.maxPosition}`)
-		.join();
-	// biome-ignore lint/correctness/useExhaustiveDependencies: re-check only when a bound moves
-	useEffect(() => {
-		if (passageStatus?.kind === "out_of_scope")
-			void attachPassage(passageStatus.ref);
-	}, [bounds]);
+		submission.current = null;
+	}, [conversationId]);
 	const bottom = useRef<HTMLDivElement>(null);
+	const dock = useRef<HTMLDivElement>(null);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: follow new content
 	useEffect(() => {
-		bottom.current?.scrollIntoView({ block: "end" });
+		const anchor = bottom.current;
+		if (!anchor) return;
+		// Stop above the composer, which floats over the end of the list.
+		anchor.style.scrollMarginBottom = `${dock.current?.offsetHeight ?? 0}px`;
+		anchor.scrollIntoView({ block: "end" });
 	}, [messages, status]);
 
 	const last = messages.at(-1);
@@ -404,10 +282,8 @@ function ConversationPage() {
 			{ai.enabled && (
 				<ReplySelection
 					key={conversationId}
-					onAttach={(quote) => {
-						setPendingAttachment({ kind: "quote", quote });
-						inputRef.current?.focus();
-					}}
+					onAttach={composer.attachQuote}
+					onTooLong={composer.rejectLongQuote}
 				/>
 			)}
 			<header className="border-b pb-4">
@@ -474,12 +350,13 @@ function ConversationPage() {
 					<DeleteConversation
 						conversationId={conversationId}
 						title={conversation.title}
-						onDeleted={() =>
-							router.navigate({
+						onDeleted={() => {
+							composer.clear();
+							return router.navigate({
 								to: "/books/$editionId/conversations",
 								params: { editionId: conversation.books[0]?.editionId ?? "" },
-							})
-						}
+							});
+						}}
 					/>
 				</div>
 			</header>
@@ -503,9 +380,9 @@ function ConversationPage() {
 				{messages.map((m) => (
 					<li key={m.id}>
 						{m.role === "user" ? (
-							<div className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-lg bg-secondary px-3 py-2">
+							<div className="ml-auto w-fit max-w-[85%] break-words rounded-lg bg-secondary px-3 py-2">
 								<AttachmentPreview attachment={attachmentOf(m.parts)} />
-								{textOf(m)}
+								<UserMarkdown text={textOf(m)} />
 							</div>
 						) : (
 							<AssistantMessage
@@ -537,7 +414,7 @@ function ConversationPage() {
 							<Button
 								type="button"
 								onClick={async () => {
-									if (draft || pendingAttachment) {
+									if (composer.draft || composer.attachment) {
 										setRecoveryError(
 											"Your newer draft is preserved. Clear it before editing the failed message.",
 										);
@@ -573,11 +450,10 @@ function ConversationPage() {
 											messages.filter((m) => m.id !== snapshot.id),
 										);
 										chat.clearError();
-										setDraft((current) => current || textOf(snapshot));
-										setPendingAttachment(
-											(current) => current ?? attachmentOf(snapshot.parts),
+										composer.restore(
+											textOf(snapshot),
+											attachmentOf(snapshot.parts),
 										);
-										inputRef.current?.focus();
 									} catch (err) {
 										setRecoveryError(
 											err instanceof Error
@@ -605,114 +481,44 @@ function ConversationPage() {
 			</ol>
 
 			{ai.enabled ? (
-				<form
-					className="sticky bottom-0 flex flex-wrap items-end gap-2 border-t bg-background pt-3"
-					onSubmit={(e) => {
-						e.preventDefault();
-						const text = draft.trim();
-						if (!text || busy || passageStatus?.kind === "checking") return;
-						const parts: Msg["parts"] = [
-							...(pendingAttachment?.kind === "quote"
-								? [replyContextPart(pendingAttachment.quote)]
-								: []),
-							...(pendingAttachment?.kind === "passage"
-								? [passageContextPart(pendingAttachment.snapshot)]
-								: []),
-							{ type: "text", text },
-						];
-						submissionBase.current = conversation.messages.length;
-						submission.current = {
-							id: crypto.randomUUID(),
-							role: "user",
-							parts,
-						};
-						setDraft("");
-						setPendingAttachment(null);
-						void chat.sendMessage({ id: submission.current.id, parts });
-					}}
+				// The page background below the card and a fade above it, so messages
+				// scroll under the composer. Only the card itself takes the pointer.
+				<div
+					ref={dock}
+					className="pointer-events-none sticky bottom-0 z-10 -mx-2 bg-gradient-to-t from-background from-75% to-transparent px-2 pt-8 pb-3 *:pointer-events-auto"
 				>
-					{pendingAttachment && (
-						<div className="w-full">
-							<AttachmentPreview attachment={pendingAttachment} />
-							<Button
-								type="button"
-								variant="ghost"
-								onClick={() => {
-									setPendingAttachment(null);
-									inputRef.current?.focus();
-								}}
-							>
-								{pendingAttachment.kind === "quote"
-									? "Remove quote"
-									: "Remove passage"}
-							</Button>
-						</div>
-					)}
-					{passageStatus && (
-						<PassageNotice
-							status={passageStatus}
-							book={
-								passageStatus.kind === "out_of_scope"
-									? conversation.books.find(
-											(b) => b.editionId === passageStatus.editionId,
-										)
-									: undefined
-							}
-							conversationId={conversationId}
-							busy={busy}
-							onWhole={(ref) => void attachPassage({ locator: ref.locator })}
-							onDismiss={() => {
-								checkSeq.current++;
-								setPassageStatus(null);
-								inputRef.current?.focus();
-							}}
-						/>
-					)}
-					<textarea
-						ref={inputRef}
-						value={draft}
-						onChange={(e) => setDraft(e.target.value)}
-						onPaste={(e) => {
-							// Only a paste that is exactly one passage link becomes a reference.
-							const ref = parsePassageLink(
-								e.clipboardData.getData("text/plain"),
-								window.location.origin,
-							);
-							if (!ref) return;
-							e.preventDefault();
-							void attachPassage(ref);
+					<Composer
+						composer={composer}
+						conversationId={conversationId}
+						books={conversation.books}
+						busy={busy}
+						onStop={() => {
+							setStoppedId(messages.at(-1)?.id ?? null);
+							void chat.stop();
 						}}
-						name="message"
-						rows={2}
-						required
-						maxLength={8000}
-						aria-label="Message"
-						placeholder="Say what you think…"
-						className="min-h-12 flex-1 resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-						onKeyDown={(e) => {
-							if (e.key === "Enter" && !e.shiftKey) {
-								e.preventDefault();
-								e.currentTarget.form?.requestSubmit();
-							}
+						onSend={() => {
+							const text = composer.draft;
+							const attachment = composer.attachment;
+							const parts: Msg["parts"] = [
+								...(attachment?.kind === "quote"
+									? [replyContextPart(attachment.quote)]
+									: []),
+								...(attachment?.kind === "passage"
+									? [passageContextPart(attachment.snapshot)]
+									: []),
+								{ type: "text", text },
+							];
+							submissionBase.current = conversation.messages.length;
+							submission.current = {
+								id: crypto.randomUUID(),
+								role: "user",
+								parts,
+							};
+							composer.clear();
+							void chat.sendMessage({ id: submission.current.id, parts });
 						}}
 					/>
-					{busy ? (
-						<Button
-							type="button"
-							variant="outline"
-							onClick={() => {
-								setStoppedId(messages.at(-1)?.id ?? null);
-								void chat.stop();
-							}}
-						>
-							<Square aria-hidden /> Stop
-						</Button>
-					) : (
-						<Button type="submit" disabled={!draft.trim()}>
-							<Send aria-hidden /> Send
-						</Button>
-					)}
-				</form>
+				</div>
 			) : (
 				<section
 					className="rounded-md border bg-muted/40 p-4 text-sm"
@@ -738,73 +544,6 @@ function AttachmentPreview({ attachment }: { attachment: Attachment | null }) {
 	if (attachment?.kind === "passage")
 		return <PassageQuote snapshot={attachment.snapshot} />;
 	return null;
-}
-
-/** Checking a passage, or why it was not attached; preserves the draft. */
-function PassageNotice({
-	status,
-	book,
-	conversationId,
-	busy,
-	onWhole,
-	onDismiss,
-}: {
-	status: PassageStatus;
-	book: ConversationBook | undefined;
-	conversationId: string;
-	busy: boolean;
-	onWhole: (ref: PassageRef) => void;
-	onDismiss: () => void;
-}) {
-	if (status.kind === "checking")
-		return (
-			<output
-				className="block w-full text-sm text-muted-foreground"
-				data-testid="passage-status"
-			>
-				Checking passage…
-			</output>
-		);
-	return (
-		<div
-			role="alert"
-			className="w-full rounded-md border px-3 py-2 text-sm"
-			data-testid="passage-status"
-		>
-			{status.kind === "out_of_scope" ? (
-				<p>
-					This passage is in {status.unitLabel ?? "a later part of the book"},
-					beyond this conversation's scope. Widen the scope to attach it.
-				</p>
-			) : (
-				<p>{status.message}</p>
-			)}
-			<div className="mt-1 flex flex-wrap items-center gap-1">
-				{status.kind === "out_of_scope" && book && (
-					<WidenScope
-						conversationId={conversationId}
-						book={book}
-						disabled={busy}
-					/>
-				)}
-				{status.kind === "invalid" &&
-					status.reason === "bad_range" &&
-					status.ref.range && (
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							onClick={() => onWhole(status.ref)}
-						>
-							Attach the whole passage
-						</Button>
-					)}
-				<Button type="button" size="sm" variant="ghost" onClick={onDismiss}>
-					Dismiss
-				</Button>
-			</div>
-		</div>
-	);
 }
 
 /** The reference a message's passage attachment was made from. */

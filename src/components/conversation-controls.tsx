@@ -19,6 +19,7 @@ import {
 	deleteConversationFn,
 	renameConversationFn,
 } from "#/fns/conversations";
+import { clearComposerDraft } from "#/lib/composer-draft";
 
 /** A rename button that swaps to an inline form. Refreshes the page data when saved. */
 export function RenameConversation({
@@ -137,6 +138,7 @@ export function DeleteConversation({
 							setError(null);
 							try {
 								await remove({ data: { conversationId } });
+								clearComposerDraft(conversationId);
 								await onDeleted();
 							} catch {
 								setError("Could not delete. Please try again.");

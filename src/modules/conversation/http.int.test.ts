@@ -185,6 +185,22 @@ describe("POST /api/chat", () => {
 		expect(JSON.stringify(conv.messages)).not.toContain("two");
 	});
 
+	it("stores the reader's message exactly as typed", async () => {
+		const id = await newConversation();
+		const message = "    indented code\nmore prose\n";
+		const model = modelWith(() => [
+			{ type: "text-delta", id: "t1", delta: "ok" },
+		]);
+		const res = await chat(
+			enabled(model),
+			post({ conversationId: id, message }),
+		);
+		expect(res.status).toBe(200);
+		await res.text();
+		const stored = (await getConversation(t.db, id))?.messages[0];
+		expect(stored?.parts).toEqual([{ type: "text", text: message }]);
+	});
+
 	it("streams incrementally, before the model finishes", async () => {
 		const id = await newConversation();
 		let release: () => void = () => {};

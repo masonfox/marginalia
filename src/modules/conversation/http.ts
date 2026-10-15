@@ -6,8 +6,12 @@ import { type ChatDeps, startChat } from "./chat";
 const chatBody = z
 	.object({
 		conversationId: z.uuid(),
-		/** The new user message. Omit to retry after a failed generation. */
-		message: z.string().trim().min(1).max(8000).optional(),
+		/** The new user message, stored as typed. Omit to retry after a failed generation. */
+		message: z
+			.string()
+			.max(8000)
+			.refine((s) => s.trim().length > 0)
+			.optional(),
 		replyContext: replyContextSchema.optional(),
 		passageRef: passageRefSchema.optional(),
 	})

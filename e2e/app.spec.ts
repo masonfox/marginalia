@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, type Route, test } from "@playwright/test";
 import pg from "pg";
 import { buildEpub } from "../test/epub-builder";
 
@@ -414,6 +414,7 @@ test.describe("reply to an assistant selection", () => {
 			);
 			await login(page);
 			await page.goto(`/c/${conversationId}`);
+			await page.waitForLoadState("networkidle");
 			test.skip(
 				await page
 					.getByText("AI is not configured", { exact: true })
@@ -437,6 +438,19 @@ test.describe("reply to an assistant selection", () => {
 			await expect(page.getByLabel("Message", { exact: true })).toHaveValue(
 				"Why this claim?",
 			);
+			// A collapsed chip with its excerpt; expanding shows the full quote.
+			await expect(chip(page)).toHaveAttribute("data-kind", "quote");
+			await expect(page.getByTestId("attachment-excerpt")).toHaveText(
+				"A particular claim worth discussing.",
+			);
+			const toggle = chip(page).getByRole("button", {
+				name: /^Show full quote/,
+			});
+			await expect(toggle).toHaveAttribute("aria-expanded", "false");
+			await expect(page.getByTestId("reply-quote")).toBeHidden();
+			await toggle.click();
+			await expect(toggle).toHaveAttribute("aria-expanded", "true");
+			await expect(page.getByTestId("reply-quote")).toBeVisible();
 			await expect(page.getByTestId("reply-quote")).toContainText(
 				"A particular claim worth discussing.",
 			);
@@ -486,55 +500,89 @@ test.describe("reply to an assistant selection", () => {
 				"A particular claim worth discussing.",
 			);
 			await expect(page.getByLabel("Message", { exact: true })).toHaveValue("");
+			await expect(chip(page)).toHaveCount(0);
 		} finally {
 			await db.query("delete from conversations where id=$1", [conversationId]);
 		}
 	});
 });
 
-test.describe("passage references", () => {
-	const passage = async (spine: number, block: number) => {
-		const { id } = await manifesto();
-		return one<{ locator: string; text: string }>(
-			"select locator, text from passages where edition_id = $1 and spine_index = $2 and block_index = $3",
-			[id, spine, block],
-		);
+const passage = async (spine: number, block: number) => {
+	const { id } = await manifesto();
+	return one<{ locator: string; text: string }>(
+		"select locator, text from passages where edition_id = $1 and spine_index = $2 and block_index = $3",
+		[id, spine, block],
+	);
+};
+
+/** The Manifesto's last position in a section, and the scope label for it. */
+async function boundThrough(spine: number) {
+	const { id: editionId } = await manifesto();
+	const bound = await one<{ max: number; title: string }>(
+		"select max(p.position) as max, s.title from passages p join sections s on s.id = p.section_id where p.edition_id = $1 and p.spine_index = $2 group by s.title",
+		[editionId, spine],
+	);
+	return {
+		max: bound.max,
+		label: `The Communist Manifesto › ${bound.title}`,
 	};
+}
 
-	/** A conversation about the Manifesto, optionally bounded through a section's last passage. */
-	async function conversation(title: string, throughSpine?: number) {
-		const { id: editionId } = await manifesto();
-		const id = randomUUID();
-		const bound =
-			throughSpine === undefined
-				? null
-				: await one<{ max: number; title: string }>(
-						"select max(p.position) as max, s.title from passages p join sections s on s.id = p.section_id where p.edition_id = $1 and p.spine_index = $2 group by s.title",
-						[editionId, throughSpine],
-					);
-		await db.query("insert into conversations (id,title) values ($1,$2)", [
-			id,
-			title,
-		]);
-		await db.query(
-			"insert into conversation_editions (conversation_id,edition_id,ordinal,max_position,scope_label) values ($1,$2,0,$3,$4)",
-			[
-				id,
-				editionId,
-				bound?.max ?? null,
-				bound ? `The Communist Manifesto › ${bound.title}` : null,
-			],
-		);
-		return id;
-	}
+/** A conversation about the Manifesto, optionally bounded through a section's last passage. */
+async function conversation(title: string, throughSpine?: number) {
+	const { id: editionId } = await manifesto();
+	const id = randomUUID();
+	const bound =
+		throughSpine === undefined ? null : await boundThrough(throughSpine);
+	await db.query("insert into conversations (id,title) values ($1,$2)", [
+		id,
+		title,
+	]);
+	await db.query(
+		"insert into conversation_editions (conversation_id,edition_id,ordinal,max_position,scope_label) values ($1,$2,0,$3,$4)",
+		[id, editionId, bound?.max ?? null, bound?.label ?? null],
+	);
+	return id;
+}
 
-	const message = (page: Page) => page.getByLabel("Message", { exact: true });
-	const skipWithoutAi = async (page: Page) =>
-		test.skip(
-			await page.getByText("AI is not configured", { exact: true }).isVisible(),
-			"Passage references in conversations require configured AI",
-		);
+/** Stores an assistant message in a conversation, for quoting. */
+async function assistantMessage(conversationId: string, text: string) {
+	const id = randomUUID();
+	await db.query(
+		"insert into messages (id,conversation_id,seq,role,parts,finish_reason) values ($1,$2,1,'assistant',$3,'stop')",
+		[id, conversationId, JSON.stringify([{ type: "text", text }])],
+	);
+	return id;
+}
 
+/** A complete UI message stream for a one-line reply. */
+const replyStream = (text: string) =>
+	`data: {"type":"start","messageId":"reply"}\n\ndata: {"type":"text-start","id":"t"}\n\ndata: {"type":"text-delta","id":"t","delta":${JSON.stringify(text)}}\n\ndata: {"type":"text-end","id":"t"}\n\ndata: {"type":"finish"}\n\ndata: [DONE]\n\n`;
+
+const fulfillReply = (route: Route, text: string) =>
+	route.fulfill({
+		status: 200,
+		contentType: "text/event-stream",
+		headers: { "x-vercel-ai-ui-message-stream": "v1" },
+		body: replyStream(text),
+	});
+
+const message = (page: Page) => page.getByLabel("Message", { exact: true });
+const chip = (page: Page) => page.getByTestId("attachment-chip");
+const sendButton = (page: Page) =>
+	page.getByRole("button", { name: "Send", exact: true });
+const skipWithoutAi = async (page: Page) =>
+	test.skip(
+		await page.getByText("AI is not configured", { exact: true }).isVisible(),
+		"Conversations require configured AI",
+	);
+const storedDraft = (page: Page, conversationId: string) =>
+	page.evaluate(
+		(key) => sessionStorage.getItem(key),
+		`marginalia:composer:${conversationId}`,
+	);
+
+test.describe("passage references", () => {
 	test.beforeEach(async ({ page, context, baseURL }) => {
 		await context.grantPermissions(["clipboard-read", "clipboard-write"], {
 			origin: baseURL,
@@ -628,16 +676,47 @@ test.describe("passage references", () => {
 			};
 			await message(page).fill("My draft");
 			await paste(`${baseURL}/p/${target.locator}?hl=4-11`);
+			// Collapsed: the source and a one-line excerpt.
+			await expect(chip(page)).toHaveAttribute("data-kind", "passage");
+			await expect(chip(page)).toContainText(
+				"Passage from the book · The Communist Manifesto · I: Bourgeois and Proletarians",
+			);
+			await expect(page.getByTestId("attachment-excerpt")).toHaveText(
+				"history",
+			);
 			const quote = page.getByTestId("passage-quote");
-			await expect(quote).toContainText("history");
-			await expect(quote).toContainText("I: Bourgeois and Proletarians");
+			await expect(quote).toBeHidden();
 			await expect(message(page)).toHaveValue("My draft");
+
+			// Expanded: the full text and a link into the book.
+			const toggle = chip(page).getByRole("button", {
+				name: /^Show full passage/,
+			});
+			await toggle.click();
+			await expect(toggle).toHaveAttribute("aria-expanded", "true");
+			await expect(quote).toBeVisible();
+			await expect(quote).toContainText("history");
+			await expect(
+				chip(page).getByRole("link", { name: "Open in book →" }),
+			).toBeVisible();
+
+			// Removing keeps the draft; pasting again attaches a fresh, collapsed chip.
+			await chip(page).getByRole("button", { name: "Remove passage" }).click();
+			await expect(chip(page)).toHaveCount(0);
+			await expect(message(page)).toHaveValue("My draft");
+			await paste(`${baseURL}/p/${target.locator}?hl=4-11`);
+			await expect(quote).toBeHidden();
+			await expect(page.getByTestId("attachment-excerpt")).toHaveText(
+				"history",
+			);
 
 			const prose = ` and see ${baseURL}/p/${target.locator} too`;
 			await message(page).press("End");
 			await paste(prose);
 			await expect(message(page)).toHaveValue(`My draft${prose}`);
-			await expect(quote).toContainText("history");
+			await expect(page.getByTestId("attachment-excerpt")).toHaveText(
+				"history",
+			);
 
 			let body:
 				| { message: string; passageRef?: unknown; replyContext?: unknown }
@@ -685,6 +764,7 @@ test.describe("passage references", () => {
 			await page.reload();
 			await expect(page.getByTestId("passage-quote")).toContainText("history");
 			await expect(message(page)).toHaveValue("");
+			await expect(chip(page)).toHaveCount(0);
 			await page.getByRole("link", { name: "Open in book →" }).click();
 			await expect(page).toHaveURL(/\/p\/.*\?hl=4-11$/);
 			await expect(page.getByTestId("quote-highlight")).toHaveText("history");
@@ -727,14 +807,19 @@ test.describe("passage references", () => {
 		await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/);
 		const conversationId = page.url().split("/c/")[1] as string;
 		try {
-			await expect(page.getByTestId("passage-quote")).toContainText(
-				target.text.slice(0, 30),
-			);
+			await expect(chip(page)).toContainText(target.text.slice(0, 30));
 			await expect(message(page)).toBeFocused();
+			// The handoff is gone from the URL; the reference comes back from the saved draft.
+			await expect(page).not.toHaveURL(/ref=/);
 			await page.reload();
 			await page.waitForLoadState("networkidle");
 			await expect(message(page)).toBeVisible();
-			await expect(page.getByTestId("passage-quote")).toHaveCount(0);
+			await expect(chip(page)).toHaveCount(1);
+			await expect(chip(page)).toContainText(target.text.slice(0, 30));
+			await expect(page.getByTestId("passage-status")).toHaveCount(0);
+			await expect(sendButton(page)).toHaveAccessibleDescription(
+				"Type a message",
+			);
 		} finally {
 			await db.query("delete from conversations where id=$1", [conversationId]);
 		}
@@ -813,12 +898,252 @@ test.describe("passage references", () => {
 				.check();
 			await widen.getByRole("button", { name: "Widen" }).click();
 			await expect(widen).toBeHidden();
-			await expect(page.getByTestId("passage-quote")).toHaveCount(2);
-			await expect(page.getByTestId("passage-quote").last()).toContainText(
-				later.text.slice(0, 30),
-			);
+			await expect(chip(page)).toContainText(later.text.slice(0, 30));
 			await expect(notice).toHaveCount(0);
 			await expect(message(page)).toHaveValue("Keep me");
+		} finally {
+			await db.query("delete from conversations where id=$1", [id]);
+		}
+	});
+});
+
+test.describe("composer", () => {
+	test.beforeEach(async ({ page, context, baseURL }) => {
+		await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+			origin: baseURL,
+		});
+		await login(page);
+	});
+
+	const paste = async (page: Page, text: string) => {
+		await page.evaluate((t) => navigator.clipboard.writeText(t), text);
+		await message(page).focus();
+		await page.keyboard.press("ControlOrMeta+V");
+	};
+
+	test("send explains itself, becomes Stop in place, and Escape only clears the attachment", async ({
+		page,
+		baseURL,
+	}) => {
+		const target = await passage(5, 2);
+		const id = await conversation("Send control test");
+		try {
+			await page.goto(`/c/${id}`);
+			await page.waitForLoadState("networkidle");
+			await skipWithoutAi(page);
+
+			await expect(sendButton(page)).toHaveAttribute("aria-disabled", "true");
+			await expect(sendButton(page)).toHaveAccessibleDescription(
+				"Type a message",
+			);
+			await expect(page.getByTestId("composer-hint")).toBeVisible();
+
+			// Shift+Enter continues a numbered list; a newline on an empty item ends it.
+			await message(page).fill("1. item");
+			await message(page).press("End");
+			await message(page).press("Shift+Enter");
+			await expect(message(page)).toHaveValue("1. item\n2. ");
+			await message(page).press("Shift+Enter");
+			await expect(message(page)).toHaveValue("1. item\n");
+			// Tab outside a list moves focus rather than inserting text.
+			await message(page).press("Tab");
+			await expect(message(page)).not.toBeFocused();
+			await expect(message(page)).toHaveValue("1. item\n");
+
+			await message(page).fill("What is this about?");
+			await expect(sendButton(page)).not.toHaveAttribute("aria-disabled");
+			const sendBox = await sendButton(page).boundingBox();
+
+			let release = () => {};
+			const released = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			await page.route("**/api/chat", async (route) => {
+				await released;
+				await fulfillReply(route, "Streamed answer");
+			});
+			await message(page).press("Enter");
+			const stop = page.getByRole("button", { name: "Stop", exact: true });
+			await expect(stop).toBeVisible();
+			await expect(sendButton(page)).toHaveCount(0);
+			const stopBox = await stop.boundingBox();
+			expect(Math.abs((stopBox?.x ?? 0) - (sendBox?.x ?? -99))).toBeLessThan(2);
+			expect(Math.abs((stopBox?.y ?? 0) - (sendBox?.y ?? -99))).toBeLessThan(2);
+
+			// While the reply is pending, attach a passage and remove it with Escape.
+			await message(page).fill("Next question");
+			await paste(page, `${baseURL}/p/${target.locator}`);
+			await expect(chip(page)).toBeVisible();
+			await message(page).press("Escape");
+			await expect(chip(page)).toHaveCount(0);
+			await expect(message(page)).toHaveValue("Next question");
+			await expect(stop).toBeVisible();
+
+			release();
+			await expect(page.getByText("Streamed answer")).toBeVisible();
+			await expect(sendButton(page)).toBeVisible();
+		} finally {
+			await db.query("delete from conversations where id=$1", [id]);
+		}
+	});
+
+	test("a draft and its quote survive a reload until sent", async ({
+		page,
+	}) => {
+		const id = await conversation("Draft reload test");
+		const sourceId = await assistantMessage(id, "A claim worth quoting.");
+		try {
+			await page.goto(`/c/${id}`);
+			await page.waitForLoadState("networkidle");
+			await skipWithoutAi(page);
+			await message(page).fill("Why this claim?");
+			await page
+				.locator(`[data-reply-source="${sourceId}"]`)
+				.evaluate((element) => {
+					const range = document.createRange();
+					range.selectNodeContents(element);
+					const selection = window.getSelection();
+					selection?.removeAllRanges();
+					selection?.addRange(range);
+					document.dispatchEvent(new Event("selectionchange"));
+				});
+			await page
+				.getByRole("button", { name: "Reply to selection", exact: true })
+				.click();
+			await expect(chip(page)).toHaveAttribute("data-kind", "quote");
+
+			await page.reload();
+			await page.waitForLoadState("networkidle");
+			await expect(message(page)).toHaveValue("Why this claim?");
+			await expect(chip(page)).toHaveAttribute("data-kind", "quote");
+			await expect(page.getByTestId("attachment-excerpt")).toHaveText(
+				"A claim worth quoting.",
+			);
+
+			await page.route("**/api/chat", (route) =>
+				fulfillReply(route, "Because."),
+			);
+			await sendButton(page).click();
+			await expect(page.getByText("Because.")).toBeVisible();
+			await page.reload();
+			await page.waitForLoadState("networkidle");
+			await expect(message(page)).toHaveValue("");
+			await expect(chip(page)).toHaveCount(0);
+			expect(await storedDraft(page, id)).toBeNull();
+		} finally {
+			await db.query("delete from conversations where id=$1", [id]);
+		}
+	});
+
+	test("a restored passage is checked again, and a handoff replaces a restored quote", async ({
+		page,
+		baseURL,
+	}) => {
+		const later = await passage(6, 3);
+		const id = await conversation("Restored passage test");
+		const sourceId = await assistantMessage(id, "Something to quote.");
+		try {
+			await page.goto(`/c/${id}`);
+			await page.waitForLoadState("networkidle");
+			await skipWithoutAi(page);
+			await message(page).fill("Keep this draft");
+			await paste(page, `${baseURL}/p/${later.locator}`);
+			await expect(chip(page)).toHaveAttribute("data-kind", "passage");
+			await expect.poll(() => storedDraft(page, id)).toContain(later.locator);
+
+			// Narrow the scope so the saved passage falls outside it.
+			const bound = await boundThrough(5);
+			await db.query(
+				"update conversation_editions set max_position=$2, scope_label=$3 where conversation_id=$1",
+				[id, bound.max, bound.label],
+			);
+			await page.reload();
+			await page.waitForLoadState("networkidle");
+			await expect(page.getByTestId("passage-status")).toContainText(
+				"beyond this conversation's scope",
+			);
+			await expect(chip(page)).toHaveCount(0);
+			await expect(message(page)).toHaveValue("Keep this draft");
+
+			// A saved quote is restored, then replaced by a reference handed over from the passage view.
+			const inScope = await passage(5, 2);
+			await page.evaluate(
+				([key, value]) => sessionStorage.setItem(key, value),
+				[
+					`marginalia:composer:${id}`,
+					JSON.stringify({
+						v: 1,
+						text: "Restored draft",
+						attachment: {
+							kind: "quote",
+							messageId: sourceId,
+							text: "Something to quote.",
+						},
+					}),
+				] as const,
+			);
+			await page.reload();
+			await expect(chip(page)).toHaveAttribute("data-kind", "quote");
+			await page.goto(`/c/${id}?ref=${encodeURIComponent(inScope.locator)}`);
+			await expect(chip(page)).toHaveAttribute("data-kind", "passage");
+			await expect(chip(page)).toContainText(inScope.text.slice(0, 20));
+			await expect(message(page)).toHaveValue("Restored draft");
+		} finally {
+			await db.query("delete from conversations where id=$1", [id]);
+		}
+	});
+
+	test("deleting a conversation clears its draft; a corrupt draft is ignored", async ({
+		page,
+	}) => {
+		const title = `Draft delete test ${randomUUID().slice(0, 8)}`;
+		const id = await conversation(title);
+		try {
+			await page.goto(`/c/${id}`);
+			await page.waitForLoadState("networkidle");
+			await skipWithoutAi(page);
+
+			await page.evaluate(
+				(key) => sessionStorage.setItem(key, "{not json"),
+				`marginalia:composer:${id}`,
+			);
+			await page.reload();
+			await page.waitForLoadState("networkidle");
+			await expect(message(page)).toHaveValue("");
+			await expect(chip(page)).toHaveCount(0);
+
+			await message(page).fill("Unsent thought");
+			await expect
+				.poll(() => storedDraft(page, id))
+				.toContain("Unsent thought");
+			await page.getByRole("button", { name: `Delete “${title}”` }).click();
+			await page.getByRole("button", { name: "Delete", exact: true }).click();
+			await expect(page).toHaveURL(/\/conversations$/);
+			expect(await storedDraft(page, id)).toBeNull();
+		} finally {
+			await db.query("delete from conversations where id=$1", [id]);
+		}
+	});
+
+	test("sent messages render Markdown but not HTML", async ({ page }) => {
+		const id = await conversation("Markdown test");
+		try {
+			await page.goto(`/c/${id}`);
+			await page.waitForLoadState("networkidle");
+			await skipWithoutAi(page);
+			await page.route("**/api/chat", (route) => fulfillReply(route, "Noted."));
+			await message(page).fill(
+				"Two points:\n\n1. first point\n2. second point\n\n<b>bold?</b>",
+			);
+			await sendButton(page).click();
+			await expect(page.getByText("Noted.")).toBeVisible();
+			const sent = page.locator("li").filter({ hasText: "Two points:" }).last();
+			await expect(sent.locator("ol li")).toHaveText([
+				"first point",
+				"second point",
+			]);
+			await expect(sent.getByText("<b>bold?</b>")).toBeVisible();
+			await expect(sent.locator("b")).toHaveCount(0);
 		} finally {
 			await db.query("delete from conversations where id=$1", [id]);
 		}

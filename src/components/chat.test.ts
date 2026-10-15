@@ -7,7 +7,12 @@ import {
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { SourcesList, SourcesScope, type VerifiedCitation } from "./chat";
+import {
+	SourcesList,
+	SourcesScope,
+	UserMarkdown,
+	type VerifiedCitation,
+} from "./chat";
 
 const router = createRouter({
 	routeTree: createRootRoute(),
@@ -77,5 +82,29 @@ describe("SourcesList", () => {
 		});
 		expect(html).toContain("· The Great Gatsby, Moby-Dick");
 		expect(html).toContain("Moby-Dick · Chapter 2 →");
+	});
+});
+
+describe("UserMarkdown", () => {
+	const html = (text: string) =>
+		renderToStaticMarkup(createElement(UserMarkdown, { text }));
+
+	it("renders lists and emphasis as markdown", () => {
+		const out = html("Two thoughts:\n\n1. **first**\n2. second");
+		expect(out).toContain("<ol");
+		expect(out).toContain("<strong>first</strong>");
+	});
+
+	it("shows raw HTML as text and never renders it", () => {
+		const out = html("<img src=x onerror=alert(1)> and <b>x</b>");
+		expect(out).not.toContain("<img");
+		expect(out).not.toContain("<b>");
+		expect(out).toContain("&lt;img src=x onerror=alert(1)&gt; and &lt;b&gt;x");
+		expect(html("<div>\nblock\n</div>")).toContain("&lt;div&gt;");
+	});
+
+	it("does not treat citation markers as citations", () => {
+		const out = html('See [[cite locator="x:v1:0.0" quote="q"]]');
+		expect(out).not.toContain("data-citation-status");
 	});
 });

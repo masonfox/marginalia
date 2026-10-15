@@ -100,45 +100,62 @@ const heading = (cls: string) =>
 		return <p className={cls}>{children}</p>;
 	};
 
+/** Markdown elements shared by assistant and reader messages. */
+const BASE_COMPONENTS: Components = {
+	h1: heading("mt-4 mb-1 text-lg font-semibold"),
+	h2: heading("mt-4 mb-1 text-base font-semibold"),
+	h3: heading("mt-3 mb-1 font-semibold"),
+	h4: heading("mt-3 mb-1 font-semibold"),
+	p: ({ children }) => <p className="my-2">{children}</p>,
+	ul: ({ children }) => (
+		<ul className="my-2 list-disc space-y-1 pl-6">{children}</ul>
+	),
+	ol: ({ children }) => (
+		<ol className="my-2 list-decimal space-y-1 pl-6">{children}</ol>
+	),
+	blockquote: ({ children }) => (
+		<blockquote className="my-2 border-l-2 pl-3 text-muted-foreground">
+			{children}
+		</blockquote>
+	),
+	hr: () => <hr className="my-4" />,
+	code: ({ children }) => (
+		<code className="rounded bg-muted px-1 py-0.5 text-[0.9em]">
+			{children}
+		</code>
+	),
+	pre: ({ children }) => (
+		<pre className="my-2 overflow-auto rounded-md bg-muted p-3 text-sm">
+			{children}
+		</pre>
+	),
+	table: ({ children }) => (
+		<div className="my-2 overflow-x-auto">
+			<table className="w-full border-collapse text-sm">{children}</table>
+		</div>
+	),
+	th: ({ children }) => (
+		<th className="border-b px-2 py-1 text-left font-medium">{children}</th>
+	),
+	td: ({ children }) => <td className="border-b px-2 py-1">{children}</td>,
+	a: ({ href, children }) => (
+		<a
+			href={href}
+			target="_blank"
+			rel="noreferrer noopener"
+			className="text-primary underline underline-offset-2"
+		>
+			{children}
+		</a>
+	),
+};
+
 function buildComponents(markers: Marker[], ctx: CitationContext): Components {
+	const Link = BASE_COMPONENTS.a as (props: ComponentProps<"a">) => ReactNode;
 	return {
-		h1: heading("mt-4 mb-1 text-lg font-semibold"),
-		h2: heading("mt-4 mb-1 text-base font-semibold"),
-		h3: heading("mt-3 mb-1 font-semibold"),
-		h4: heading("mt-3 mb-1 font-semibold"),
-		p: ({ children }) => <p className="my-2">{children}</p>,
-		ul: ({ children }) => (
-			<ul className="my-2 list-disc space-y-1 pl-6">{children}</ul>
-		),
-		ol: ({ children }) => (
-			<ol className="my-2 list-decimal space-y-1 pl-6">{children}</ol>
-		),
-		blockquote: ({ children }) => (
-			<blockquote className="my-2 border-l-2 pl-3 text-muted-foreground">
-				{children}
-			</blockquote>
-		),
-		hr: () => <hr className="my-4" />,
-		code: ({ children }) => (
-			<code className="rounded bg-muted px-1 py-0.5 text-[0.9em]">
-				{children}
-			</code>
-		),
-		pre: ({ children }) => (
-			<pre className="my-2 overflow-auto rounded-md bg-muted p-3 text-sm">
-				{children}
-			</pre>
-		),
-		table: ({ children }) => (
-			<div className="my-2 overflow-x-auto">
-				<table className="w-full border-collapse text-sm">{children}</table>
-			</div>
-		),
-		th: ({ children }) => (
-			<th className="border-b px-2 py-1 text-left font-medium">{children}</th>
-		),
-		td: ({ children }) => <td className="border-b px-2 py-1">{children}</td>,
-		a: ({ href, children }) => {
+		...BASE_COMPONENTS,
+		a: (props) => {
+			const { href } = props;
 			if (href?.startsWith(CITE_SCHEME)) {
 				const marker = markers[Number(href.slice(CITE_SCHEME.length))];
 				if (!marker) return null;
@@ -151,16 +168,7 @@ function buildComponents(markers: Marker[], ctx: CitationContext): Components {
 					/>
 				);
 			}
-			return (
-				<a
-					href={href}
-					target="_blank"
-					rel="noreferrer noopener"
-					className="text-primary underline underline-offset-2"
-				>
-					{children}
-				</a>
-			);
+			return <Link {...props} />;
 		},
 	};
 }
@@ -192,6 +200,41 @@ export const AssistantText = memo(function AssistantText({
 				urlTransform={urlTransform}
 			>
 				{source}
+			</Markdown>
+		</div>
+	);
+});
+
+type MdNode = { type: string; children?: MdNode[] };
+
+/** Turns raw HTML into plain text, so a reader's `<b>` shows as typed rather than vanishing. */
+function htmlAsText() {
+	const walk = (node: MdNode) => {
+		if (node.type === "html") node.type = "text";
+		node.children?.forEach(walk);
+	};
+	return walk;
+}
+
+const USER_REMARK_PLUGINS = [remarkGfm, htmlAsText];
+
+/**
+ * A reader's message rendered as markdown. Raw HTML shows as literal text and
+ * is never rendered, and nothing is treated as a citation.
+ */
+export const UserMarkdown = memo(function UserMarkdown({
+	text,
+}: {
+	text: string;
+}) {
+	return (
+		<div className="leading-relaxed [&>:first-child]:mt-0 [&>:last-child]:mb-0">
+			<Markdown
+				remarkPlugins={USER_REMARK_PLUGINS}
+				components={BASE_COMPONENTS}
+				skipHtml
+			>
+				{text}
 			</Markdown>
 		</div>
 	);
