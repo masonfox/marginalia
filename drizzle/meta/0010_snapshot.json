@@ -1,5 +1,5 @@
 {
-  "id": "0a8050f1-61d9-4811-946e-94c17ce29d05",
+  "id": "5cdf46d8-5e88-47fa-80f3-683aff47bf85",
   "prevId": "96c71fab-41f4-42cf-8f34-c248fdb5f54a",
   "version": "7",
   "dialect": "postgresql",
@@ -147,11 +147,12 @@
           "primaryKey": false,
           "notNull": false
         },
-        "cancelled_job_id": {
-          "name": "cancelled_job_id",
-          "type": "uuid",
+        "cancelled_job_ids": {
+          "name": "cancelled_job_ids",
+          "type": "uuid[]",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "'{}'"
         },
         "last_error": {
           "name": "last_error",

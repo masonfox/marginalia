@@ -753,6 +753,84 @@ describe("preprocessing run lifecycle", () => {
 		});
 	});
 
+	it("a cancelled job stays fenced after a later job is cancelled too", async () => {
+		const id = await newEdition("CancelTwice");
+		const first = randomUUID();
+		let calls = 0;
+		const m = new MockLanguageModelV4({
+			doGenerate: async () => {
+				calls++;
+				throw new Error("the cancelled job called the model");
+			},
+		});
+		// The first job is cancelled before its claim, then a second job is
+		// enqueued and cancelled before it starts; the first claims last.
+		const loading = t.db.transaction.bind(t.db);
+		const db = Object.create(t.db) as typeof t.db;
+		db.transaction = (async (...args: Parameters<typeof t.db.transaction>) => {
+			const snapshot = await loading(...args);
+			await cancelRun(t.db, id, first);
+			await cancelRun(t.db, id, randomUUID());
+			return snapshot;
+		}) as typeof t.db.transaction;
+		await expect(
+			preprocessEdition({ ...deps(m), db }, id, { id: first }),
+		).rejects.toThrow(NonRetryableError);
+		expect(calls).toBe(0);
+		expect((await getPreprocessStatus(t.db, id, null)).status).toBe(
+			"cancelled",
+		);
+	});
+
+	it("the fence keeps only the most recently cancelled jobs", async () => {
+		const id = await newEdition("CancelMany");
+		const jobs = Array.from({ length: 25 }, () => randomUUID());
+		for (const job of jobs) await cancelRun(t.db, id, job);
+		const [row] = await t.db
+			.select({ fenced: preprocessRuns.cancelledJobIds })
+			.from(preprocessRuns)
+			.where(eq(preprocessRuns.editionId, id));
+		expect(row?.fenced).toEqual(jobs.slice(-20).reverse());
+		const prompts: string[] = [];
+		await expect(
+			preprocessEdition(deps(model({ prompts })), id, { id: jobs.at(-1) }),
+		).rejects.toThrow(NonRetryableError);
+		expect(prompts).toHaveLength(0);
+	});
+
+	it("cancelling resolves when the book is deleted before the fence is written", async () => {
+		const id = await newEdition("CancelDeleted");
+		let deleted = false;
+		const deleteFirst = async () => {
+			if (deleted) return;
+			deleted = true;
+			await t.db.delete(editions).where(eq(editions.id, id));
+		};
+		// Deletes the book once the insert runs, after cancelRun saw it exist.
+		const delayed = <T extends object>(builder: T): T =>
+			new Proxy(builder, {
+				get(target, prop) {
+					const value = Reflect.get(target, prop);
+					if (typeof value !== "function") return value;
+					if (prop === "then") {
+						return (...args: unknown[]) =>
+							deleteFirst().then(() => value.apply(target, args));
+					}
+					return (...args: unknown[]) => {
+						const result = value.apply(target, args);
+						return result && typeof result === "object"
+							? delayed(result)
+							: result;
+					};
+				},
+			});
+		const db = Object.create(t.db) as typeof t.db;
+		db.insert = ((table: Parameters<typeof t.db.insert>[0]) =>
+			delayed(t.db.insert(table))) as typeof t.db.insert;
+		await expect(cancelRun(db, id, randomUUID())).resolves.toBeUndefined();
+		expect(deleted).toBe(true);
+	});
+
 	it("cancelling a first queued job reads as cancelled, not not started", async () => {
 		const id = await newEdition("CancelQueuedFirst");
 		await cancelRun(t.db, id, randomUUID());

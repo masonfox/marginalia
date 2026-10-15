@@ -309,9 +309,9 @@ export async function updateRun(
 /**
  * Makes `attempt` of queue job `jobId` the run row's owner and writes
  * `progress`, unless cancelRun already fenced out that job. One statement, so
- * a cancellation that lands first always wins. The fence outlives other jobs'
- * claims, so the cancelled job cannot take the run back from a newer one.
- * Returns whether it claimed.
+ * a cancellation that lands first always wins. A claim never lifts a fence,
+ * so a cancelled job cannot take the run back from a newer one, whether that
+ * job claimed or was cancelled too. Returns whether it claimed.
  */
 export async function claimRun(
 	db: Executor,
@@ -327,7 +327,7 @@ export async function claimRun(
 		.onConflictDoUpdate({
 			target: preprocessRuns.editionId,
 			set,
-			setWhere: sql`${preprocessRuns.cancelledJobId} is distinct from ${jobId}`,
+			setWhere: sql`not (${jobId}::uuid = any(${preprocessRuns.cancelledJobIds}))`,
 		})
 		.returning({ editionId: preprocessRuns.editionId });
 	return claimed.length > 0;
@@ -337,9 +337,10 @@ export async function claimRun(
  * Marks an unfinished run cancelled and releases it from its attempt, so a
  * still-running attempt stops at its next progress write and cannot
  * overwrite the cancellation. Units already saved are kept. With
- * `cancelledJobId`, also fences that job out of claimRun for good (it only
- * ever matches that job), recording a cancelled row when the job was
- * cancelled before it wrote one.
+ * `cancelledJobId`, also adds that job to the run's fence so claimRun refuses
+ * it (fencing only that job), recording a cancelled row when the job was
+ * cancelled before it wrote one. A book deleted meanwhile has nothing to
+ * cancel.
  */
 export async function cancelRun(
 	db: Executor,
@@ -349,30 +350,12 @@ export async function cancelRun(
 	if (cancelledJobId !== null) {
 		// The fence first: a later claim by the job is refused, and an earlier
 		// one is released by the update below. A complete run keeps its status.
-		const [[edition], units, current] = await Promise.all([
-			db
-				.select({ id: editions.id })
-				.from(editions)
-				.where(eq(editions.id, editionId)),
-			getReadingUnits(db, editionId),
-			getCurrentUnits(db, editionId),
-		]);
-		// A deleted book has no run left to fence.
-		if (edition) {
-			await db
-				.insert(preprocessRuns)
-				.values({
-					editionId,
-					status: "cancelled",
-					totalUnits: units.length,
-					doneUnits: current.length,
-					cancelledJobId,
-					finishedAt: new Date(),
-				})
-				.onConflictDoUpdate({
-					target: preprocessRuns.editionId,
-					set: { cancelledJobId },
-				});
+		try {
+			await fenceJob(db, editionId, cancelledJobId);
+		} catch (err) {
+			// The book was deleted after the existence check; its run went with it.
+			// Inside a transaction this failure would abort it, so callers pass db.
+			if (!isForeignKeyViolation(err)) throw err;
 		}
 	}
 	await db
@@ -389,6 +372,55 @@ export async function cancelRun(
 				ne(preprocessRuns.status, "complete"),
 			),
 		);
+}
+
+/**
+ * Cancelled jobs kept in a run's fence. A cancelled job's worker only
+ * survives until its next heartbeat abort, so a short list suffices.
+ */
+const FENCED_JOBS = 20;
+
+/** Adds `jobId` to the run's fence, recording a cancelled row if there is none. */
+async function fenceJob(
+	db: Executor,
+	editionId: string,
+	jobId: string,
+): Promise<void> {
+	const [[edition], units, current] = await Promise.all([
+		db
+			.select({ id: editions.id })
+			.from(editions)
+			.where(eq(editions.id, editionId)),
+		getReadingUnits(db, editionId),
+		getCurrentUnits(db, editionId),
+	]);
+	// A deleted book has no run left to fence.
+	if (!edition) return;
+	// Newest first, so the slice drops the oldest.
+	await db
+		.insert(preprocessRuns)
+		.values({
+			editionId,
+			status: "cancelled",
+			totalUnits: units.length,
+			doneUnits: current.length,
+			cancelledJobIds: [jobId],
+			finishedAt: new Date(),
+		})
+		.onConflictDoUpdate({
+			target: preprocessRuns.editionId,
+			set: {
+				cancelledJobIds: sql`(array_prepend(${jobId}::uuid, ${preprocessRuns.cancelledJobIds}))[1:${sql.raw(String(FENCED_JOBS))}]`,
+			},
+		});
+}
+
+/** Whether `err`, or any error in its cause chain, is a Postgres foreign-key violation. */
+function isForeignKeyViolation(err: unknown): boolean {
+	for (let e: unknown = err; e instanceof Error; e = e.cause) {
+		if ((e as { code?: unknown }).code === "23503") return true;
+	}
+	return false;
 }
 
 export type PreprocessState =
