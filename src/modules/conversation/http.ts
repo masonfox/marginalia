@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { passageRefSchema } from "#/lib/passage-ref";
 import { replyContextSchema } from "#/lib/reply-context";
 import { type ChatDeps, startChat } from "./chat";
 
@@ -8,8 +9,14 @@ const chatBody = z
 		/** The new user message. Omit to retry after a failed generation. */
 		message: z.string().trim().min(1).max(8000).optional(),
 		replyContext: replyContextSchema.optional(),
+		passageRef: passageRefSchema.optional(),
 	})
-	.refine((body) => !body.replyContext || body.message !== undefined);
+	// One attachment at most, and only with a new message.
+	.refine((body) => !(body.replyContext && body.passageRef))
+	.refine(
+		(body) =>
+			!(body.replyContext || body.passageRef) || body.message !== undefined,
+	);
 
 const json = (status: number, error: string) =>
 	Response.json({ error }, { status });
@@ -28,6 +35,7 @@ export async function handleChatRequest(
 		conversationId: body.data.conversationId,
 		message: body.data.message,
 		replyContext: body.data.replyContext,
+		passageRef: body.data.passageRef,
 		abortSignal: request.signal,
 	});
 	switch (result.status) {
@@ -41,6 +49,19 @@ export async function handleChatRequest(
 			return json(409, "A reply is already being generated");
 		case "invalid_context":
 			return json(400, "Invalid assistant-response context");
+		case "invalid_passage":
+			return Response.json(
+				{ error: "Invalid passage reference", reason: result.reason },
+				{ status: 400 },
+			);
+		case "passage_out_of_scope":
+			return Response.json(
+				{
+					error: "The passage is beyond this conversation's scope",
+					unitLabel: result.unitLabel,
+				},
+				{ status: 409 },
+			);
 		case "nothing_to_retry":
 			return json(409, "There is no failed reply to retry");
 	}

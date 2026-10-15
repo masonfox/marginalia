@@ -1,6 +1,7 @@
 // Conversations, messages, retrieval tools, citations, and chat orchestration.
 
 export { type CitationMarker, parseCitationMarkers } from "#/lib/citations";
+export * from "#/lib/passage-ref";
 export * from "#/lib/reply-context";
 export {
 	type ChatDeps,
@@ -11,6 +12,11 @@ export {
 	startChat,
 } from "./chat";
 export { handleChatRequest } from "./http";
+export {
+	checkPassageRef,
+	type PassageCheck,
+	type PassageRefInvalid,
+} from "./passage-ref";
 export { buildSystemPrompt, PROMPT_VERSION } from "./prompt";
 export * from "./repository";
 export * from "./schema";

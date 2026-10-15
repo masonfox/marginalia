@@ -256,6 +256,7 @@ test.describe("reading", () => {
 			[id],
 		);
 		await page.goto(`/p/${ref.locator}`);
+		await page.waitForLoadState("networkidle");
 		const passage = highlighted(page);
 		await expect(passage).toBeVisible();
 		await passage.getByText("Note 1").click();
@@ -487,6 +488,339 @@ test.describe("reply to an assistant selection", () => {
 			await expect(page.getByLabel("Message", { exact: true })).toHaveValue("");
 		} finally {
 			await db.query("delete from conversations where id=$1", [conversationId]);
+		}
+	});
+});
+
+test.describe("passage references", () => {
+	const passage = async (spine: number, block: number) => {
+		const { id } = await manifesto();
+		return one<{ locator: string; text: string }>(
+			"select locator, text from passages where edition_id = $1 and spine_index = $2 and block_index = $3",
+			[id, spine, block],
+		);
+	};
+
+	/** A conversation about the Manifesto, optionally bounded through a section's last passage. */
+	async function conversation(title: string, throughSpine?: number) {
+		const { id: editionId } = await manifesto();
+		const id = randomUUID();
+		const bound =
+			throughSpine === undefined
+				? null
+				: await one<{ max: number; title: string }>(
+						"select max(p.position) as max, s.title from passages p join sections s on s.id = p.section_id where p.edition_id = $1 and p.spine_index = $2 group by s.title",
+						[editionId, throughSpine],
+					);
+		await db.query("insert into conversations (id,title) values ($1,$2)", [
+			id,
+			title,
+		]);
+		await db.query(
+			"insert into conversation_editions (conversation_id,edition_id,ordinal,max_position,scope_label) values ($1,$2,0,$3,$4)",
+			[
+				id,
+				editionId,
+				bound?.max ?? null,
+				bound ? `The Communist Manifesto › ${bound.title}` : null,
+			],
+		);
+		return id;
+	}
+
+	const message = (page: Page) => page.getByLabel("Message", { exact: true });
+	const skipWithoutAi = async (page: Page) =>
+		test.skip(
+			await page.getByText("AI is not configured", { exact: true }).isVisible(),
+			"Passage references in conversations require configured AI",
+		);
+
+	test.beforeEach(async ({ page, context, baseURL }) => {
+		await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+			origin: baseURL,
+		});
+		await login(page);
+	});
+
+	test("copies passage and selection links by keyboard and pointer", async ({
+		page,
+		baseURL,
+	}) => {
+		const target = await passage(5, 2);
+		const next = await passage(5, 3);
+		await page.goto(`/p/${target.locator}`);
+		await page.waitForLoadState("networkidle");
+		const block = page.locator(`[data-locator="${target.locator}"]`);
+		const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+
+		// Keyboard: focus the passage's action, open it, and choose Copy link.
+		await block.getByRole("button", { name: "Reference this passage" }).focus();
+		await page.keyboard.press("Enter");
+		await expect(
+			page.getByRole("menuitem", { name: "Copy link" }),
+		).toBeFocused();
+		await page.keyboard.press("Enter");
+		await expect(block.locator("output")).toHaveText("Link copied.");
+		expect(await clipboard()).toBe(`${baseURL}/p/${target.locator}`);
+
+		// Pointer: select a phrase within the passage.
+		const select = (
+			from: { locator: string; offset: number },
+			to: { locator: string; offset: number },
+		) =>
+			page.evaluate(
+				([a, b]) => {
+					const text = (locator: string) =>
+						document.querySelector(`[data-passage-text="${locator}"]`)
+							?.firstChild as Text;
+					const range = document.createRange();
+					range.setStart(text(a.locator), a.offset);
+					range.setEnd(text(b.locator), b.offset);
+					const selection = window.getSelection();
+					selection?.removeAllRanges();
+					selection?.addRange(range);
+					document.dispatchEvent(new Event("selectionchange"));
+				},
+				[from, to] as const,
+			);
+		const phrase = [
+			{ locator: target.locator, offset: 3 },
+			{ locator: target.locator, offset: 18 },
+		] as const;
+		const floating = page.getByRole("button", { name: "Reference selection" });
+		await select(...phrase);
+		await expect(floating).toBeVisible();
+		await page.keyboard.press("Escape");
+		await expect(floating).toBeHidden();
+
+		await select(...phrase);
+		await floating.click();
+		await page.getByRole("menuitem", { name: "Copy link" }).click();
+		// The selection's leading space is trimmed from the range.
+		expect(await clipboard()).toBe(`${baseURL}/p/${target.locator}?hl=4-18`);
+		await page.goto(`/p/${target.locator}?hl=4-18`);
+		await expect(page.getByTestId("quote-highlight")).toHaveText(
+			target.text.slice(4, 18),
+		);
+
+		// Across two passages there is no action.
+		await select(
+			{ locator: target.locator, offset: 3 },
+			{ locator: next.locator, offset: 5 },
+		);
+		await expect(floating).toBeHidden();
+	});
+
+	test("a pasted link attaches a passage, prose pastes as text, and history links back", async ({
+		page,
+		baseURL,
+	}) => {
+		const target = await passage(5, 2);
+		const id = await conversation("Paste passage test");
+		try {
+			await page.goto(`/c/${id}`);
+			await page.waitForLoadState("networkidle");
+			await skipWithoutAi(page);
+			const paste = async (text: string) => {
+				await page.evaluate((t) => navigator.clipboard.writeText(t), text);
+				await message(page).focus();
+				await page.keyboard.press("ControlOrMeta+V");
+			};
+			await message(page).fill("My draft");
+			await paste(`${baseURL}/p/${target.locator}?hl=4-11`);
+			const quote = page.getByTestId("passage-quote");
+			await expect(quote).toContainText("history");
+			await expect(quote).toContainText("I: Bourgeois and Proletarians");
+			await expect(message(page)).toHaveValue("My draft");
+
+			const prose = ` and see ${baseURL}/p/${target.locator} too`;
+			await message(page).press("End");
+			await paste(prose);
+			await expect(message(page)).toHaveValue(`My draft${prose}`);
+			await expect(quote).toContainText("history");
+
+			let body:
+				| { message: string; passageRef?: unknown; replyContext?: unknown }
+				| undefined;
+			await page.route("**/api/chat", async (route) => {
+				body = route.request().postDataJSON();
+				const { id: editionId } = await manifesto();
+				// Store what the server would, then reply.
+				await db.query(
+					"insert into messages (conversation_id,seq,role,parts) values ($1,1,'user',$2)",
+					[
+						id,
+						JSON.stringify([
+							{
+								type: "data-passage-context",
+								data: {
+									version: 1,
+									locator: target.locator,
+									range: { start: 4, end: 11 },
+									editionId,
+									bookTitle: "The Communist Manifesto",
+									sectionTitle: "I: Bourgeois and Proletarians",
+									text: "history",
+								},
+							},
+							{ type: "text", text: body?.message },
+						]),
+					],
+				);
+				await route.fulfill({
+					status: 200,
+					contentType: "text/event-stream",
+					headers: { "x-vercel-ai-ui-message-stream": "v1" },
+					body: 'data: {"type":"start","messageId":"reply"}\n\ndata: {"type":"text-start","id":"t"}\n\ndata: {"type":"text-delta","id":"t","delta":"About that passage"}\n\ndata: {"type":"text-end","id":"t"}\n\ndata: {"type":"finish"}\n\ndata: [DONE]\n\n',
+				});
+			});
+			await page.getByRole("button", { name: "Send", exact: true }).click();
+			await expect(page.getByText("About that passage")).toBeVisible();
+			expect(body?.passageRef).toEqual({
+				locator: target.locator,
+				range: { start: 4, end: 11 },
+			});
+			expect(body?.replyContext).toBeUndefined();
+
+			await page.reload();
+			await expect(page.getByTestId("passage-quote")).toContainText("history");
+			await expect(message(page)).toHaveValue("");
+			await page.getByRole("link", { name: "Open in book →" }).click();
+			await expect(page).toHaveURL(/\/p\/.*\?hl=4-11$/);
+			await expect(page.getByTestId("quote-highlight")).toHaveText("history");
+		} finally {
+			await db.query("delete from conversations where id=$1", [id]);
+		}
+	});
+
+	test("discussing a passage in a new conversation limits the scope and attaches it once", async ({
+		page,
+	}) => {
+		const target = await passage(6, 3);
+		await page.goto(`/p/${target.locator}`);
+		await page.waitForLoadState("networkidle");
+		const block = page.locator(`[data-locator="${target.locator}"]`);
+		await block.hover();
+		await block.getByRole("button", { name: "Reference this passage" }).click();
+		const discuss = page.getByRole("menuitem", {
+			name: "Discuss in a new conversation",
+		});
+		test.skip(
+			!(await discuss.isVisible()),
+			"Conversations require configured AI",
+		);
+		await discuss.click();
+		const dialog = page.getByTestId("new-conversation-dialog");
+		await expect(dialog.getByTestId("passage-unit-note")).toHaveText(
+			"This passage is in The Communist Manifesto › II: Proletarians and Communists.",
+		);
+		await expect(dialog.getByRole("radio", { checked: true })).toHaveCount(0);
+		await dialog.getByRole("button", { name: /^I'm partway through/ }).click();
+		await expect(
+			dialog.getByRole("radio", { name: "I: Bourgeois and Proletarians" }),
+		).toHaveCount(0);
+		await dialog
+			.getByRole("radio", { name: "II: Proletarians and Communists" })
+			.check();
+		await dialog.getByRole("button", { name: "Start" }).click();
+
+		await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/);
+		const conversationId = page.url().split("/c/")[1] as string;
+		try {
+			await expect(page.getByTestId("passage-quote")).toContainText(
+				target.text.slice(0, 30),
+			);
+			await expect(message(page)).toBeFocused();
+			await page.reload();
+			await page.waitForLoadState("networkidle");
+			await expect(message(page)).toBeVisible();
+			await expect(page.getByTestId("passage-quote")).toHaveCount(0);
+		} finally {
+			await db.query("delete from conversations where id=$1", [conversationId]);
+		}
+	});
+
+	test("adding a later passage keeps the draft, offers widening, then attaches", async ({
+		page,
+	}) => {
+		const inScope = await passage(5, 2);
+		const later = await passage(6, 3);
+		const title = `Add passage test ${randomUUID().slice(0, 8)}`;
+		const id = await conversation(title, 5);
+		try {
+			const { id: editionId } = await manifesto();
+			// A sent reference, so "Open in book" reaches the passage view without a reload.
+			await db.query(
+				"insert into messages (conversation_id,seq,role,parts) values ($1,1,'user',$2)",
+				[
+					id,
+					JSON.stringify([
+						{
+							type: "data-passage-context",
+							data: {
+								version: 1,
+								locator: inScope.locator,
+								editionId,
+								bookTitle: "The Communist Manifesto",
+								sectionTitle: "I: Bourgeois and Proletarians",
+								text: inScope.text,
+							},
+						},
+						{ type: "text", text: "Earlier question" },
+					]),
+				],
+			);
+			await page.goto(`/c/${id}`);
+			await page.waitForLoadState("networkidle");
+			await skipWithoutAi(page);
+			await message(page).fill("Keep me");
+			await page.getByRole("link", { name: "Open in book →" }).click();
+			await expect(page).toHaveURL(/\/p\//);
+			await page
+				.getByRole("link", { name: "II: Proletarians and Communists →" })
+				.first()
+				.click();
+			const block = page.locator(`[data-locator="${later.locator}"]`);
+			await expect(block).toBeVisible();
+			await block.hover();
+			await block
+				.getByRole("button", { name: "Reference this passage" })
+				.click();
+			await page
+				.getByRole("menuitem", { name: "Add to a conversation" })
+				.click();
+			// Move the pointer the way a reader would, so the submenu stays open on the way.
+			const choice = page.getByRole("menuitem", { name: new RegExp(title) });
+			const box = await choice.boundingBox();
+			if (!box) throw new Error("conversation not listed");
+			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {
+				steps: 10,
+			});
+			await choice.click();
+
+			await expect(page).toHaveURL(new RegExp(`/c/${id}$`));
+			await expect(message(page)).toHaveValue("Keep me");
+			const notice = page.getByTestId("passage-status");
+			await expect(notice).toContainText(
+				"This passage is in The Communist Manifesto › II: Proletarians and Communists, beyond this conversation's scope.",
+			);
+			await expect(page.getByTestId("passage-quote")).toHaveCount(1);
+			await notice.getByRole("button", { name: /^Widen scope/ }).click();
+			const widen = page.getByTestId("widen-scope-dialog");
+			await widen.getByRole("button", { name: /^I'm partway through/ }).click();
+			await widen
+				.getByRole("radio", { name: "II: Proletarians and Communists" })
+				.check();
+			await widen.getByRole("button", { name: "Widen" }).click();
+			await expect(widen).toBeHidden();
+			await expect(page.getByTestId("passage-quote")).toHaveCount(2);
+			await expect(page.getByTestId("passage-quote").last()).toContainText(
+				later.text.slice(0, 30),
+			);
+			await expect(notice).toHaveCount(0);
+			await expect(message(page)).toHaveValue("Keep me");
+		} finally {
+			await db.query("delete from conversations where id=$1", [id]);
 		}
 	});
 });
