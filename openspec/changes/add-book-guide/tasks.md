@@ -60,9 +60,9 @@ Phases follow the epic's dependency graph and each one can merge on its own: 1 (
 
 ## 7. Margin glosses (#26)
 
-- [ ] 7.1 Implement `glossesFor(editionId, passages)`. It resolves at the maximum bound, filters per passage bound, compiles case-sensitive whole-word Unicode matching longest-first (minimum length 3, minus exclusions), and returns the first mention per subject. Verify with unit tests for word boundaries, case, the first chapter (no glosses), and exclusions.
-- [ ] 7.2 Implement `getGlossCard(subjectRef, passageLocator)` with the passage's bound: display name, kind, the 3 most recent merged observations, and visible attached notes. Verify with an integration test that a jump ahead uses that passage's position and excludes the current unit.
-- [ ] 7.3 Render gloss marks in `passage-text.tsx` and the card popover in `p.$locator.tsx`, with a link to the subject in the Guide. Add an on/off toggle (persisted in `localStorage` inside try/catch) and a "don't gloss this name" action. Verify in the app.
+- [x] 7.1 Implement `glossesFor(editionId, passages)`. It resolves at the maximum bound, filters per passage bound, compiles case-sensitive whole-word Unicode matching longest-first (minimum length 3, minus exclusions), and returns the first mention per subject. Verify with unit tests for word boundaries, case, the first chapter (no glosses), and exclusions.
+- [x] 7.2 Implement `getGlossCard(subjectRef, passageLocator)` with the passage's bound: display name, kind, the 3 most recent merged observations, and visible attached notes. Verify with an integration test that a jump ahead uses that passage's position and excludes the current unit.
+- [x] 7.3 Render gloss marks in `passage-text.tsx` and the card popover in `p.$locator.tsx`, with a link to the subject in the Guide. Add an on/off toggle (persisted in `localStorage` inside try/catch) and a "don't gloss this name" action. Verify in the app.
 
 ## 8. Assistant integration and conversation trail (#27)
 

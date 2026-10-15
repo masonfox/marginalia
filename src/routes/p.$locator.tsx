@@ -1,19 +1,28 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	createFileRoute,
 	Link,
 	redirect,
 	useRouter,
 } from "@tanstack/react-router";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
+import { GlossControls, GlossMark } from "#/components/margin-glosses";
 import {
 	PassageReferenceButton,
 	PassageSelectionAction,
 } from "#/components/passage-reference";
 import { PassageText } from "#/components/passage-text";
 import { getAiStatusFn } from "#/fns/conversations";
+import {
+	excludeGlossNameFn,
+	getSectionGlossesFn,
+	includeGlossNameFn,
+} from "#/fns/guide";
 import { getSectionViewFn } from "#/fns/retrieval";
 import { parseHighlight } from "#/lib/citations";
+import { useMarginGlosses } from "#/lib/margin-glosses";
+import type { Gloss } from "#/modules/guide";
 import type { SectionPassage, SectionView } from "#/modules/retrieval";
 
 export const Route = createFileRoute("/p/$locator")({
@@ -111,6 +120,7 @@ function SectionText({
 	// Scroll restoration resets the window to the top on `onRendered`, after this
 	// component's effects run, so scroll to the highlight again once it has.
 	useEffect(() => router.subscribe("onRendered", scrollToHighlight), [router]);
+	const glosses = useSectionGlosses(view);
 
 	return (
 		<main className="mx-auto max-w-3xl px-4 py-8">
@@ -131,6 +141,13 @@ function SectionText({
 				Position {view.position}
 				{!view.section.linear && " · outside the main reading order"}
 			</p>
+			<GlossControls
+				on={glosses.on}
+				onToggle={glosses.setOn}
+				excluded={glosses.excluded}
+				justExcluded={glosses.justExcluded}
+				onInclude={glosses.include}
+			/>
 
 			<SectionNav view={view} />
 
@@ -149,6 +166,8 @@ function SectionText({
 						aiEnabled={aiEnabled}
 						highlighted={p.locator === target}
 						range={p.locator === target ? range : null}
+						glosses={glosses.of(p.locator)}
+						onExclude={glosses.exclude}
 					/>
 				))}
 			</article>
@@ -156,6 +175,55 @@ function SectionText({
 			<SectionNav view={view} />
 		</main>
 	);
+}
+
+/**
+ * The section's margin glosses, while the reader has them on. Each passage
+ * is glossed at its own position, so a jump ahead never uses the reading
+ * position or the furthest passage opened.
+ */
+function useSectionGlosses(view: FoundView) {
+	const [on, setOn] = useMarginGlosses();
+	const editionId = view.edition.id;
+	const locator = view.currentLocator;
+	const queryClient = useQueryClient();
+	const result = useQuery({
+		queryKey: ["glosses", locator],
+		queryFn: () => getSectionGlossesFn({ data: { locator } }),
+		enabled: on,
+	});
+	const [justExcluded, setJustExcluded] = useState<{
+		nameKey: string;
+		name: string;
+	} | null>(null);
+	const byLocator = useMemo(() => {
+		const map = new Map<string, Gloss[]>();
+		for (const g of result.data?.glosses ?? []) {
+			map.set(g.locator, [...(map.get(g.locator) ?? []), g]);
+		}
+		return map;
+	}, [result.data]);
+	const refresh = () =>
+		queryClient.invalidateQueries({ queryKey: ["glosses"] });
+	return {
+		on,
+		setOn,
+		excluded: result.data?.excluded ?? [],
+		justExcluded,
+		of: (passage: string) => (on ? byLocator.get(passage) : undefined),
+		exclude: async (gloss: Gloss, name: string) => {
+			await excludeGlossNameFn({
+				data: { editionId, nameKey: gloss.nameKey },
+			});
+			setJustExcluded({ nameKey: gloss.nameKey, name });
+			await refresh();
+		},
+		include: async (nameKey: string) => {
+			await includeGlossNameFn({ data: { editionId, nameKey } });
+			setJustExcluded(null);
+			await refresh();
+		},
+	};
 }
 
 function SectionNav({ view }: { view: FoundView }) {
@@ -201,12 +269,16 @@ function PassageBlock({
 	aiEnabled,
 	highlighted,
 	range,
+	glosses,
+	onExclude,
 }: {
 	passage: SectionPassage;
 	editionId: string;
 	aiEnabled: boolean;
 	highlighted: boolean;
 	range: { start: number; end: number } | null;
+	glosses: Gloss[] | undefined;
+	onExclude: (gloss: Gloss, name: string) => void;
 }) {
 	const className = [
 		"group relative my-3 scroll-mt-24 whitespace-pre-line rounded-sm",
@@ -227,6 +299,15 @@ function PassageBlock({
 				locator={passage.locator}
 				text={passage.text}
 				range={range}
+				glosses={glosses}
+				renderGloss={(gloss, text) => (
+					<GlossMark
+						gloss={gloss}
+						text={text}
+						editionId={editionId}
+						onExclude={onExclude}
+					/>
+				)}
 			/>
 			<PassageReferenceButton
 				passageRef={{ locator: passage.locator }}

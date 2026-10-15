@@ -7,7 +7,9 @@ import {
 	createNote,
 	deleteNote,
 	dismissProposal,
+	excludeGlossName,
 	getCorrectionReview,
+	getGlossCard,
 	getGuideChapters,
 	getGuideNote,
 	getGuideOverview,
@@ -15,6 +17,8 @@ import {
 	getGuideSubject,
 	getNoteDefaults,
 	getReadingPosition,
+	getSectionGlosses,
+	includeGlossName,
 	keepCorrection,
 	listGuideNotes,
 	listGuideProposals,
@@ -329,6 +333,59 @@ export const deleteNoteFn = createServerFn({ method: "POST" })
 	.validator(z.object({ editionId: z.uuid(), id: z.number().int().positive() }))
 	.handler(async ({ data }) => ({
 		deleted: await deleteNote(appContext().db, data.editionId, data.id),
+	}));
+
+// Margin glosses are bounded by the passage on screen: each passage at its
+// own reveal position, never the reading position.
+
+/** The glosses of the section the passage reader shows for `locator`. */
+export const getSectionGlossesFn = createServerFn({ method: "GET" })
+	.validator(z.object({ locator: z.string().min(1).max(200) }))
+	.handler(({ data }) => getSectionGlosses(appContext().db, data.locator));
+
+/** A gloss's card: the subject as of the passage it was opened on, or null. */
+export const getGlossCardFn = createServerFn({ method: "GET" })
+	.validator(
+		z.object({
+			editionId: z.uuid(),
+			subjectRef: refSchema,
+			locator: z.string().min(1).max(200),
+		}),
+	)
+	.handler(({ data }) =>
+		getGlossCard(
+			appContext().db,
+			data.editionId,
+			data.subjectRef,
+			data.locator,
+		),
+	);
+
+const glossNameSchema = z.object({
+	editionId: z.uuid(),
+	nameKey: nameKeySchema,
+});
+
+/** Stops a name from being glossed anywhere in the book. */
+export const excludeGlossNameFn = createServerFn({ method: "POST" })
+	.validator(glossNameSchema)
+	.handler(async ({ data }) => ({
+		excluded: await excludeGlossName(
+			appContext().db,
+			data.editionId,
+			data.nameKey,
+		),
+	}));
+
+/** Glosses a name again. */
+export const includeGlossNameFn = createServerFn({ method: "POST" })
+	.validator(glossNameSchema)
+	.handler(async ({ data }) => ({
+		included: await includeGlossName(
+			appContext().db,
+			data.editionId,
+			data.nameKey,
+		),
 	}));
 
 /** How many notes, corrections, and confirmed subjects deleting the book would delete. */

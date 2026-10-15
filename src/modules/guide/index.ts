@@ -19,6 +19,27 @@ export {
 	observationText,
 } from "./corrections";
 export {
+	compileGlossPattern,
+	findGlosses,
+	type Gloss,
+	type GlossName,
+	type GlossPassage,
+	MIN_GLOSS_LENGTH,
+} from "./gloss-match";
+export {
+	excludeGlossName,
+	GLOSS_CARD_OBSERVATIONS,
+	type GlossCard,
+	type GlossCardNote,
+	type GlossCardObservation,
+	type GlossExclusion,
+	getGlossCard,
+	getSectionGlosses,
+	glossesFor,
+	includeGlossName,
+	type SectionGlosses,
+} from "./glosses";
+export {
 	countReaderContent,
 	createNote,
 	defaultNoteAnchor,
