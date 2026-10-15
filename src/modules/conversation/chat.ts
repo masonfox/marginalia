@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-	APICallError,
 	convertToModelMessages,
 	createUIMessageStream,
 	createUIMessageStreamResponse,
@@ -9,7 +8,7 @@ import {
 	type UIMessage,
 } from "ai";
 import { and, eq } from "drizzle-orm";
-import type { AiRuntime } from "#/modules/ai";
+import { type AiRuntime, describeError } from "#/modules/ai";
 import { getBookMap } from "#/modules/analysis";
 import { createRetrieval } from "#/modules/retrieval";
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
@@ -295,24 +294,4 @@ function replayableParts(parts: unknown[]): ChatUIMessage["parts"] {
 }
 
 /** A reader-safe message for a stream error. Never includes credentials. */
-export function describeError(error: unknown): string {
-	if (APICallError.isInstance(error)) {
-		const status = error.statusCode ? ` (HTTP ${error.statusCode})` : "";
-		const hint =
-			error.statusCode === 401 || error.statusCode === 403
-				? " Check AI_API_KEY and that the key may use this model."
-				: "";
-		return redact(
-			`The AI provider returned an error${status}: ${error.message}.${hint}`,
-		);
-	}
-	if (error instanceof Error) return redact(error.message);
-	return "The AI provider failed.";
-}
-
-/** Truncates and masks anything shaped like an API key, in case a provider echoes one. */
-function redact(message: string): string {
-	return message
-		.replace(/(?<![A-Za-z0-9])(sk|key|AIza)[-_A-Za-z0-9]{12,}/g, "[redacted]")
-		.slice(0, 500);
-}
+export { describeError };

@@ -1,11 +1,16 @@
+import { randomUUID } from "node:crypto";
 import type { LanguageModel } from "ai";
+import { describeError } from "#/modules/ai";
 import { getReadingUnits } from "#/modules/catalog";
 import type { Database } from "#/server/db";
 import { NonRetryableError } from "#/server/jobs/kinds";
 import { type ProcessDeps, processUnit } from "./process";
 import {
+	claimRun,
 	getBookMap,
 	getCurrentUnits,
+	lockStructureGeneration,
+	StructureChangedError,
 	saveUnitResult,
 	updateRun,
 } from "./queries";
@@ -25,7 +30,12 @@ export interface PreprocessDeps {
 /**
  * The `analysis.preprocess` handler. Skips units that are already current,
  * processes the rest in order, and throws after the loop if any failed so a
- * retry only repeats the unfinished ones.
+ * retry only repeats the unfinished ones. Every exit after the start leaves
+ * the run inactive, and every error it stores or throws is masked for
+ * credentials. Units, passages, and saves are all fenced on the edition's
+ * structure generation: if a reparse replaces the structure mid-run, nothing
+ * more is saved and the run fails retryably, so the retry starts over from
+ * the new structure.
  */
 export async function preprocessEdition(
 	deps: PreprocessDeps,
@@ -36,21 +46,35 @@ export async function preprocessEdition(
 	if (!deps.model) {
 		throw new NonRetryableError("AI is not configured; cannot preprocess");
 	}
-	const units = await getReadingUnits(db, editionId);
-	const current = await getCurrentUnits(db, editionId);
+	// One snapshot of units and current results, all from the same structure.
+	const snapshot = await db.transaction(async (tx) => {
+		const generation = await lockStructureGeneration(tx, editionId);
+		if (generation === null) return null;
+		return {
+			generation,
+			units: await getReadingUnits(tx, editionId),
+			current: await getCurrentUnits(tx, editionId),
+			map: await getBookMap(tx, editionId, null),
+		};
+	});
+	if (!snapshot) {
+		throw new NonRetryableError("The book no longer exists");
+	}
+	const { generation, units } = snapshot;
 	const currentEnd = new Map(
-		current.map((c) => [c.unitOrdinal, c.endPosition]),
+		snapshot.current.map((c) => [c.unitOrdinal, c.endPosition]),
 	);
 	const summaries = new Map(
-		(await getBookMap(db, editionId, null)).map((s) => [
-			s.unitOrdinal,
-			s.summary,
-		]),
+		snapshot.map.map((s) => [s.unitOrdinal, s.summary]),
 	);
 	const isCurrent = (u: { ordinal: number; endPosition: number }) =>
 		currentEnd.get(u.ordinal) === u.endPosition;
 	let done = units.filter(isCurrent).length;
-	await updateRun(db, editionId, {
+	let failed = 0;
+	let lastError: string | null = null;
+	// Later writes are ignored once a newer attempt claims the row.
+	const attempt = randomUUID();
+	await claimRun(db, editionId, attempt, {
 		status: "running",
 		totalUnits: units.length,
 		doneUnits: done,
@@ -66,47 +90,81 @@ export async function preprocessEdition(
 		modelName: deps.modelName,
 		provider: deps.provider,
 		editionId,
+		structureGeneration: generation,
 		chunkChars: deps.chunkChars,
 		signal: ctx.signal,
 		reasoning: deps.reasoning,
 		providerOptions: deps.providerOptions,
 	};
-	let failed = 0;
-	let lastError: string | null = null;
-	let previous: string | null = null;
-	for (const unit of units) {
-		if (isCurrent(unit)) {
-			previous = summaries.get(unit.ordinal) ?? previous;
-			continue;
-		}
-		ctx.signal?.throwIfAborted();
-		try {
-			const result = await processUnit(processDeps, unit, previous);
-			await db.transaction((tx) => saveUnitResult(tx, editionId, result));
-			previous = result.summary;
-			done += 1;
-		} catch (err) {
-			if (ctx.signal?.aborted) throw err;
-			failed += 1;
-			lastError = err instanceof Error ? err.message : String(err);
-			log.warn(
-				{ editionId, unit: unit.label, err },
-				"unit preprocessing failed",
+	try {
+		let previous: string | null = null;
+		for (const unit of units) {
+			if (isCurrent(unit)) {
+				previous = summaries.get(unit.ordinal) ?? previous;
+				continue;
+			}
+			ctx.signal?.throwIfAborted();
+			try {
+				const result = await processUnit(processDeps, unit, previous);
+				await db.transaction((tx) =>
+					saveUnitResult(tx, editionId, result, generation),
+				);
+				previous = result.summary;
+				done += 1;
+			} catch (err) {
+				if (ctx.signal?.aborted || err instanceof StructureChangedError) {
+					throw err;
+				}
+				failed += 1;
+				// Providers may echo credentials; only the masked message is kept.
+				lastError = describeError(err);
+				log.warn(
+					{ editionId, unit: unit.label, error: lastError },
+					"unit preprocessing failed",
+				);
+			}
+			await updateRun(
+				db,
+				editionId,
+				{ doneUnits: done, failedUnits: failed, lastError },
+				attempt,
 			);
 		}
-		await updateRun(db, editionId, {
+	} catch (err) {
+		// Ends this attempt inactive and retryable; the queue shows any pending retry.
+		const reason = ctx.signal?.aborted
+			? "Preprocessing was interrupted."
+			: describeError(err);
+		if (err instanceof StructureChangedError) {
+			// Everything this run loaded describes the old structure.
+			log.info({ editionId }, "edition structure changed; run abandoned");
+		}
+		await updateRun(
+			db,
+			editionId,
+			{
+				status: "failed",
+				doneUnits: done,
+				failedUnits: failed,
+				lastError: reason,
+				finishedAt: new Date(),
+			},
+			attempt,
+		).catch(() => {});
+		throw err;
+	}
+	await updateRun(
+		db,
+		editionId,
+		{
+			status: failed > 0 ? "failed" : "complete",
 			doneUnits: done,
 			failedUnits: failed,
 			lastError,
-		});
-	}
-	await updateRun(db, editionId, {
-		status: failed > 0 ? "failed" : "complete",
-		doneUnits: done,
-		failedUnits: failed,
-		lastError,
-		finishedAt: new Date(),
-	});
+			finishedAt: new Date(),
+		},
+		attempt,
+	);
 	if (failed > 0) {
 		throw new Error(`${failed} of ${units.length} units failed: ${lastError}`);
 	}

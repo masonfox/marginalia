@@ -102,6 +102,11 @@ export const editions = pgTable(
 		error: text("error"),
 		parserVersion: integer("parser_version"),
 		linearPassageCount: integer("linear_passage_count"),
+		/**
+		 * Bumped each time the edition's structure is replaced, so work derived
+		 * from one structure can tell that it has since changed.
+		 */
+		structureGeneration: integer("structure_generation").notNull().default(0),
 		searchConfig: regconfig("search_config"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()

@@ -11,8 +11,12 @@ import { appContext } from "#/server/context";
 export const getPreprocessStatusFn = createServerFn({ method: "GET" })
 	.validator(z.object({ editionId: z.uuid() }))
 	.handler(async ({ data }) => {
-		const { db, ai, config } = appContext();
-		const status = await getPreprocessStatus(db, data.editionId);
+		const { db, ai, config, pendingJob } = appContext();
+		// The queue decides whether a run is pending; unknown falls back to the run row.
+		const job = await pendingJob("analysis.preprocess", {
+			editionId: data.editionId,
+		}).catch(() => undefined);
+		const status = await getPreprocessStatus(db, data.editionId, job);
 		const table = priceTable(config.ai?.prices);
 		const rows = await usageForEdition(db, data.editionId);
 		const total = totalOf({ byMessage: {}, byModel: rows, missing: 0 }, table);

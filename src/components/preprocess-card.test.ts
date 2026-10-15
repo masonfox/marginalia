@@ -1,7 +1,11 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { PreprocessCardView, type PreprocessView } from "./preprocess-card";
+import {
+	isActive,
+	PreprocessCardView,
+	type PreprocessView,
+} from "./preprocess-card";
 
 const base: PreprocessView = {
 	status: "not_started",
@@ -83,6 +87,26 @@ describe("PreprocessCardView", () => {
 		expect(h).toContain("1 sections failed");
 		expect(h).toContain("boom");
 		expect(h).toContain("Retry");
+	});
+	it("an interrupted run offers an enabled retry", () => {
+		const h = render({
+			status: "partial",
+			totalUnits: 3,
+			doneUnits: 1,
+			lastError: "Preprocessing stopped before it finished.",
+		});
+		expect(h).toContain("Retry");
+		expect(h).not.toContain(` disabled=""`);
+	});
+	it("queued shows the state and keeps polling until a terminal state", () => {
+		const h = render({ status: "queued", totalUnits: 0 });
+		expect(h).toContain("Queued");
+		expect(h).toContain(` disabled=""`);
+		expect(isActive("queued")).toBe(true);
+		expect(isActive("running")).toBe(true);
+		for (const s of ["not_started", "complete", "partial", "stale"] as const) {
+			expect(isActive(s)).toBe(false);
+		}
 	});
 	it("AI unconfigured shows no status or action", () => {
 		expect(render({ aiEnabled: false })).toBe("");

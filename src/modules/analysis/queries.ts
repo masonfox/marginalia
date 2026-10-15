@@ -1,4 +1,6 @@
 import { and, asc, count, eq, lte, sql } from "drizzle-orm";
+import { redactSecrets } from "#/modules/ai";
+import { editions } from "#/modules/library";
 import type { Executor } from "#/server/db";
 import {
 	type DerivedCitation,
@@ -135,12 +137,56 @@ export interface UnitResult {
 	model: string;
 }
 
-/** Replaces one unit's summary and observations. Run inside a transaction. */
+/** The edition's structure was replaced after a preprocessing run loaded it. */
+export class StructureChangedError extends Error {
+	constructor() {
+		super("The book's structure changed during preprocessing");
+		this.name = "StructureChangedError";
+	}
+}
+
+/**
+ * Returns the edition's structure generation, or null when it was deleted.
+ * Inside a transaction, the row lock conflicts with the one
+ * replaceEditionStructure takes, so the structure cannot change until commit.
+ */
+export async function lockStructureGeneration(
+	tx: Executor,
+	editionId: string,
+): Promise<number | null> {
+	const [row] = await tx
+		.select({ generation: editions.structureGeneration })
+		.from(editions)
+		.where(eq(editions.id, editionId))
+		.for("share");
+	return row?.generation ?? null;
+}
+
+/** Locks the structure and throws StructureChangedError unless it is still `generation`. */
+export async function assertStructureGeneration(
+	tx: Executor,
+	editionId: string,
+	generation: number,
+): Promise<void> {
+	if ((await lockStructureGeneration(tx, editionId)) !== generation) {
+		throw new StructureChangedError();
+	}
+}
+
+/**
+ * Replaces one unit's summary and observations. Run inside a transaction.
+ * With `generation`, first checks that the result was computed from the
+ * edition's current structure, throwing StructureChangedError otherwise.
+ */
 export async function saveUnitResult(
 	tx: Executor,
 	editionId: string,
 	result: UnitResult,
+	generation?: number,
 ): Promise<void> {
+	if (generation !== undefined) {
+		await assertStructureGeneration(tx, editionId, generation);
+	}
 	const provenance = {
 		editionId,
 		unitOrdinal: result.unitOrdinal,
@@ -221,21 +267,49 @@ export type RunProgress = Partial<{
 	doneUnits: number;
 	failedUnits: number;
 	model: string | null;
+	attemptId: string | null;
 	lastError: string | null;
 	startedAt: Date | null;
 	finishedAt: Date | null;
 }>;
 
-/** Creates or updates the edition's single run row. */
+/**
+ * Creates or updates the edition's single run row. With `attempt`, only
+ * updates the row while that attempt still owns it, so an obsolete attempt
+ * never overwrites a newer one; see claimRun.
+ */
 export async function updateRun(
 	db: Executor,
 	editionId: string,
 	progress: RunProgress,
+	attempt?: string,
 ): Promise<void> {
+	if (attempt !== undefined) {
+		await db
+			.update(preprocessRuns)
+			.set(progress)
+			.where(
+				and(
+					eq(preprocessRuns.editionId, editionId),
+					eq(preprocessRuns.attemptId, attempt),
+				),
+			);
+		return;
+	}
 	await db
 		.insert(preprocessRuns)
 		.values({ editionId, status: "queued", ...progress })
 		.onConflictDoUpdate({ target: preprocessRuns.editionId, set: progress });
+}
+
+/** Makes `attempt` the run row's owner and writes `progress`. */
+export async function claimRun(
+	db: Executor,
+	editionId: string,
+	attempt: string,
+	progress: RunProgress,
+): Promise<void> {
+	await updateRun(db, editionId, { ...progress, attemptId: attempt });
 }
 
 export type PreprocessState =
@@ -257,10 +331,26 @@ export interface PreprocessStatus {
 	finishedAt: Date | null;
 }
 
-/** Status for display. Never includes credentials. */
+/**
+ * The edition's preprocessing job in the queue: waiting (including between
+ * retries), being worked on, or none. Undefined when the queue is unknown.
+ */
+export type QueuedJobState = "queued" | "active" | null;
+
+/** Shown when a run was left active by an attempt that no longer exists. */
+export const INTERRUPTED_RUN_ERROR =
+	"Preprocessing stopped before it finished.";
+
+/**
+ * Status for display. Never includes credentials. With `job`, the queue is
+ * the authority on whether a run is pending: an accepted job reads as queued
+ * before any worker writes, and a run row left active by an attempt that no
+ * longer exists (aborted, crashed) reads as a retryable terminal state.
+ */
 export async function getPreprocessStatus(
 	db: Executor,
 	editionId: string,
+	job?: QueuedJobState,
 ): Promise<PreprocessStatus> {
 	const [run] = await db
 		.select()
@@ -275,7 +365,9 @@ export async function getPreprocessStatus(
 		.where(eq(unitSummaries.editionId, editionId));
 	const current = counts?.current ?? 0;
 	const outdated = counts?.outdated ?? 0;
-	if (!run && current + outdated === 0) {
+	const live = run?.status === "queued" || run?.status === "running";
+	const orphaned = live && job === null;
+	if (!run && current + outdated === 0 && !job) {
 		return {
 			status: "not_started",
 			totalUnits: 0,
@@ -292,16 +384,28 @@ export async function getPreprocessStatus(
 		doneUnits: current,
 		failedUnits: run?.failedUnits ?? 0,
 		model: run?.model ?? null,
-		lastError: run?.lastError ?? null,
+		lastError: run?.lastError
+			? redactSecrets(run.lastError)
+			: orphaned
+				? INTERRUPTED_RUN_ERROR
+				: null,
 		startedAt: run?.startedAt ?? null,
 		finishedAt: run?.finishedAt ?? null,
 	};
 	let status: PreprocessState;
-	if (run?.status === "queued" || run?.status === "running") {
+	if (job === "active") {
+		// The worker may not have written its row yet.
+		status = run?.status === "running" ? "running" : "queued";
+	} else if (job === "queued") {
+		status = "queued";
+	} else if (
+		job === undefined &&
+		(run?.status === "queued" || run?.status === "running")
+	) {
 		status = run.status;
 	} else if (outdated > 0) {
 		status = "stale";
-	} else if (run?.status === "failed") {
+	} else if (run?.status === "failed" || orphaned) {
 		status = "partial";
 	} else {
 		status = "complete";

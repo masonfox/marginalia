@@ -109,6 +109,8 @@ export const preprocessRuns = pgTable(
 		doneUnits: integer("done_units").notNull().default(0),
 		failedUnits: integer("failed_units").notNull().default(0),
 		model: text("model"),
+		/** The job attempt that owns the row; writes from an older attempt are ignored. */
+		attemptId: uuid("attempt_id"),
 		lastError: text("last_error"),
 		startedAt: timestamp("started_at", { withTimezone: true }),
 		finishedAt: timestamp("finished_at", { withTimezone: true }),

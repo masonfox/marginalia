@@ -8,10 +8,12 @@ export {
 	UNIT_SYSTEM_PROMPT,
 } from "./prompts";
 export {
+	claimRun,
 	getBookMap,
 	getCurrentUnits,
 	getPreprocessStatus,
 	hasCurrentPreprocessing,
+	INTERRUPTED_RUN_ERROR,
 	lookupObservations,
 	MAX_LOOKUP_LIMIT,
 	markDerivedStale,
@@ -21,7 +23,9 @@ export {
 	PREPROCESS_PROMPT_VERSION,
 	type PreprocessState,
 	type PreprocessStatus,
+	type QueuedJobState,
 	type RunProgress,
+	StructureChangedError,
 	saveUnitResult,
 	type UnitResult,
 	type UnitSummaryView,
