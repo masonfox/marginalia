@@ -4,6 +4,7 @@ import { and, count, countDistinct, eq, isNotNull } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
 	DRM_MESSAGE,
+	formatLocator,
 	type ParsedEdition,
 	type ParsedPassage,
 	parseEpub,
@@ -19,11 +20,13 @@ import {
 	tempDataDir,
 } from "../../../test/library";
 import {
+	type Forward,
 	type IngestDeps,
 	ingestEdition,
 	locatorAliases,
 	noteRefs,
 	passages,
+	type Rebase,
 	reparseEdition,
 	resolveSearchConfig,
 	sections,
@@ -510,7 +513,7 @@ describe("bound re-anchoring on reparse", () => {
 		});
 
 	async function reparse(name: string) {
-		const { sha256 } = await addUploadedBook(
+		const { sha256, edition } = await addUploadedBook(
 			t.db,
 			dataDir,
 			Buffer.concat([standardEbooks(), Buffer.from(name)]),
@@ -518,7 +521,7 @@ describe("bound re-anchoring on reparse", () => {
 		);
 		await ingestEdition(deps({ parse: async () => v1 }), sha256, finalAttempt);
 		const v2 = toV2(v1);
-		const calls: { editionId: string; rebase: (b: number) => number }[] = [];
+		const calls: { editionId: string; rebase: Rebase; forward: Forward }[] = [];
 		await ingestEdition(
 			deps({
 				parse: async () => v2,
@@ -531,7 +534,16 @@ describe("bound re-anchoring on reparse", () => {
 			finalAttempt,
 		);
 		expect(calls).toHaveLength(1);
-		return { v2, rebase: (calls[0] as (typeof calls)[0]).rebase };
+		const call = calls[0] as (typeof calls)[0];
+		expect(call.editionId).toBe(edition.id);
+		const locator = (version: number, spineIndex: number, blockIndex: number) =>
+			formatLocator({
+				shortId: edition.shortId,
+				parserVersion: version,
+				spineIndex,
+				blockIndex,
+			});
+		return { v2, rebase: call.rebase, forward: call.forward, locator };
 	}
 
 	it("moves a bound with positions shifted by an earlier insertion", async () => {
@@ -554,6 +566,36 @@ describe("bound re-anchoring on reparse", () => {
 		expect(rebase(posOf(v1, 6, 2))).toBe(posOf(v2, 6, 1));
 		expect(rebase(posOf(v1, 6, 3))).toBe(posOf(v2, 6, 2));
 		expect(rebase(0)).toBe(-1);
+	});
+
+	it("passes a forward that re-anchors locators onto stored passages", async () => {
+		const { v2, forward, locator } = await reparse("forward-hook");
+		const stored = async (loc: string) => {
+			const [row] = await t.db
+				.select({
+					locator: passages.locator,
+					position: passages.revealPosition,
+				})
+				.from(passages)
+				.where(eq(passages.locator, loc));
+			return row;
+		};
+		// Shifted by the earlier insertion: same text, new locator and position.
+		const shifted = forward(locator(1, 5, 2));
+		expect(shifted).toEqual({
+			locator: locator(2, 5, 2),
+			position: posOf(v2, 5, 2),
+		});
+		expect(await stored(shifted?.locator as string)).toEqual(shifted);
+		// Removed: the next surviving passage, never the previous one.
+		expect(forward(locator(1, 5, 4))).toEqual({
+			locator: locator(2, 5, 4),
+			position: posOf(v2, 5, 4),
+		});
+		// Merged: both halves point at the passage holding them.
+		expect(forward(locator(1, 6, 2))).toEqual(forward(locator(1, 6, 3)));
+		expect(forward(locator(1, 6, 3))?.locator).toBe(locator(2, 6, 2));
+		expect(forward(locator(2, 6, 2))).toBeNull();
 	});
 
 	it("does not call the hook when the parser version is unchanged", async () => {

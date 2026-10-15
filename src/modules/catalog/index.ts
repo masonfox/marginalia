@@ -13,6 +13,8 @@ export {
 } from "./matching";
 export {
 	type EditionKey,
+	type Forward,
+	type ForwardedAnchor,
 	type Rebase,
 	type ReplacedHook,
 	type ReplaceOptions,

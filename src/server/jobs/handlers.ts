@@ -6,6 +6,7 @@ import {
 	reparseEdition,
 } from "#/modules/catalog";
 import { rebaseScopes } from "#/modules/conversation";
+import { rebaseReadingPositions } from "#/modules/guide";
 import { scanLibraries } from "#/modules/library";
 import { appContext } from "../context";
 import type { JobHandlers } from "./kinds";
@@ -35,9 +36,10 @@ export function jobHandlers(): JobHandlers {
 			db,
 			dataDir: config.dataDir,
 			log,
-			// Keeps conversation bounds on the same text when a reparse shifts positions.
+			// Keeps conversation bounds and the reading position on the same text when a reparse shifts positions.
 			onReplaced: async (tx, { editionId, rebase }) => {
 				await rebaseScopes(tx, editionId, rebase);
+				await rebaseReadingPositions(tx, editionId, rebase);
 				// Derived summaries describe the old structure.
 				await markDerivedStale(tx, editionId);
 			},

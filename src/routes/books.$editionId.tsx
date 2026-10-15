@@ -10,6 +10,7 @@ import { MessageSquare, MessageSquarePlus, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
 import { PreprocessCard } from "#/components/preprocess-card";
+import { ReadingPositionCard } from "#/components/reading-position";
 import { NewConversationDialog } from "#/components/scope";
 import {
 	AlertDialog,
@@ -158,6 +159,10 @@ function BookPage() {
 					inLibraryFolder={edition.sources.some((s) => s.kind === "filesystem")}
 				/>
 			</section>
+
+			{edition.status === "ready" && (
+				<ReadingPositionCard editionId={edition.id} />
+			)}
 
 			{edition.status === "ready" && <PreprocessCard editionId={edition.id} />}
 

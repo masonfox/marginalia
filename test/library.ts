@@ -83,6 +83,7 @@ export function reshape(
 					spineIndex: section.spineIndex,
 					blockIndex,
 					position: section.linear ? ++position : null,
+					revealPosition: section.linear ? position : p.revealPosition,
 				};
 				remap.set(p, { spineIndex: section.spineIndex, blockIndex });
 				return next;
