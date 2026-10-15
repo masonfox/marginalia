@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { chunkPassages, verifyCitations } from "./process";
+import { chunkPassages, mergeOutputs, verifyCitations } from "./process";
+import { parseUnitOutput } from "./prompts";
 
 const promptSize = (chunk: { locator: string; text: string }[]) =>
 	chunk.reduce((n, p) => n + p.locator.length + 5 + p.text.length, 0);
@@ -44,5 +45,36 @@ describe("chunkPassages", () => {
 		expect(parts.join("")).toBe(text);
 		// Each emoji is two code units; an odd slice would cut one in half.
 		for (const part of parts) expect(part.length % 2).toBe(0);
+	});
+});
+
+describe("mergeOutputs", () => {
+	it("keeps a supplied but unverifiable citation as unverified", () => {
+		const out = parseUnitOutput(
+			JSON.stringify({
+				summary: "Anna sails.",
+				citations: [{ locator: "a", quote: "Anna sails" }],
+				observations: [
+					{
+						name: "Anna",
+						kind: "character",
+						note: "Sails.",
+						citations: [{ locator: "a", quote: "never said this" }],
+					},
+				],
+			}),
+		);
+		const result = mergeOutputs(
+			{ ordinal: 0, label: "One", endPosition: 0 },
+			"m",
+			[out],
+			new Map([["a", "Anna sails home."]]),
+		);
+		expect(result.summaryCitations).toEqual([
+			{ locator: "a", quote: "Anna sails", verified: true },
+		]);
+		expect(result.observations[0]?.citations).toEqual([
+			{ locator: "a", quote: "never said this", verified: false },
+		]);
 	});
 });

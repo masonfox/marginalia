@@ -71,6 +71,8 @@ function model(
 		prompts?: string[];
 		/** Receives each call's reasoning and provider options. */
 		calls?: { reasoning?: string; providerOptions?: unknown }[];
+		/** Replies without any summary citation when the prompt contains this. */
+		uncitedOn?: string;
 		/** An extra summary citation added to every reply. */
 		cite?: { locator: string; quote: string };
 	} = {},
@@ -96,7 +98,10 @@ function model(
 			const quote = (m?.[2] ?? "").split(" ").slice(0, 2).join(" ");
 			const out = {
 				summary: "A thing happens.",
-				citations: [{ locator, quote }, ...(opts.cite ? [opts.cite] : [])],
+				citations:
+					opts.uncitedOn && prompt.includes(opts.uncitedOn)
+						? []
+						: [{ locator, quote }, ...(opts.cite ? [opts.cite] : [])],
 				observations: [
 					{
 						name: "Anna",
@@ -178,6 +183,16 @@ describe("preprocessEdition", () => {
 		const second: string[] = [];
 		await preprocessEdition(deps(model({ prompts: second })), id);
 		expect(second).toHaveLength(1);
+		expect(await getBookMap(t.db, id, null)).toHaveLength(3);
+	});
+
+	it("fails a unit whose reply cites nothing and keeps earlier units", async () => {
+		const id = await newEdition("Uncited");
+		await expect(
+			preprocessEdition(deps(model({ uncitedOn: "burned" })), id),
+		).rejects.toThrow(/failed/);
+		expect(await getBookMap(t.db, id, null)).toHaveLength(2);
+		await preprocessEdition(deps(model()), id);
 		expect(await getBookMap(t.db, id, null)).toHaveLength(3);
 	});
 

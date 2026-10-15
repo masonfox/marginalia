@@ -10,23 +10,26 @@ Rules:
 - The previous summary is context only; do not repeat it.
 - "summary": 2 to 4 plain sentences about this section.
 - "observations": characters, places, objects, and motifs that appear in this section. Each has a "name" (as the book names it), a "kind" (${OBSERVATION_KINDS.join(", ")}), and a short "note" of what appears or happens to it in this section.
-- Each summary and observation cites supporting passages in "citations": the passage locator exactly as given, and a short exact quote copied from that passage.
+- The summary and every observation must each cite at least one supporting passage in "citations": the passage locator exactly as given, and a short exact quote copied from that passage. Leave out any observation you cannot support with a quote.
 - Do not describe the book as a whole and do not state themes of the whole book.
 Reply with a single JSON object and nothing else:
 {"summary": string, "citations": [{"locator": string, "quote": string}], "observations": [{"name": string, "kind": string, "note": string, "citations": [{"locator": string, "quote": string}]}]}`;
 
-const citation = z.object({ locator: z.string(), quote: z.string() });
+const nonblank = z.string().regex(/\S/);
+const citation = z.object({ locator: nonblank, quote: nonblank });
+/** At least one citation is required; unsupported output fails the unit. */
+const citations = z.array(citation).min(1);
 
 export const unitOutputSchema = z.object({
 	summary: z.string().min(1),
-	citations: z.array(citation).default([]),
+	citations,
 	observations: z
 		.array(
 			z.object({
 				name: z.string().min(1),
 				kind: z.enum(OBSERVATION_KINDS),
 				note: z.string().min(1),
-				citations: z.array(citation).default([]),
+				citations,
 			}),
 		)
 		.default([]),

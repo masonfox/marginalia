@@ -11,7 +11,7 @@ import {
 } from "./schema";
 
 /** Bump when the preprocessing prompt or output schema changes; older rows read as stale. */
-export const PREPROCESS_PROMPT_VERSION = 1;
+export const PREPROCESS_PROMPT_VERSION = 2;
 /** Bump when the reading-unit or citation handling changes. */
 export const PREPROCESS_PARSER_VERSION = 1;
 
