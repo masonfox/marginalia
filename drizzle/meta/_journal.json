@@ -57,6 +57,13 @@
       "when": 1792024235798,
       "tag": "0007_mushy_mandroid",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792024876190,
+      "tag": "0008_typical_big_bertha",
+      "breakpoints": true
     }
   ]
 }

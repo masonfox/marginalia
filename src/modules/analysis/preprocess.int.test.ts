@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { MockLanguageModelV4 } from "ai/test";
 import { and, eq, like } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -18,15 +19,19 @@ import {
 	tempDataDir,
 } from "../../../test/library";
 import {
+	claimRun,
 	getBookMap,
 	getPreprocessStatus,
+	INTERRUPTED_RUN_ERROR,
 	lookupObservations,
 	markDerivedStale,
 	type PreprocessDeps,
 	preprocessEdition,
 	processUnit,
 	StructureChangedError,
+	preprocessRuns,
 	unitSummaries,
+	updateRun,
 } from ".";
 
 let t: TestDb;
@@ -372,5 +377,137 @@ describe("preprocessEdition across a reparse", () => {
 			),
 		).rejects.toBeInstanceOf(StructureChangedError);
 		expect(prompts).toHaveLength(0);
+	});
+});
+
+describe("preprocessing run lifecycle", () => {
+	const key = "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWX";
+	const googleKey = "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
+
+	it("an abort on the final attempt ends the run inactive and retryable", async () => {
+		const id = await newEdition("AbortFinal");
+		const controller = new AbortController();
+		const m = new MockLanguageModelV4({
+			doGenerate: async () => {
+				controller.abort();
+				throw new Error("aborted");
+			},
+		});
+		await expect(
+			preprocessEdition(deps(m), id, { signal: controller.signal }),
+		).rejects.toThrow();
+		// No job is left in the queue after a final attempt.
+		const status = await getPreprocessStatus(t.db, id, null);
+		expect(status).toMatchObject({
+			status: "partial",
+			lastError: "Preprocessing was interrupted.",
+		});
+		expect(status.finishedAt).not.toBeNull();
+		// A retry resumes and completes.
+		await preprocessEdition(deps(model()), id);
+		expect(await getPreprocessStatus(t.db, id, null)).toMatchObject({
+			status: "complete",
+			doneUnits: chapters.length,
+		});
+	});
+
+	it("an abort before any unit also ends the run inactive", async () => {
+		const id = await newEdition("AbortEarly");
+		const controller = new AbortController();
+		controller.abort();
+		await expect(
+			preprocessEdition(deps(model()), id, { signal: controller.signal }),
+		).rejects.toThrow();
+		expect((await getPreprocessStatus(t.db, id, null)).status).toBe("partial");
+	});
+
+	it("a run left active by a vanished attempt reads as retryable", async () => {
+		const id = await newEdition("Crashed");
+		await claimRun(t.db, id, randomUUID(), {
+			status: "running",
+			totalUnits: 3,
+		});
+		// Without queue knowledge the row is trusted.
+		expect((await getPreprocessStatus(t.db, id)).status).toBe("running");
+		expect(await getPreprocessStatus(t.db, id, null)).toMatchObject({
+			status: "partial",
+			lastError: INTERRUPTED_RUN_ERROR,
+		});
+	});
+
+	it("shows an accepted job as queued before any worker writes", async () => {
+		const id = await newEdition("Queued");
+		expect((await getPreprocessStatus(t.db, id, null)).status).toBe(
+			"not_started",
+		);
+		expect((await getPreprocessStatus(t.db, id, "queued")).status).toBe(
+			"queued",
+		);
+		expect((await getPreprocessStatus(t.db, id, "active")).status).toBe(
+			"queued",
+		);
+		// A finished run with a new job pending reads as queued, not complete.
+		await preprocessEdition(deps(model()), id);
+		expect((await getPreprocessStatus(t.db, id, "queued")).status).toBe(
+			"queued",
+		);
+	});
+
+	it("never clobbers a running state a fast worker already wrote", async () => {
+		const id = await newEdition("Fast");
+		await claimRun(t.db, id, randomUUID(), {
+			status: "running",
+			totalUnits: 3,
+		});
+		expect((await getPreprocessStatus(t.db, id, "active")).status).toBe(
+			"running",
+		);
+	});
+
+	it("ignores writes from an obsolete attempt", async () => {
+		const id = await newEdition("Obsolete");
+		const old = randomUUID();
+		await claimRun(t.db, id, old, { status: "running", totalUnits: 3 });
+		await claimRun(t.db, id, randomUUID(), {
+			status: "running",
+			totalUnits: 3,
+		});
+		await updateRun(
+			t.db,
+			id,
+			{ status: "failed", lastError: "late", finishedAt: new Date() },
+			old,
+		);
+		expect(await getPreprocessStatus(t.db, id)).toMatchObject({
+			status: "running",
+			lastError: null,
+		});
+	});
+
+	it("masks credential-shaped values in stored, shown, and thrown errors", async () => {
+		const id = await newEdition("Leak");
+		const leak = `Incorrect API key provided: ${key}; also ${googleKey}`;
+		const m = new MockLanguageModelV4({
+			doGenerate: async () => {
+				throw new Error(leak);
+			},
+		});
+		const thrown = await preprocessEdition(deps(m), id).catch((e) => e);
+		expect(thrown).toBeInstanceOf(Error);
+		const [row] = await t.db
+			.select()
+			.from(preprocessRuns)
+			.where(eq(preprocessRuns.editionId, id));
+		const shown = (await getPreprocessStatus(t.db, id, null)).lastError;
+		for (const text of [thrown.message, row?.lastError, shown]) {
+			expect(text).toContain("[redacted]");
+			expect(text).not.toContain(key);
+			expect(text).not.toContain(googleKey);
+		}
+		// Rows written before masking are masked and bounded on read.
+		await updateRun(t.db, id, { lastError: `${key} ${"x".repeat(2000)}` });
+		const old = (await getPreprocessStatus(t.db, id, null)).lastError;
+		expect(old).not.toContain(key);
+		expect(old?.length).toBeLessThanOrEqual(500);
 	});
 });

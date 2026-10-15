@@ -10,6 +10,8 @@ import type {
 	ReasoningEffort,
 } from "#/server/config";
 
+export { describeError, MAX_ERROR_LENGTH, redactSecrets } from "./errors";
+
 /** What the UI may know about the AI setup. Never contains the API key. */
 export interface AiStatus {
 	enabled: boolean;

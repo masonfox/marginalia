@@ -7,6 +7,7 @@ import {
 	type JobHandlers,
 	type JobKind,
 	jobKindNames,
+	type PendingJob,
 	jobKinds,
 	NonRetryableError,
 } from "./kinds";
@@ -171,6 +172,16 @@ export class JobRuntime {
 		const parsed = def.payload.parse(payload);
 		const key = (def.key as (p: unknown) => string)(parsed);
 		return this.boss.send(kind, parsed, { singletonKey: key });
+	};
+
+	pendingJob: PendingJob = async (kind, payload) => {
+		const def = jobKinds[kind];
+		const key = (def.key as (p: unknown) => string)(def.payload.parse(payload));
+		const jobs = await this.boss.findJobs(kind, { key });
+		if (jobs.some((j) => j.state === "active")) return "active";
+		if (jobs.some((j) => j.state === "created" || j.state === "retry"))
+			return "queued";
+		return null;
 	};
 
 	/** Stops polling and waits up to `timeoutMs` for running jobs to finish. */

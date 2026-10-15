@@ -1,0 +1,1 @@
+ALTER TABLE "preprocess_runs" ADD COLUMN "attempt_id" uuid;

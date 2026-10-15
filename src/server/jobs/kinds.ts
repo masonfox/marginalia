@@ -86,3 +86,12 @@ export type Enqueue = <K extends JobKind>(
 	kind: K,
 	payload: JobPayload<K>,
 ) => Promise<string | null>;
+
+/**
+ * The pending job with this kind and key: "queued" while it waits (including
+ * between retries), "active" while a worker has it, null when there is none.
+ */
+export type PendingJob = <K extends JobKind>(
+	kind: K,
+	payload: JobPayload<K>,
+) => Promise<"queued" | "active" | null>;
