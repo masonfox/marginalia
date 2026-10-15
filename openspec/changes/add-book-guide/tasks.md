@@ -32,13 +32,13 @@ Phases follow the epic's dependency graph and each one can merge on its own: 1 (
 
 ## 4. Subjects and aliases (#23)
 
-- [ ] 4.1 Add the `guide_subjects`, `guide_subject_aliases` (one primary per subject), `guide_dismissed_proposals`, and `guide_gloss_exclusions` tables and their migration. Verify that the migration applies.
-- [ ] 4.2 Implement `resolveSubjects(editionId, bound)`, covering implicit refs, reveal visibility, and display name at a bound. Verify with unit and integration tests for Strider/Aragorn before and after reveal, and for a chosen display name that would spoil.
-- [ ] 4.3 Implement the merge, split, rename (display key from the subject's names), kind override, and alias removal mutations, including the reveal rule "keep the later of the alias's own and the merge's". Verify with integration tests for each, and confirm that observation kinds are unchanged.
-- [ ] 4.4 Implement deterministic proposals (same kind, containment of significant tokens, stop and honorific list, excluding linked and dismissed pairs, capped at 50) and dismissal. Verify with unit tests for Brawne/Brawne Lamia, honorifics, and dismissed pairs.
-- [ ] 4.5 Route the Index and timeline through `resolveSubjects`. Verify that an integration test of a timeline across aliases returns the observations in reading order.
-- [ ] 4.6 Re-anchor alias reveal positions in `guide.reanchor` via `forward`, and call it from the `onReplaced` hook. Verify with an integration test that a removed reveal passage moves to the next surviving passage.
-- [ ] 4.7 Add Index UI for proposals (confirm or dismiss), merge with an editable reveal anchor and spoiler warning, split, rename, and kind. Verify in the app.
+- [x] 4.1 Add the `guide_subjects`, `guide_subject_aliases` (one primary per subject), `guide_dismissed_proposals`, and `guide_gloss_exclusions` tables and their migration. Verify that the migration applies.
+- [x] 4.2 Implement `resolveSubjects(editionId, bound)`, covering implicit refs, reveal visibility, and display name at a bound. Verify with unit and integration tests for Strider/Aragorn before and after reveal, and for a chosen display name that would spoil.
+- [x] 4.3 Implement the merge, split, rename (display key from the subject's names), kind override, and alias removal mutations, including the reveal rule "keep the later of the alias's own and the merge's". Verify with integration tests for each, and confirm that observation kinds are unchanged.
+- [x] 4.4 Implement deterministic proposals (same kind, containment of significant tokens, stop and honorific list, excluding linked and dismissed pairs, capped at 50) and dismissal. Verify with unit tests for Brawne/Brawne Lamia, honorifics, and dismissed pairs.
+- [x] 4.5 Route the Index and timeline through `resolveSubjects`. Verify that an integration test of a timeline across aliases returns the observations in reading order.
+- [x] 4.6 Re-anchor alias reveal positions in `guide.reanchor` via `forward`, and call it from the `onReplaced` hook. Verify with an integration test that a removed reveal passage moves to the next surviving passage.
+- [x] 4.7 Add Index UI for proposals (confirm or dismiss), merge with an editable reveal anchor and spoiler warning, split, rename, and kind. Verify in the app.
 
 ## 5. Corrections (#24)
 

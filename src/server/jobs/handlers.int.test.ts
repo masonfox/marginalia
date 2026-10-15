@@ -9,7 +9,12 @@ import {
 } from "#/modules/analysis";
 import { getReadingUnits, ingestEdition, passages } from "#/modules/catalog";
 import { PARSER_VERSION, parseEpub } from "#/modules/epub";
-import { getReadingPosition, setReadingPosition } from "#/modules/guide";
+import {
+	getReadingPosition,
+	loadSubjectLinks,
+	mergeSubjects,
+	setReadingPosition,
+} from "#/modules/guide";
 import { getEdition } from "#/modules/library";
 import { createTestDb, type TestDb } from "../../../test/db";
 import { buildEpub } from "../../../test/epub-builder";
@@ -159,6 +164,91 @@ describe("reparse keeps the reading position", () => {
 		// Still the end of the same, now current, unit.
 		const [, now] = await getReadingUnits(t.db, edition.id);
 		expect(now?.endPosition).toBe(before.maxPosition + 1);
+	});
+});
+
+describe("reparse re-anchors alias reveals", () => {
+	it("follows surviving text and moves a removed passage's reveal to the next survivor", async () => {
+		const bytes = await buildEpub({
+			title: "reparse-reveal",
+			chapters: [
+				{ href: "ch1.xhtml", body: "<h2>Chapter 1</h2><p>Alpha.</p>" },
+				{
+					href: "ch2.xhtml",
+					body: "<h2>Chapter 2</h2><p>Beta.</p><p>Delta.</p>",
+				},
+				{ href: "ch3.xhtml", body: "<h2>Chapter 3</h2><p>Gamma.</p>" },
+			],
+		});
+		const { sha256, edition } = await addUploadedBook(
+			t.db,
+			dataDir,
+			bytes,
+			"reparse-reveal.epub",
+		);
+		const current = await parseEpub(bytes);
+		// The older parser kept a stray paragraph between Beta and Delta, so
+		// every later position shifts on reparse.
+		const old = reshape(current, OLD_VERSION, (ps) =>
+			ps.flatMap((p) =>
+				p.text === "Beta." ? [p, { ...p, text: "A stray paragraph." }] : [p],
+			),
+		);
+		const deps = { db: t.db, dataDir, log: silentLog };
+		await ingestEdition(
+			{ ...deps, parse: async () => old, parserVersion: OLD_VERSION },
+			sha256,
+			{ finalAttempt: true },
+		);
+		const passageOf = async (text: string) => {
+			const [row] = await t.db
+				.select({
+					locator: passages.locator,
+					position: passages.revealPosition,
+				})
+				.from(passages)
+				.where(
+					and(eq(passages.editionId, edition.id), eq(passages.text, text)),
+				);
+			if (!row) throw new Error(`no passage "${text}"`);
+			return row;
+		};
+		const stray = await passageOf("A stray paragraph.");
+		const gamma = await passageOf("Gamma.");
+		const whole = { kind: "whole" } as const;
+		for (const [target, source, at] of [
+			["k:strider", "k:aragorn", stray],
+			["k:lamia", "k:brawne lamia", gamma],
+		] as const) {
+			const merged = await mergeSubjects(t.db, edition.id, whole, {
+				targetRef: target,
+				sourceRef: source,
+				reveal: { kind: "passage", locator: at.locator },
+			});
+			expect(merged.ok).toBe(true);
+		}
+
+		await jobHandlers()["catalog.reparse"]?.({ editionId: edition.id }, ctx);
+		expect((await getEdition(t.db, edition.id))?.parserVersion).toBe(
+			PARSER_VERSION,
+		);
+		const reveals = Object.fromEntries(
+			(await loadSubjectLinks(t.db, edition.id)).links
+				.filter((l) => !l.isPrimary)
+				.map((l) => [
+					l.nameKey,
+					{ locator: l.revealLocator, position: l.revealPosition },
+				]),
+		);
+		const delta = await passageOf("Delta.");
+		const beta = await passageOf("Beta.");
+		// Removed: the next surviving passage, never an earlier one.
+		expect(reveals.aragorn).toEqual(delta);
+		expect(delta.position).toBeGreaterThan(beta.position);
+		// Surviving: the same text at its new position.
+		const gammaNow = await passageOf("Gamma.");
+		expect(gammaNow.position).toBe(gamma.position - 1);
+		expect(reveals["brawne lamia"]).toEqual(gammaNow);
 	});
 });
 

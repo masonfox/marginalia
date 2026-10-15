@@ -16,10 +16,12 @@ import {
 	getMergedSummaries,
 	getSubjectTimeline,
 	getUnitAnchors,
+	listProposals,
 	listSubjects,
 	type SubjectTimeline,
 	type UnitAnchors,
 } from "./queries";
+import type { MergeProposal } from "./subjects";
 
 /** The bound a Guide visit reads at: a reading unit by its end position, or the whole book. */
 export type GuideBoundChoice = PositionChoice;
@@ -141,6 +143,17 @@ export async function listGuideSubjects(
 ): Promise<GuideResult<{ subjects: GuideSubjectEntry[] }>> {
 	return atBound(db, editionId, choice, async ({ bound, anchors }) => ({
 		subjects: await listSubjects(db, editionId, bound, anchors),
+	}));
+}
+
+/** Merges proposed among the names visible at the bound. */
+export async function listGuideProposals(
+	db: Executor,
+	editionId: string,
+	choice: GuideBoundChoice,
+): Promise<GuideResult<{ proposals: MergeProposal[] }>> {
+	return atBound(db, editionId, choice, async ({ bound, anchors }) => ({
+		proposals: await listProposals(db, editionId, bound, anchors),
 	}));
 }
 

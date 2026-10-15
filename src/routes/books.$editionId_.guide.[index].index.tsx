@@ -11,6 +11,7 @@ import {
 	KINDS,
 	useGuide,
 } from "#/components/guide";
+import { ProposalList } from "#/components/guide-subjects";
 import { Badge } from "#/components/ui/badge";
 import { Input } from "#/components/ui/input";
 import { listGuideSubjectsFn } from "#/fns/guide";
@@ -86,6 +87,7 @@ function IndexView() {
 					onChange={(e) => filter({ q: e.currentTarget.value || undefined })}
 				/>
 			</div>
+			<ProposalList />
 			{subjects.isPending ? (
 				<p className="mt-4 text-sm text-muted-foreground">Loading the index…</p>
 			) : subjects.isError || !subjects.data.ok ? (

@@ -85,6 +85,13 @@
       "when": 1792091540312,
       "tag": "0011_reading_positions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792093760170,
+      "tag": "0012_guide_subjects",
+      "breakpoints": true
     }
   ]
 }

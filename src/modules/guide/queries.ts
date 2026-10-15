@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import {
 	type DerivedCitation,
 	listObservations,
@@ -7,6 +8,21 @@ import {
 } from "#/modules/analysis";
 import { getReadingUnits, type ReadingUnit } from "#/modules/catalog";
 import type { Executor } from "#/server/db";
+import {
+	guideDismissedProposals,
+	guideSubjectAliases,
+	guideSubjects,
+} from "./schema";
+import {
+	type AliasLink,
+	type Appearance,
+	buildResolution,
+	type MergeProposal,
+	proposeMerges,
+	type SubjectName,
+	type SubjectRecord,
+	type SubjectResolution,
+} from "./subjects";
 
 /** A machine row's unit identity: summaries and observations both carry it. */
 export interface UnitRowKey {
@@ -178,36 +194,118 @@ async function getMergedObservedNames(
 	return mergeCorrections(db, editionId, "observation", rows);
 }
 
-/**
- * How observed names group into subjects at a bound (design D6). A subject
- * is named by a ref; a name key with no alias link is its own implicit
- * subject `k:<name_key>`.
- */
-export interface SubjectResolution {
-	refOf(nameKey: string): string;
-	/** The name keys of the subject at the bound, or null when there is none. */
-	keysOf(ref: string): string[] | null;
+/** The edition's confirmed subjects and their alias links. */
+export async function loadSubjectLinks(
+	db: Executor,
+	editionId: string,
+): Promise<{ subjects: SubjectRecord[]; links: AliasLink[] }> {
+	const [subjects, links] = await Promise.all([
+		db
+			.select({
+				id: guideSubjects.id,
+				displayKey: guideSubjects.displayKey,
+				kind: guideSubjects.kind,
+			})
+			.from(guideSubjects)
+			.where(eq(guideSubjects.editionId, editionId)),
+		db
+			.select({
+				nameKey: guideSubjectAliases.nameKey,
+				subjectId: guideSubjectAliases.subjectId,
+				isPrimary: guideSubjectAliases.isPrimary,
+				revealLocator: guideSubjectAliases.revealLocator,
+				revealPosition: guideSubjectAliases.revealPosition,
+			})
+			.from(guideSubjectAliases)
+			.where(eq(guideSubjectAliases.editionId, editionId)),
+	]);
+	return { subjects, links };
 }
 
-const IMPLICIT = "k:";
+/** Each name's first appearance among observed names in reading order. */
+function firstAppearances(rows: GuideObservedName[]): Map<string, Appearance> {
+	const appearances = new Map<string, Appearance>();
+	for (const row of rows) {
+		if (appearances.has(row.nameKey)) continue;
+		appearances.set(row.nameKey, {
+			name: row.name,
+			position: row.endPosition,
+			unitLabel: row.unitLabel,
+		});
+	}
+	return appearances;
+}
+
+/** The names observed within a bound, and how they group into subjects there. */
+async function subjectsAt(
+	db: Executor,
+	editionId: string,
+	bound: number | null,
+	anchors: UnitAnchors,
+) {
+	const [rows, { subjects, links }] = await Promise.all([
+		getMergedObservedNames(db, editionId, bound, anchors),
+		loadSubjectLinks(db, editionId),
+	]);
+	const appearances = firstAppearances(rows);
+	const resolution = buildResolution({ subjects, links, appearances, bound });
+	return { rows, links, appearances, resolution };
+}
 
 /**
- * Groups names into subjects at a bound. Until subjects and aliases exist,
- * every name key is its own implicit subject; resolveSubjects takes this
- * place once the reader can link names.
+ * Resolves observation names into subjects at a bound (design D6): through
+ * the alias links visible at the bound, with each subject's display name
+ * chosen among the names that have appeared within it. The one rule the
+ * Index, the assistant's lookups and glosses share.
  */
-export async function resolveNames(
-	_db: Executor,
-	_editionId: string,
-	_bound: number | null,
+export async function resolveSubjects(
+	db: Executor,
+	editionId: string,
+	bound: number | null,
+	anchors: UnitAnchors,
 ): Promise<SubjectResolution> {
-	return {
-		refOf: (nameKey) => `${IMPLICIT}${nameKey}`,
-		keysOf: (ref) =>
-			ref.startsWith(IMPLICIT) && ref.length > IMPLICIT.length
-				? [ref.slice(IMPLICIT.length)]
-				: null,
-	};
+	return (await subjectsAt(db, editionId, bound, anchors)).resolution;
+}
+
+/** The reader's merge proposals at a bound: names visible there only. */
+export async function listProposals(
+	db: Executor,
+	editionId: string,
+	bound: number | null,
+	anchors: UnitAnchors,
+): Promise<MergeProposal[]> {
+	const [{ rows, links, appearances, resolution }, dismissedRows] =
+		await Promise.all([
+			subjectsAt(db, editionId, bound, anchors),
+			db
+				.select({
+					keyA: guideDismissedProposals.keyA,
+					keyB: guideDismissedProposals.keyB,
+				})
+				.from(guideDismissedProposals)
+				.where(eq(guideDismissedProposals.editionId, editionId)),
+		]);
+	const kinds = new Map<string, ObservationKind[]>();
+	for (const row of rows) {
+		kinds.set(row.nameKey, [...(kinds.get(row.nameKey) ?? []), ...row.kinds]);
+	}
+	// A name's kind: its subject's reader kind, or the kind its observations carry.
+	const names = [...kinds].map(([key, observed]) => ({
+		key,
+		kind: resolution.kindOf(resolution.refOf(key)) ?? dominantKind(observed),
+	}));
+	return proposeMerges({
+		names,
+		resolution,
+		appearances,
+		links,
+		dismissed: new Set(
+			dismissedRows.map(
+				(d) => `${d.keyA}
+${d.keyB}`,
+			),
+		),
+	});
 }
 
 /**
@@ -227,9 +325,14 @@ export function dominantKind(kinds: ObservationKind[]): ObservationKind {
 /** A subject in the Index at a bound. */
 export interface GuideSubjectEntry {
 	ref: string;
-	/** The subject's name at the bound: its earliest-appearing name. */
+	/** The subject's display name at the bound. */
 	name: string;
+	/** The reader's kind when set, otherwise the kind its observations carry. */
 	kind: ObservationKind;
+	/** The kind the reader set, or null. */
+	readerKind: ObservationKind | null;
+	/** Its names that have appeared within the bound, earliest first. */
+	names: SubjectName[];
 	/** Units within the bound in which it is observed. */
 	unitCount: number;
 	/** Where it is first observed within the bound. */
@@ -248,17 +351,14 @@ export async function listSubjects(
 	bound: number | null,
 	anchors: UnitAnchors,
 ): Promise<GuideSubjectEntry[]> {
-	const [rows, names] = await Promise.all([
-		getMergedObservedNames(db, editionId, bound, anchors),
-		resolveNames(db, editionId, bound),
-	]);
+	const { rows, resolution } = await subjectsAt(db, editionId, bound, anchors);
 	const subjects = new Map<
 		string,
 		{ first: GuideObservedName; units: Set<number>; kinds: ObservationKind[] }
 	>();
 	// Rows are in reading order, so a subject's first row is its first appearance.
 	for (const row of rows) {
-		const ref = names.refOf(row.nameKey);
+		const ref = resolution.refOf(row.nameKey);
 		const subject = subjects.get(ref);
 		if (subject) {
 			subject.units.add(row.unitOrdinal);
@@ -274,8 +374,10 @@ export async function listSubjects(
 	return [...subjects]
 		.map(([ref, { first, units, kinds }]) => ({
 			ref,
-			name: first.name,
-			kind: dominantKind(kinds),
+			name: resolution.nameOf(ref) ?? first.name,
+			kind: resolution.kindOf(ref) ?? dominantKind(kinds),
+			readerKind: resolution.kindOf(ref),
+			names: resolution.namesOf(ref),
 			unitCount: units.size,
 			firstPosition: first.endPosition,
 			firstUnitLabel: first.unitLabel,
@@ -304,12 +406,15 @@ export interface SubjectTimeline {
 	ref: string;
 	name: string;
 	kind: ObservationKind;
+	readerKind: ObservationKind | null;
+	/** Its names that have appeared within the bound, earliest first. */
+	names: SubjectName[];
 	entries: TimelineEntry[];
 }
 
 /**
- * A subject's timeline at a bound: the observations of every name of the
- * subject at the bound, in reading order. Null when the subject has no
+ * A subject's timeline at a bound: the observations of every name grouped
+ * into the subject at the bound (resolveSubjects), in reading order. Null when the subject has no
  * observation within the bound, so a later subject is not disclosed.
  * Assembled on each call, never stored.
  */
@@ -320,22 +425,25 @@ export async function getSubjectTimeline(
 	bound: number | null,
 	anchors: UnitAnchors,
 ): Promise<SubjectTimeline | null> {
-	const names = await resolveNames(db, editionId, bound);
-	const keys = names.keysOf(ref);
+	const resolution = await resolveSubjects(db, editionId, bound, anchors);
+	const keys = resolution.keysOf(ref);
 	if (!keys) return null;
 	const rows = await getMergedObservations(db, editionId, bound, anchors, keys);
 	const [first] = rows;
 	if (!first) return null;
+	const name = resolution.nameOf(ref) ?? first.name;
 	return {
 		ref,
-		name: first.name,
-		kind: dominantKind(rows.map((r) => r.kind)),
+		name,
+		kind: resolution.kindOf(ref) ?? dominantKind(rows.map((r) => r.kind)),
+		readerKind: resolution.kindOf(ref),
+		names: resolution.namesOf(ref),
 		entries: rows.map((r) => ({
 			unitOrdinal: r.unitOrdinal,
 			unitLabel: r.unitLabel,
 			unitLocator: r.unitLocator,
 			endPosition: r.endPosition,
-			observedAs: r.name === first.name ? null : r.name,
+			observedAs: r.name === name ? null : r.name,
 			kind: r.kind,
 			note: r.note,
 			citations: r.citations,

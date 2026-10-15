@@ -217,6 +217,8 @@ function GuideLayout() {
 							bound,
 							preprocessed,
 							onStaleBound,
+							units: units.data ?? [],
+							position,
 						}}
 					>
 						<Outlet />

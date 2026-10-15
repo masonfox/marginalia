@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import {
 	boundKey,
@@ -9,6 +9,7 @@ import {
 	KIND_LABELS,
 	useGuide,
 } from "#/components/guide";
+import { SubjectEditor } from "#/components/guide-subjects";
 import { scopeText } from "#/components/scope";
 import { Badge } from "#/components/ui/badge";
 import { getGuideSubjectFn } from "#/fns/guide";
@@ -21,6 +22,7 @@ export const Route = createFileRoute(
 function SubjectView() {
 	const { subjectRef } = Route.useParams();
 	const { editionId, bound, preprocessed, onStaleBound } = useGuide();
+	const navigate = useNavigate();
 	const subject = useQuery({
 		queryKey: [
 			"guide",
@@ -85,7 +87,22 @@ function SubjectView() {
 			<p className="mt-1 text-xs text-muted-foreground">
 				{scopeText(bound?.label ?? null)} · {timeline.entries.length}{" "}
 				observation{timeline.entries.length === 1 ? "" : "s"}
+				{timeline.names.length > 1 &&
+					` · also ${timeline.names
+						.filter((n) => n.name !== timeline.name)
+						.map((n) => `“${n.name}”`)
+						.join(", ")}`}
 			</p>
+			<SubjectEditor
+				subject={timeline}
+				onRefChange={(ref) =>
+					void navigate({
+						to: "/books/$editionId/guide/index/$subjectRef",
+						params: { editionId, subjectRef: ref },
+						replace: true,
+					})
+				}
+			/>
 			<ol className="mt-4 space-y-5 border-l pl-4">
 				{timeline.entries.map((entry, i) => (
 					<li

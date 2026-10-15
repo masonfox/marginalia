@@ -55,6 +55,10 @@ export interface GuideContextValue {
 	preprocessed: boolean;
 	/** Called when the server rejects the bound because the book's units changed. */
 	onStaleBound: () => void;
+	/** The book's current reading units, in reading order. */
+	units: ReadingUnit[];
+	/** The stored reading position; null when unset. */
+	position: ReadingPosition | null;
 }
 
 export const GuideContext = createContext<GuideContextValue | null>(null);
