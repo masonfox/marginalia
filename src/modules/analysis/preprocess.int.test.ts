@@ -329,7 +329,8 @@ describe("preprocessEdition across a reparse", () => {
 		for (const u of units) {
 			expect(await getBookMap(t.db, id, u.endPosition)).toEqual([]);
 		}
-		expect(await getPreprocessStatus(t.db, id)).toMatchObject({
+		// Even with no retry left in the queue, the book offers a regenerate.
+		expect(await getPreprocessStatus(t.db, id, null)).toMatchObject({
 			status: "stale",
 			doneUnits: 0,
 			lastError: "The book's structure changed during preprocessing",

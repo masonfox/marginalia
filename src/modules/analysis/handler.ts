@@ -132,12 +132,9 @@ export async function preprocessEdition(
 		}
 	} catch (err) {
 		// Ends this attempt inactive and retryable; the queue shows any pending retry.
-		const reason =
-			err instanceof StructureChangedError
-				? err.message
-				: ctx.signal?.aborted
-					? "Preprocessing was interrupted."
-					: describeError(err);
+		const reason = ctx.signal?.aborted
+			? "Preprocessing was interrupted."
+			: describeError(err);
 		if (err instanceof StructureChangedError) {
 			// Everything this run loaded describes the old structure.
 			log.info({ editionId }, "edition structure changed; run abandoned");
