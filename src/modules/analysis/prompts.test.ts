@@ -57,7 +57,8 @@ describe("parseUnitOutput", () => {
 		}
 	});
 
-	it("normalizes near-miss kinds and drops unknown ones", () => {
+	it("folds kind case and drops unknown kinds, reporting them", () => {
+		const dropped: unknown[] = [];
 		const out = parseUnitOutput(
 			reply({
 				summary: "Anna sails.",
@@ -68,11 +69,12 @@ describe("parseUnitOutput", () => {
 					{ ...anna, name: "Storm", kind: "event" },
 				],
 			}),
+			(kind) => dropped.push(kind),
 		);
 		expect(out.observations.map((o) => [o.name, o.kind])).toEqual([
 			["Anna", "character"],
-			["Harbour", "place"],
 		]);
+		expect(dropped).toEqual(["location", "event"]);
 	});
 
 	it("rejects an unterminated object", () => {

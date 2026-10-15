@@ -98,6 +98,7 @@ export async function preprocessEdition(
 		signal: ctx.signal,
 		reasoning: deps.reasoning,
 		providerOptions: deps.providerOptions,
+		log,
 	};
 	try {
 		let previous: string | null = null;

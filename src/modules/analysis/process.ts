@@ -1,4 +1,10 @@
-import { generateText, type LanguageModel } from "ai";
+import {
+	generateText,
+	jsonSchema,
+	type LanguageModel,
+	NoObjectGeneratedError,
+	Output,
+} from "ai";
 import { and, asc, between, eq } from "drizzle-orm";
 import type { AiRuntime, ProviderOptions } from "#/modules/ai";
 import { passages, type ReadingUnit } from "#/modules/catalog";
@@ -14,6 +20,7 @@ import {
 	buildUnitPrompt,
 	type PromptPassage,
 	parseUnitOutput,
+	UNIT_OUTPUT_JSON_SCHEMA,
 	UNIT_SYSTEM_PROMPT,
 	type UnitOutput,
 } from "./prompts";
@@ -42,6 +49,7 @@ export interface ProcessDeps {
 	reasoning?: AiRuntime["reasoning"];
 	/** Provider-specific call options, such as Anthropic prompt caching. */
 	providerOptions?: ProviderOptions;
+	log?: { warn(o: object, m: string): void };
 }
 
 export async function loadUnitPassages(
@@ -146,6 +154,9 @@ async function callModel(
 			model: deps.model,
 			system: UNIT_SYSTEM_PROMPT,
 			prompt,
+			// Providers that support it constrain decoding to this shape; the
+			// reply is still validated by parseUnitOutput below.
+			output: Output.object({ schema: jsonSchema(UNIT_OUTPUT_JSON_SCHEMA) }),
 			reasoning: deps.reasoning,
 			providerOptions: deps.providerOptions,
 			abortSignal: deps.signal,
@@ -154,12 +165,24 @@ async function callModel(
 		reported = true;
 		text = result.text;
 	} catch (err) {
-		// A failed call that reported no usage has nothing to record.
-		if (reported) await record(false);
-		throw err;
+		// Unconstrained providers can reply with JSON wrapped in prose; the
+		// lenient parser below may still recover it.
+		if (NoObjectGeneratedError.isInstance(err) && err.text !== undefined) {
+			if (err.usage) usage = addUsage(NO_USAGE, err.usage);
+			text = err.text;
+		} else {
+			// A failed call that reported no usage has nothing to record.
+			if (reported) await record(false);
+			throw err;
+		}
 	}
 	try {
-		const out = parseUnitOutput(text);
+		const out = parseUnitOutput(text, (kind) =>
+			deps.log?.warn(
+				{ editionId: deps.editionId, kind },
+				"dropped observation with unknown kind",
+			),
+		);
 		await record(true);
 		return out;
 	} catch (err) {

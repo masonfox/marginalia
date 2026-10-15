@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { OBSERVATION_KINDS, type ObservationKind } from "./schema";
+import { OBSERVATION_KINDS } from "./schema";
 
 /** Instructions for the per-unit call. Changing them requires bumping PREPROCESS_PROMPT_VERSION. */
 export const UNIT_SYSTEM_PROMPT = `You prepare reading notes for one section (chapter) of a book.
@@ -20,59 +20,60 @@ const citation = z.object({ locator: nonblank, quote: nonblank });
 /** At least one citation is required; unsupported output fails the unit. */
 const citations = z.array(citation).min(1);
 
-/** Near-miss kinds models produce, mapped onto the allowed kinds. */
-const KIND_ALIASES: Record<string, ObservationKind> = {
-	person: "character",
-	people: "character",
-	creature: "character",
-	location: "place",
-	setting: "place",
-	item: "object",
-	artifact: "object",
-	artefact: "object",
-	theme: "motif",
-	symbol: "motif",
-};
-
-function normalizeKind(kind: unknown): ObservationKind | null {
-	if (typeof kind !== "string") return null;
-	const k = kind.trim().toLowerCase();
-	if ((OBSERVATION_KINDS as readonly string[]).includes(k))
-		return k as ObservationKind;
-	return KIND_ALIASES[k] ?? null;
-}
-
-/**
- * Normalizes observation kinds and drops observations whose kind is still
- * unknown, so one stray kind (e.g. "event") does not fail the whole unit.
- */
-function keepKnownKinds(value: unknown): unknown {
-	if (!Array.isArray(value)) return value;
-	return value.flatMap((o) => {
-		if (typeof o !== "object" || o === null) return [o];
-		const kind = normalizeKind((o as { kind?: unknown }).kind);
-		return kind ? [{ ...o, kind }] : [];
-	});
-}
-
 export const unitOutputSchema = z.object({
 	summary: z.string().min(1),
 	citations,
-	observations: z.preprocess(
-		keepKnownKinds,
-		z
-			.array(
-				z.object({
-					name: z.string().min(1),
-					kind: z.enum(OBSERVATION_KINDS),
-					note: z.string().min(1),
-					citations,
-				}),
-			)
-			.default([]),
-	),
+	observations: z
+		.array(
+			z.object({
+				name: z.string().min(1),
+				kind: z.enum(OBSERVATION_KINDS),
+				note: z.string().min(1),
+				citations,
+			}),
+		)
+		.default([]),
 });
 export type UnitOutput = z.infer<typeof unitOutputSchema>;
+
+const citationsJson = {
+	type: "array",
+	items: {
+		type: "object",
+		properties: { locator: { type: "string" }, quote: { type: "string" } },
+		required: ["locator", "quote"],
+		additionalProperties: false,
+	},
+} as const;
+
+/**
+ * The reply shape sent to providers that constrain decoding to a schema. Kept to
+ * the subset every provider accepts (no patterns or minimums); the stricter
+ * rules are enforced by unitOutputSchema after the reply arrives.
+ */
+export const UNIT_OUTPUT_JSON_SCHEMA = {
+	type: "object",
+	properties: {
+		summary: { type: "string" },
+		citations: citationsJson,
+		observations: {
+			type: "array",
+			items: {
+				type: "object",
+				properties: {
+					name: { type: "string" },
+					kind: { type: "string", enum: [...OBSERVATION_KINDS] },
+					note: { type: "string" },
+					citations: citationsJson,
+				},
+				required: ["name", "kind", "note", "citations"],
+				additionalProperties: false,
+			},
+		},
+	},
+	required: ["summary", "citations", "observations"],
+	additionalProperties: false,
+} as const;
 
 export interface PromptPassage {
 	locator: string;
@@ -126,13 +127,41 @@ function objectEnd(text: string, start: number): number {
 }
 
 /**
+ * Drops observations whose kind is not one of OBSERVATION_KINDS (after case
+ * folding), so one stray kind does not fail the whole unit. Only providers
+ * without schema-constrained decoding can produce one.
+ */
+function dropUnknownKinds(
+	reply: unknown,
+	onDroppedKind?: (kind: unknown) => void,
+): unknown {
+	if (typeof reply !== "object" || reply === null) return reply;
+	const { observations } = reply as { observations?: unknown };
+	if (!Array.isArray(observations)) return reply;
+	const kept = observations.flatMap((o) => {
+		if (typeof o !== "object" || o === null) return [o];
+		const raw = (o as { kind?: unknown }).kind;
+		const kind = typeof raw === "string" ? raw.trim().toLowerCase() : raw;
+		if ((OBSERVATION_KINDS as readonly unknown[]).includes(kind))
+			return [{ ...o, kind }];
+		onDroppedKind?.(raw);
+		return [];
+	});
+	return { ...reply, observations: kept };
+}
+
+/**
  * Extracts and validates the first JSON object in a model reply. Tolerates code
  * fences, prose, and trailing content such as a stray brace or a second object.
  */
-export function parseUnitOutput(text: string): UnitOutput {
+export function parseUnitOutput(
+	text: string,
+	onDroppedKind?: (kind: unknown) => void,
+): UnitOutput {
 	const start = text.indexOf("{");
 	if (start < 0) throw new Error("Model reply had no JSON");
 	const end = objectEnd(text, start);
 	if (end < 0) throw new Error("Model reply had incomplete JSON");
-	return unitOutputSchema.parse(JSON.parse(text.slice(start, end)));
+	const reply = JSON.parse(text.slice(start, end));
+	return unitOutputSchema.parse(dropUnknownKinds(reply, onDroppedKind));
 }
