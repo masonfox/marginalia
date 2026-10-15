@@ -81,6 +81,8 @@ export {
 	listSubjects,
 	loadSubjectLinks,
 	type MergeOptions,
+	type ResolvedObservations,
+	resolveObservations,
 	resolveSubjects,
 	type SubjectTimeline,
 	type TimelineEntry,

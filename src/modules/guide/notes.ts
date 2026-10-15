@@ -8,9 +8,11 @@ import {
 	count,
 	desc,
 	eq,
+	ilike,
 	inArray,
 	isNotNull,
 	lte,
+	or,
 	sql,
 } from "drizzle-orm";
 import type { ReaderContentCounts } from "#/lib/reader-content";
@@ -449,7 +451,8 @@ export type NoteFilter =
  * Notes visible at a bound (design D2): those whose anchor is at or before
  * it. The bound is the Guide's, a conversation's for this book, or the
  * passage on screen; null is the whole book, the only bound at which notes
- * anchored at the end of the book show. In reading order of their anchors,
+ * anchored at the end of the book show. With `match`, only notes whose title
+ * or body contains it, ignoring case. In reading order of their anchors,
  * the end of the book last, most recently edited first among equals.
  */
 export async function listNotes(
@@ -457,9 +460,13 @@ export async function listNotes(
 	editionId: string,
 	bound: number | null,
 	filter: NoteFilter = { kind: "all" },
+	{ match }: { match?: string } = {},
 ): Promise<ReaderNote[]> {
 	if (filter.kind === "subject" && filter.keys.length === 0) return [];
 	if (filter.kind === "unit" && filter.locators?.length === 0) return [];
+	// LIKE wildcards in the reader's words match themselves.
+	const pattern =
+		match === undefined ? undefined : `%${match.replace(/[\\%_]/g, "\\$&")}%`;
 	const rows = await db
 		.select(noteColumns)
 		.from(readerNotes)
@@ -467,6 +474,12 @@ export async function listNotes(
 			and(
 				eq(readerNotes.editionId, editionId),
 				bound === null ? undefined : lte(readerNotes.asOfPosition, bound),
+				pattern === undefined
+					? undefined
+					: or(
+							ilike(readerNotes.title, pattern),
+							ilike(readerNotes.body, pattern),
+						),
 				filter.kind === "subject"
 					? inArray(readerNotes.subjectKey, filter.keys)
 					: filter.kind === "unit"

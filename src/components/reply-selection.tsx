@@ -1,5 +1,13 @@
-import { Reply } from "lucide-react";
+import { NotebookPen, Reply } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "#/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "#/components/ui/dialog";
 import { REPLY_CONTEXT_LIMIT, type ReplyContext } from "#/lib/reply-context";
 
 const BLOCKS = new Set([
@@ -94,19 +102,25 @@ export function captureReplySelection(
 export function ReplySelection({
 	onAttach,
 	onTooLong,
+	onSaveAsNote,
 }: {
-	onAttach: (quote: ReplyContext) => void;
+	/** Replies to the selection; absent when replies cannot be sent. */
+	onAttach?: (quote: ReplyContext) => void;
 	/** The selection is over the quote limit, so nothing was attached. */
 	onTooLong: () => void;
+	/** Starts a note from the selection; nothing is saved until the reader saves it. */
+	onSaveAsNote?: (quote: ReplyContext) => void;
 }) {
 	const [snapshot, setSnapshot] = useState<
 		(ReplyContext & { left: number; top: number }) | null
 	>(null);
 	const button = useRef<HTMLButtonElement>(null);
+	const toolbar = useRef<HTMLDivElement>(null);
+	const width = onAttach && onSaveAsNote ? 340 : 180;
 	useEffect(() => {
 		const update = (event?: Event) => {
 			if (
-				document.activeElement === button.current &&
+				toolbar.current?.contains(document.activeElement) &&
 				event?.type === "selectionchange"
 			)
 				return;
@@ -119,7 +133,7 @@ export function ReplySelection({
 			const rect = selection.getRangeAt(0).getBoundingClientRect();
 			setSnapshot({
 				...quote,
-				left: Math.max(8, Math.min(rect.left, window.innerWidth - 180)),
+				left: Math.max(8, Math.min(rect.left, window.innerWidth - width)),
 				// Above the selection like a native menu; below only when there is no room.
 				top:
 					rect.top >= 56
@@ -154,30 +168,107 @@ export function ReplySelection({
 			window.removeEventListener("scroll", update, true);
 			window.removeEventListener("resize", update);
 		};
-	}, []);
-	if (!snapshot) return null;
+	}, [width]);
+	if (!snapshot || (!onAttach && !onSaveAsNote)) return null;
+	const quote = { messageId: snapshot.messageId, text: snapshot.text };
+	const done = () => {
+		setSnapshot(null);
+		window.getSelection()?.removeAllRanges();
+	};
+	const action =
+		"inline-flex cursor-pointer items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg ring-2 ring-background hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 	return (
-		<button
-			ref={button}
-			type="button"
-			className="fixed z-50 inline-flex cursor-pointer items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg ring-2 ring-background hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+		<div
+			ref={toolbar}
+			role="toolbar"
+			aria-label="Selection actions"
+			className="fixed z-50 flex gap-2"
 			style={{ left: snapshot.left, top: snapshot.top }}
 			onPointerDown={(event) => {
 				if (event.pointerType !== "touch") event.preventDefault();
 			}}
-			onClick={() => {
-				if (snapshot.text.length > REPLY_CONTEXT_LIMIT) {
-					onTooLong();
-					return;
-				}
-				onAttach({ messageId: snapshot.messageId, text: snapshot.text });
-				setSnapshot(null);
-				window.getSelection()?.removeAllRanges();
+		>
+			{onAttach && (
+				<button
+					ref={button}
+					type="button"
+					className={action}
+					onClick={() => {
+						if (snapshot.text.length > REPLY_CONTEXT_LIMIT) {
+							onTooLong();
+							return;
+						}
+						onAttach(quote);
+						done();
+					}}
+				>
+					<Reply className="size-4" aria-hidden />
+					Reply to selection
+				</button>
+			)}
+			{onSaveAsNote && (
+				<button
+					ref={onAttach ? undefined : button}
+					type="button"
+					className={action}
+					onClick={() => {
+						onSaveAsNote(quote);
+						done();
+					}}
+					data-testid="save-as-note"
+				>
+					<NotebookPen className="size-4" aria-hidden />
+					Save as note
+				</button>
+			)}
+		</div>
+	);
+}
+
+/**
+ * Asks which book a note saved from a multi-book conversation is for.
+ * Choosing only opens the note editor; nothing is saved yet.
+ */
+export function SaveNoteBookDialog({
+	books,
+	onChoose,
+	onCancel,
+}: {
+	/** The conversation's books; the dialog is open while this is non-null. */
+	books: { editionId: string; title: string }[] | null;
+	onChoose: (editionId: string) => void;
+	onCancel: () => void;
+}) {
+	return (
+		<Dialog
+			open={books !== null}
+			onOpenChange={(open) => {
+				if (!open) onCancel();
 			}}
 		>
-			<Reply className="size-4" aria-hidden />
-			Reply to selection
-		</button>
+			<DialogContent data-testid="save-note-book">
+				<DialogHeader>
+					<DialogTitle>Save as a note on which book?</DialogTitle>
+					<DialogDescription>
+						The note opens for you to edit. Nothing is saved until you save it.
+					</DialogDescription>
+				</DialogHeader>
+				<ul className="grid gap-2">
+					{books?.map((b) => (
+						<li key={b.editionId}>
+							<Button
+								type="button"
+								variant="outline"
+								className="w-full justify-start"
+								onClick={() => onChoose(b.editionId)}
+							>
+								{b.title}
+							</Button>
+						</li>
+					))}
+				</ul>
+			</DialogContent>
+		</Dialog>
 	);
 }
 

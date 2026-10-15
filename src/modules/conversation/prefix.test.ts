@@ -61,6 +61,7 @@ describe("request prefix", () => {
 			"readSection",
 			"getOutline",
 			"lookupObservations",
+			"lookupNotes",
 		]);
 	});
 	it("keeps stored maps byte-identical across turns and updates on scope changes", () => {
@@ -90,6 +91,30 @@ describe("request prefix", () => {
 		const widened = buildBookMapMessage(books, { b1: [first, later] });
 		expect(widened).toContain(later.summary);
 		expect(widened).not.toBe(map);
+	});
+
+	it("keeps a map with a reader correction byte-identical across turns", () => {
+		const bounded = [
+			{
+				...(books[0] as ConversationBook),
+				maxPosition: 20,
+				scopeLabel: "Chapter 2",
+			},
+		];
+		const maps = {
+			b1: [
+				{ unitOrdinal: 0, unitLabel: "Chapter 1", summary: "A lantern." },
+				{
+					unitOrdinal: 1,
+					unitLabel: "Chapter 2",
+					summary: "The reader's own summary.",
+					source: "reader correction" as const,
+				},
+			],
+		};
+		expect(
+			buildBookMapMessage(structuredClone(bounded), structuredClone(maps)),
+		).toBe(buildBookMapMessage(bounded, maps));
 	});
 
 	it("keeps the system prompt independent of map content", () => {

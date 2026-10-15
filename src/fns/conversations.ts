@@ -7,6 +7,8 @@ import {
 	deleteConversation,
 	getConversation,
 	getConversationWithUsage,
+	getGuideStep,
+	getTrailObservations,
 	listConversationsForEdition,
 	type PassageCheck,
 	passageRefSchema,
@@ -88,6 +90,45 @@ export const getConversationFn = createServerFn({ method: "GET" })
 			priceTable(config.ai?.prices),
 		);
 	});
+
+/**
+ * A reply's guide step read again: the summaries now within its recorded
+ * scope (never past the conversation's), corrections applied, and whether
+ * the guide changed since the reply. `gone` when the book was deleted.
+ */
+export const getGuideStepFn = createServerFn({ method: "GET" })
+	.validator(
+		z.object({
+			conversationId: z.uuid(),
+			editionId: z.uuid(),
+			maxPosition: z.number().int().nullable(),
+			mapFingerprint: z.string().max(128),
+		}),
+	)
+	.handler(({ data }) => getGuideStep(appContext().db, data));
+
+/**
+ * The current rows behind a stored observation lookup's items, within the
+ * conversation's scope, so the trail can offer "Correct this"; null for an
+ * item whose row is no longer current.
+ */
+export const getTrailObservationsFn = createServerFn({ method: "GET" })
+	.validator(
+		z.object({
+			conversationId: z.uuid(),
+			editionId: z.uuid(),
+			name: z.string().min(1).max(300),
+			items: z
+				.array(
+					z.object({
+						unitLabel: z.string().max(1000),
+						observedAs: z.string().max(1000),
+					}),
+				)
+				.max(50),
+		}),
+	)
+	.handler(({ data }) => getTrailObservations(appContext().db, data));
 
 export const renameConversationFn = createServerFn({ method: "POST" })
 	.validator(

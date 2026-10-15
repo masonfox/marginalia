@@ -16,7 +16,7 @@ import {
 	uniqueIndex,
 	uuid,
 } from "drizzle-orm/pg-core";
-import { type DerivedCitation, OBSERVATION_KINDS } from "#/modules/analysis";
+import type { DerivedCitation, ObservationKind } from "#/modules/analysis";
 import { conversations } from "#/modules/conversation";
 import { editions } from "#/modules/library";
 
@@ -73,8 +73,12 @@ export const guideSubjects = pgTable(
 			.references(() => editions.id, { onDelete: "cascade" }),
 		/** The name key the reader chose to display it under; one of its names. */
 		displayKey: text("display_key"),
-		/** The reader's kind; null uses the kind its observations carry. */
-		kind: text("kind", { enum: OBSERVATION_KINDS }),
+		/**
+		 * The reader's kind; null uses the kind its observations carry. Typed
+		 * only: reading OBSERVATION_KINDS here would run before analysis finishes
+		 * loading, via analysis → usage → conversation → guide.
+		 */
+		kind: text("kind").$type<ObservationKind>(),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),

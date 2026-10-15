@@ -88,6 +88,17 @@ export interface CitationRecord {
 	range?: { start: number; end: number };
 }
 
+/** One book's map as a reply recorded it: enough to describe it and tell whether it changed since. */
+export interface GuideContextEntry {
+	editionId: string;
+	/** The book's scope label when the map was sent; null for the whole book. */
+	scopeLabel: string | null;
+	/** The bound the map was read at; null for the whole book. */
+	maxPosition: number | null;
+	/** sha256 of the book's rendered map block. */
+	mapFingerprint: string;
+}
+
 export const messages = pgTable(
 	"messages",
 	{
@@ -111,6 +122,11 @@ export const messages = pgTable(
 		model: text("model"),
 		promptVersion: text("prompt_version"),
 		error: text("error"),
+		/**
+		 * The book maps an assistant reply was generated with, one entry per
+		 * book that had one; null when none did. The map text is not stored.
+		 */
+		guideContext: jsonb("guide_context").$type<GuideContextEntry[]>(),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),

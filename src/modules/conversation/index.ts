@@ -11,6 +11,16 @@ export {
 	describeError,
 	startChat,
 } from "./chat";
+export {
+	type GuideStepSummary,
+	type GuideStepView,
+	getGuideStep,
+	getTrailObservations,
+	loadBookMaps,
+	mapFingerprint,
+	type TrailCorrection,
+	type TrailObservation,
+} from "./guide-context";
 export { handleChatRequest } from "./http";
 export {
 	checkPassageRef,

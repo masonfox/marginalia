@@ -17,6 +17,7 @@ import {
 	type CitationRecord,
 	conversationEditions,
 	conversations,
+	type GuideContextEntry,
 	type Json,
 	messages,
 } from "./schema";
@@ -61,6 +62,8 @@ export interface StoredMessage {
 	model: string | null;
 	promptVersion: string | null;
 	error: string | null;
+	/** The book maps an assistant reply was generated with; null when none, and for older replies. */
+	guideContext: GuideContextEntry[] | null;
 	createdAt: Date;
 }
 
@@ -176,6 +179,7 @@ export async function getMessages(
 			model: messages.model,
 			promptVersion: messages.promptVersion,
 			error: messages.error,
+			guideContext: messages.guideContext,
 			createdAt: messages.createdAt,
 		})
 		.from(messages)
@@ -286,6 +290,7 @@ export interface NewMessage {
 	model?: string | null;
 	promptVersion?: string | null;
 	error?: string | null;
+	guideContext?: GuideContextEntry[] | null;
 }
 
 /** Appends a message with the next sequence number and bumps the conversation's activity time. */
@@ -318,6 +323,7 @@ export async function appendMessage(
 				model: m.model ?? null,
 				promptVersion: m.promptVersion ?? null,
 				error: m.error ?? null,
+				guideContext: m.guideContext ?? null,
 			})
 			.returning({ id: messages.id, seq: messages.seq });
 		if (!row) throw new Error("could not append message");

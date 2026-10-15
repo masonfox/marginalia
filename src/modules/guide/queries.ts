@@ -4,6 +4,7 @@ import {
 	listObservations,
 	listObservedNames,
 	listSummaries,
+	normalizeNameKey,
 	type ObservationKind,
 } from "#/modules/analysis";
 import { getReadingUnits, type ReadingUnit } from "#/modules/catalog";
@@ -613,5 +614,53 @@ export async function getSubjectTimeline(
 			citations: r.citations,
 			correction: r.correction,
 		})),
+	};
+}
+
+/** A name looked up at a bound: the subject it resolves to and that subject's observations. */
+export interface ResolvedObservations {
+	ref: string;
+	/** The subject's display name at the bound. */
+	subject: string;
+	/** Merged observations of every name of the subject at the bound, in reading order. */
+	observations: GuideObservation[];
+}
+
+/**
+ * Looks up a name at a bound (the assistant's lookupObservations): the name
+ * resolves to a subject through the alias links visible at the bound only,
+ * and the subject's merged observations within the bound are returned, so
+ * an alias not yet revealed neither joins nor names its subject. Null when
+ * no observation of the subject is within the bound. With `includeHidden`,
+ * suppressed observations are kept, marked.
+ */
+export async function resolveObservations(
+	db: Executor,
+	editionId: string,
+	name: string,
+	bound: number | null,
+	anchors: UnitAnchors,
+	options: MergeOptions = {},
+): Promise<ResolvedObservations | null> {
+	const key = normalizeNameKey(name);
+	if (!key) return null;
+	const resolution = await resolveSubjects(db, editionId, bound, anchors);
+	const ref = resolution.refOf(key);
+	const keys = resolution.keysOf(ref);
+	if (!keys) return null;
+	const observations = await getMergedObservations(
+		db,
+		editionId,
+		bound,
+		anchors,
+		keys,
+		options,
+	);
+	const [first] = observations;
+	if (!first) return null;
+	return {
+		ref,
+		subject: resolution.nameOf(ref) ?? first.name,
+		observations,
 	};
 }

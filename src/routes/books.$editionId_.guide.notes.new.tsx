@@ -1,5 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	Link,
+	useNavigate,
+	useRouterState,
+} from "@tanstack/react-router";
 import { z } from "zod";
 import { GuideError, useGuide } from "#/components/guide";
 import { NoteEditor, newNoteDraft } from "#/components/guide-notes";
@@ -22,6 +27,11 @@ function NewNoteView() {
 	const { editionId, units } = useGuide();
 	const search = Route.useSearch();
 	const navigate = useNavigate();
+	// "Save as note" from a conversation hands over a draft for this book.
+	const handed = useRouterState({
+		select: (s) => s.location.state.noteDraft,
+	});
+	const excerpt = handed?.editionId === editionId ? handed : null;
 	const defaults = useQuery({
 		queryKey: ["guide", editionId, "note-defaults"],
 		queryFn: () => getNoteDefaultsFn({ data: { editionId } }),
@@ -46,12 +56,23 @@ function NewNoteView() {
 				New note
 			</h2>
 			<p className="text-xs text-muted-foreground" data-testid="note-default">
-				{anchor
-					? `Written as of ${anchor.label ?? "the end of the book"} unless you choose otherwise: your reading position.`
-					: "No reading position is set, so choose how far into the book this note is written as of."}
+				{excerpt
+					? `Saved from a conversation and written as of ${excerpt.anchorLabel ?? "the end of the book"}, the conversation's scope, unless you choose otherwise. Nothing is saved until you save the note.`
+					: anchor
+						? `Written as of ${anchor.label ?? "the end of the book"} unless you choose otherwise: your reading position.`
+						: "No reading position is set, so choose how far into the book this note is written as of."}
 			</p>
 			<NoteEditor
-				initial={newNoteDraft(anchor?.choice ?? null, search)}
+				initial={
+					excerpt
+						? {
+								...newNoteDraft(excerpt.anchor, search),
+								title: excerpt.title,
+								body: excerpt.body,
+								sourceConversationId: excerpt.sourceConversationId,
+							}
+						: newNoteDraft(anchor?.choice ?? null, search)
+				}
 				units={units}
 				onSaved={(note) =>
 					void navigate({

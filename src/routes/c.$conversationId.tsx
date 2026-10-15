@@ -30,12 +30,17 @@ import {
 	RenameConversation,
 } from "#/components/conversation-controls";
 import { PassageQuote } from "#/components/passage-quote";
-import { ReplyQuote, ReplySelection } from "#/components/reply-selection";
-import { ResearchTrail } from "#/components/research-trail";
+import {
+	ReplyQuote,
+	ReplySelection,
+	SaveNoteBookDialog,
+} from "#/components/reply-selection";
+import { ResearchTrail, type TrailContext } from "#/components/research-trail";
 import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
+import { excerptNoteDraft } from "#/lib/note-prefill";
 import {
 	attachmentKey,
 	type PassageRef,
@@ -44,11 +49,12 @@ import {
 	type StoredPassageContext,
 } from "#/lib/passage-ref";
 import {
+	type ReplyContext,
 	replyContextOf,
 	replyContextPart,
 	type StoredReplyContext,
 } from "#/lib/reply-context";
-import { groupParts } from "#/lib/research-trail";
+import { groupParts, guideSteps, type Step } from "#/lib/research-trail";
 import { exactUsage, replyUsageLine, totalUsageLine } from "#/lib/usage-format";
 import type {
 	CitationRecord,
@@ -279,16 +285,64 @@ function ConversationPage() {
 		}
 	};
 
+	// "Save as note": the excerpt waiting for the reader to choose its book.
+	const [noteExcerpt, setNoteExcerpt] = useState<string | null>(null);
+	/** Opens the note editor for a book with the excerpt prefilled; nothing is saved yet. */
+	const openNoteDraft = (excerpt: string, editionId: string) => {
+		const book = conversation.books.find((b) => b.editionId === editionId);
+		if (!book) return;
+		void router.navigate({
+			to: "/books/$editionId/guide/notes/new",
+			params: { editionId },
+			state: (prev) => ({
+				...prev,
+				noteDraft: excerptNoteDraft({
+					excerpt,
+					conversation: { id: conversation.id, title: conversation.title },
+					book,
+				}),
+			}),
+		});
+	};
+	const saveAsNote = (quote: ReplyContext) => {
+		const [only] = conversation.books;
+		if (conversation.books.length === 1 && only)
+			openNoteDraft(quote.text, only.editionId);
+		else setNoteExcerpt(quote.text);
+	};
+	const trailContext = useMemo(
+		() => ({
+			conversationId,
+			books: conversation.books.map((b) => ({
+				editionId: b.editionId,
+				ordinal: b.ordinal,
+				title: b.title,
+			})),
+		}),
+		[conversationId, conversation.books],
+	);
+	const guideContexts = useMemo(
+		() => new Map(conversation.messages.map((m) => [m.id, m.guideContext])),
+		[conversation.messages],
+	);
+
 	return (
 		<PositionOfferProvider>
 			<main className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-3xl flex-col px-4 py-6">
-				{ai.enabled && (
-					<ReplySelection
-						key={conversationId}
-						onAttach={composer.attachQuote}
-						onTooLong={composer.rejectLongQuote}
-					/>
-				)}
+				<ReplySelection
+					key={conversationId}
+					onAttach={ai.enabled ? composer.attachQuote : undefined}
+					onTooLong={composer.rejectLongQuote}
+					onSaveAsNote={conversation.books.length > 0 ? saveAsNote : undefined}
+				/>
+				<SaveNoteBookDialog
+					books={noteExcerpt === null ? null : conversation.books}
+					onChoose={(editionId) => {
+						if (noteExcerpt) openNoteDraft(noteExcerpt, editionId);
+						setNoteExcerpt(null);
+					}}
+					onCancel={() => setNoteExcerpt(null)}
+				/>
 				<header className="border-b pb-4">
 					<p className="text-sm">
 						<Link
@@ -392,10 +446,13 @@ function ConversationPage() {
 								<AssistantMessage
 									message={m}
 									eligible={
-										ai.enabled &&
-										savedAssistantIds.has(m.id) &&
-										!(busy && m.id === last?.id)
+										savedAssistantIds.has(m.id) && !(busy && m.id === last?.id)
 									}
+									guideSteps={guideSteps(
+										guideContexts.get(m.id),
+										conversation.books,
+									)}
+									trailContext={trailContext}
 									remainingBookIds={remainingBookIds}
 									stopped={m.id === stoppedId}
 									streaming={busy && m.id === last?.id}
@@ -580,13 +637,19 @@ function citationsOf(message: Msg): CitationRecord[] {
 function AssistantMessage({
 	message,
 	eligible,
+	guideSteps,
+	trailContext,
 	remainingBookIds,
 	stopped,
 	streaming,
 	usage,
 }: {
 	message: Msg;
+	/** Whether the reader can select from the reply to quote or save it. */
 	eligible: boolean;
+	/** The guide steps its trail starts with; none for older replies. */
+	guideSteps: Step[];
+	trailContext: TrailContext;
 	remainingBookIds: Set<string>;
 	stopped: boolean;
 	streaming: boolean;
@@ -612,10 +675,23 @@ function AssistantMessage({
 			: undefined;
 	const blocks = groupParts(message.parts);
 	const hasReply = blocks.some((b) => b.type === "text");
+	// The guide steps start the reply's trail: the first run of tool calls, or one of their own.
+	const ownGuideTrail = guideSteps.length > 0 && blocks[0]?.type !== "trail";
 	return (
 		<SourcesScope>
 			<div className="space-y-2">
-				{blocks.map((block) =>
+				{ownGuideTrail && (
+					<div data-reply-excluded>
+						<ResearchTrail
+							parts={[]}
+							leading={guideSteps}
+							context={trailContext}
+							hasReply={hasReply}
+							streaming={streaming}
+						/>
+					</div>
+				)}
+				{blocks.map((block, i) =>
 					block.type === "text" ? (
 						<AssistantText
 							sourceMessageId={eligible ? message.id : undefined}
@@ -629,6 +705,8 @@ function AssistantMessage({
 						<div key={block.index} data-reply-excluded>
 							<ResearchTrail
 								parts={block.parts}
+								leading={i === 0 ? guideSteps : []}
+								context={trailContext}
 								hasReply={hasReply}
 								streaming={streaming}
 							/>

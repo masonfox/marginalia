@@ -66,15 +66,15 @@ Phases follow the epic's dependency graph and each one can merge on its own: 1 (
 
 ## 8. Assistant integration and conversation trail (#27)
 
-- [ ] 8.1 Switch `chat.ts` to the merged map. Render reader corrections with a `source` attribute inside the existing escaped block, and omit suppressed units. Verify with prompt unit tests for a corrected summary, a suppressed summary, a correction beyond scope leaving the map byte-identical, and escaping of reader text.
-- [ ] 8.2 Update the `lookupObservations` tool to use `resolveObservations` (alias-aware, corrections applied) and to return `subject`, `observedAs`, and `source`. Verify with `tools.int.test.ts` cases for an alias revealed or unrevealed within scope, and for a corrected observation.
-- [ ] 8.3 Add the `lookupNotes` tool, last in the fixed order. It has list and query modes, caps of 20 titles, 5 notes, and 2,000 characters, an attribution wrapper, and refuses other books. Verify with integration tests that include a note beyond scope being withheld.
-- [ ] 8.4 Add the corrections and notes trust paragraph to the system prompt and bump `PROMPT_VERSION` to `"7"`. Verify that the prefix tests (`prefix.test.ts`) assert identical prompts and tools across turns.
-- [ ] 8.5 Add the `messages.guide_context` column and its migration. Store `{ editionId, scopeLabel, mapFingerprint }` per book when a map is sent. Verify with a `chat.int.test.ts` assertion.
-- [ ] 8.6 Prepend a guide step in `lib/research-trail.ts` from `guideContext`, excluded from the counts. Add a server function returning the current merged summaries and fingerprint for "changed since". Verify with `research-trail.test.ts` cases, including older messages without context.
-- [ ] 8.7 Make observation and notes lookup steps readable (name, resolved subject, count, correction markers, note links). Verify with `tool-details`/`research-trail` unit tests.
-- [ ] 8.8 Add "Correct this" on the guide step and observation items, using the shared correction dialog. It is not offered for deleted books or rows that aren't current. Verify in the app that the next reply's lookup returns the corrected text while the earlier stored result is unchanged.
-- [ ] 8.9 Add "Save as note" to `reply-selection.tsx`. It opens the note editor prefilled with the quoted excerpt, a conversation link, and the conversation's scope anchor, with a book choice for multi-book conversations, and nothing is saved until the reader confirms. Verify in the app.
+- [x] 8.1 Switch `chat.ts` to the merged map. Render reader corrections with a `source` attribute inside the existing escaped block, and omit suppressed units. Verify with prompt unit tests for a corrected summary, a suppressed summary, a correction beyond scope leaving the map byte-identical, and escaping of reader text.
+- [x] 8.2 Update the `lookupObservations` tool to use `resolveObservations` (alias-aware, corrections applied) and to return `subject`, `observedAs`, and `source`. Verify with `tools.int.test.ts` cases for an alias revealed or unrevealed within scope, and for a corrected observation.
+- [x] 8.3 Add the `lookupNotes` tool, last in the fixed order. It has list and query modes, caps of 20 titles, 5 notes, and 2,000 characters, an attribution wrapper, and refuses other books. Verify with integration tests that include a note beyond scope being withheld.
+- [x] 8.4 Add the corrections and notes trust paragraph to the system prompt and bump `PROMPT_VERSION` to `"7"`. Verify that the prefix tests (`prefix.test.ts`) assert identical prompts and tools across turns.
+- [x] 8.5 Add the `messages.guide_context` column and its migration. Store `{ editionId, scopeLabel, mapFingerprint }` per book when a map is sent. Verify with a `chat.int.test.ts` assertion.
+- [x] 8.6 Prepend a guide step in `lib/research-trail.ts` from `guideContext`, excluded from the counts. Add a server function returning the current merged summaries and fingerprint for "changed since". Verify with `research-trail.test.ts` cases, including older messages without context.
+- [x] 8.7 Make observation and notes lookup steps readable (name, resolved subject, count, correction markers, note links). Verify with `tool-details`/`research-trail` unit tests.
+- [x] 8.8 Add "Correct this" on the guide step and observation items, using the shared correction dialog. It is not offered for deleted books or rows that aren't current. Verify in the app that the next reply's lookup returns the corrected text while the earlier stored result is unchanged.
+- [x] 8.9 Add "Save as note" to `reply-selection.tsx`. It opens the note editor prefilled with the quoted excerpt, a conversation link, and the conversation's scope anchor, with a book choice for multi-book conversations, and nothing is saved until the reader confirms. Verify in the app.
 
 ## 9. Wrap-up
 
