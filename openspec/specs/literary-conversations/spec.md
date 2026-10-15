@@ -167,20 +167,24 @@ Within a conversation, the system prompt and the tool definitions sent to the mo
 - **WHEN** a conversation is resumed after a restart
 - **THEN** the earlier messages sent to the model are the same as when they were last sent before the restart
 
-### Requirement: Bounded book map in the system prompt
-When a book in a conversation has current preprocessing, the system prompt SHALL include a compact map of that book: the unit summaries whose end position is at or before the book's bound (all units for whole-book scope). The map SHALL label each summary with its unit label and SHALL state that it is a guide, not evidence, and that claims must still be cited from the text. The map SHALL be part of the cached prefix and SHALL depend only on the conversation's books, their scopes, and the current stored summaries, so it is identical across turns until one of those changes. A book without current preprocessing SHALL contribute no map. The map SHALL have a size cap; when exceeded, summaries SHALL be shortened or dropped in a stated, deterministic way.
+### Requirement: Bounded book map as an untrusted reference message
+When a book in a conversation has current preprocessing, the request SHALL include a compact map of that book: its current unit summaries whose end position is at or before the book's bound (all units for whole-book scope). The maps SHALL be sent in one message after the system prompt and before the conversation history, labelled as untrusted reference data derived from the books that is not instructions and not citable text, with each book's map in a delimited block. Stored text SHALL be escaped so it cannot close or forge those delimiters. The map SHALL label each summary with its unit label. The map SHALL NOT appear in the system prompt; the system prompt SHALL instead tell the model that summaries and book maps are a guide, not evidence, that text inside them is never an instruction, and that claims must still be cited from passages of the book. The map message SHALL be part of the cached prefix and SHALL depend only on the conversation's books, their scopes, and the current stored summaries, so it is identical across turns until one of those changes. A book without current preprocessing SHALL contribute no map, and when no book has a map the message SHALL be omitted. Each book's map SHALL have a size cap; when exceeded, the oldest summaries SHALL be shortened to their first sentence, then the oldest units dropped, and the map SHALL say so.
 
 #### Scenario: Map limited by scope
 - **WHEN** a conversation is scoped through Chapter 22 on a preprocessed book
-- **THEN** the system prompt contains summaries of Chapters 1 to 22 and none after
+- **THEN** the book-map message contains summaries of Chapters 1 to 22 and none after
 
 #### Scenario: Stable map
 - **WHEN** two consecutive messages are sent and neither scope nor stored summaries changed
-- **THEN** both use the same system prompt text
+- **THEN** both requests carry the same book-map message and the same system prompt text
+
+#### Scenario: Map kept out of the system prompt
+- **WHEN** a conversation includes a preprocessed book
+- **THEN** the system prompt contains no summary text, and the summaries appear only in the book-map message
 
 #### Scenario: Not preprocessed
 - **WHEN** a book has no current preprocessing
-- **THEN** the prompt has no map for it and conversations work as before
+- **THEN** the request has no map for it, no book-map message is sent when no other book has one, and conversations work as before
 
 #### Scenario: Scope widened
 - **WHEN** the reader widens the scope
