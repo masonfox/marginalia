@@ -137,7 +137,8 @@ export function Composer({
 						maxLength={MESSAGE_LIMIT}
 						aria-label="Message"
 						placeholder="Say what you think…"
-						className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-base outline-none sm:text-sm"
+						containerClassName="min-w-0 flex-1"
+						className="px-2 py-1.5 text-base sm:text-sm"
 					/>
 					<SendButton busy={busy} reason={blockedReason} onStop={onStop} />
 				</div>
