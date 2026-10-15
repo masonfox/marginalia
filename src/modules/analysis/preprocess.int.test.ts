@@ -1,7 +1,7 @@
 import { MockLanguageModelV4 } from "ai/test";
-import { eq } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
-import { getReadingUnits } from "#/modules/catalog";
+import { getReadingUnits, passages } from "#/modules/catalog";
 import { aiUsage } from "#/modules/usage";
 import { createTestDb, type TestDb } from "../../../test/db";
 import { buildEpub } from "../../../test/epub-builder";
@@ -45,7 +45,14 @@ beforeAll(async () => {
 });
 
 /** Replies with a valid JSON for whatever unit text is in the prompt. */
-function model(opts: { failOn?: string; prompts?: string[] } = {}) {
+function model(
+	opts: {
+		failOn?: string;
+		prompts?: string[];
+		/** An extra summary citation added to every reply. */
+		cite?: { locator: string; quote: string };
+	} = {},
+) {
 	return new MockLanguageModelV4({
 		doGenerate: async (options) => {
 			const prompt = JSON.stringify(options.prompt);
@@ -63,7 +70,7 @@ function model(opts: { failOn?: string; prompts?: string[] } = {}) {
 			const quote = (m?.[2] ?? "").split(" ").slice(0, 2).join(" ");
 			const out = {
 				summary: "A thing happens.",
-				citations: [{ locator, quote }],
+				citations: [{ locator, quote }, ...(opts.cite ? [opts.cite] : [])],
 				observations: [
 					{
 						name: "Anna",
@@ -111,6 +118,25 @@ describe("preprocessEdition", () => {
 			.where(eq(aiUsage.editionId, id));
 		expect(usage).toHaveLength(units.length);
 		expect(usage[0]?.purpose).toBe("preprocess");
+	});
+
+	it("never verifies a valid citation from another unit", async () => {
+		const id = await newEdition("Outside");
+		const [later] = await t.db
+			.select({ locator: passages.locator })
+			.from(passages)
+			.where(
+				and(eq(passages.editionId, id), like(passages.text, "%lighthouse%")),
+			);
+		if (!later) throw new Error("expected the last chapter's passage");
+		const cite = { locator: later.locator, quote: "lighthouse went dark" };
+		await preprocessEdition(deps(model({ cite })), id);
+		const map = await getBookMap(t.db, id, null);
+		// Same-unit control verifies; the later unit's exact quote does not.
+		expect(map[0]?.citations[0]?.verified).toBe(true);
+		expect(map[0]?.citations[1]).toMatchObject({ ...cite, verified: false });
+		// The quote is genuine: it verifies within its own unit.
+		expect(map.at(-1)?.citations[1]?.verified).toBe(true);
 	});
 
 	it("resumes per unit after a failure and never sends later text", async () => {
