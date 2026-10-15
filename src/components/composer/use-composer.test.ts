@@ -100,6 +100,18 @@ describe("useComposer restored passage", () => {
 		};
 	};
 
+	it("blocks Send until the restored passage's recheck finishes", async () => {
+		restorePassage();
+		const resolve = deferCheck();
+		await mount();
+		expect(state.draft).toBe("Hi");
+		expect(state.attachment).toEqual({ kind: "passage", ref, snapshot });
+		expect(state.blockedReason).toBe("Checking passage…");
+		await resolve({ status: "ok", snapshot });
+		expect(state.blockedReason).toBeNull();
+		expect(state.attachment?.kind).toBe("passage");
+	});
+
 	it("drops the restored chip when a superseding check fails", async () => {
 		restorePassage();
 		const resolveQuiet = deferCheck();
