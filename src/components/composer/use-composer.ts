@@ -112,6 +112,8 @@ export function useComposer(
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	/** Drops check results that arrive after a newer check or a navigation. */
 	const checkSeq = useRef(0);
+	/** The attachment is a restored passage whose quiet recheck has not passed. */
+	const unvalidated = useRef(false);
 	const pending = useRef<{ id: string; draft: ComposerDraft } | null>(null);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -122,14 +124,29 @@ export function useComposer(
 		pending.current = null;
 	};
 
+	/**
+	 * Cancels any check in flight, and drops a restored passage its recheck
+	 * never confirmed, since nothing will check it now.
+	 */
+	const cancelCheck = () => {
+		checkSeq.current++;
+		setRechecking(false);
+		if (unvalidated.current) {
+			unvalidated.current = false;
+			setAttachment(null);
+		}
+	};
+
 	/** Checks a passage reference with the server; `quiet` keeps the chip in place meanwhile. */
 	const check = async (ref: PassageRef, quiet: boolean) => {
+		if (!quiet) cancelCheck();
 		const seq = ++checkSeq.current;
 		setRechecking(quiet);
 		if (!quiet) setNotice({ kind: "checking" });
 		const fail = (message: string, reason?: string) =>
 			setNotice({ kind: "invalid", ref, message, reason });
 		const settle = () => {
+			unvalidated.current = false;
 			setRechecking(false);
 			if (quiet) setAttachment(null);
 		};
@@ -140,6 +157,7 @@ export function useComposer(
 			if (seq !== checkSeq.current) return;
 			setRechecking(false);
 			if (result.status === "ok") {
+				unvalidated.current = false;
 				setAttachment({ kind: "passage", ref, snapshot: result.snapshot });
 				setNotice(null);
 				if (!quiet) inputRef.current?.focus();
@@ -176,12 +194,11 @@ export function useComposer(
 	// biome-ignore lint/correctness/useExhaustiveDependencies: restores once per conversation
 	useLayoutEffect(() => {
 		flush();
-		checkSeq.current++;
+		cancelCheck();
 		const saved = loadComposerDraft(conversationId);
 		const restored = saved?.attachment;
 		setDraft(saved?.text ?? "");
 		setNotice(null);
-		setRechecking(false);
 		if (restored?.kind === "quote" && savedAssistantIds.has(restored.messageId))
 			setAttachment({
 				kind: "quote",
@@ -189,6 +206,7 @@ export function useComposer(
 			});
 		else if (restored?.kind === "passage" && aiEnabled) {
 			setAttachment(restored);
+			unvalidated.current = true;
 			void check(restored.ref, true);
 		} else setAttachment(null);
 		setOwner(conversationId);
@@ -248,8 +266,7 @@ export function useComposer(
 		inputRef,
 		attachPassage,
 		attachQuote(quote: ReplyContext) {
-			checkSeq.current++;
-			setRechecking(false);
+			cancelCheck();
 			setNotice(null);
 			setAttachment({ kind: "quote", quote });
 			inputRef.current?.focus();
@@ -259,16 +276,14 @@ export function useComposer(
 			setNotice({ kind: "quote_too_long" });
 		},
 		removeAttachment() {
-			checkSeq.current++;
-			setRechecking(false);
+			cancelCheck();
 			setAttachment(null);
 			inputRef.current?.focus();
 		},
 		dismissNotice() {
 			// The long-quote notice may cover a quiet recheck, which must still
 			// settle; any other check in flight is cancelled with its slot.
-			if (!(notice?.kind === "quote_too_long" && rechecking))
-				checkSeq.current++;
+			if (!(notice?.kind === "quote_too_long" && rechecking)) cancelCheck();
 			setNotice(null);
 			inputRef.current?.focus();
 		},
@@ -280,11 +295,10 @@ export function useComposer(
 		},
 		/** Empties the composer and its saved draft, after a submit. */
 		clear() {
-			checkSeq.current++;
+			cancelCheck();
 			setDraft("");
 			setAttachment(null);
 			setNotice(null);
-			setRechecking(false);
 			pending.current = null;
 			clearTimeout(timer.current);
 			clearComposerDraft(conversationId);

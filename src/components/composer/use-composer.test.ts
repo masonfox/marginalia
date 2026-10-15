@@ -36,13 +36,14 @@ function deferCheck() {
 
 let state: ComposerState;
 let root: ReturnType<typeof createRoot>;
+let handoff: { ref?: string; hl?: string };
 
 function Harness() {
 	state = useComposer("c1", {
 		savedAssistantIds: new Set(),
 		books: [],
 		aiEnabled: true,
-		handoff: {},
+		handoff,
 		clearHandoff: () => {},
 	});
 	return null;
@@ -57,6 +58,7 @@ const mount = () =>
 beforeEach(() => {
 	mocks.check.mockReset();
 	mocks.saved = null;
+	handoff = {};
 });
 afterEach(() => act(() => root.unmount()));
 
@@ -87,5 +89,42 @@ describe("useComposer dismissNotice", () => {
 		await resolve({ status: "ok", snapshot });
 		expect(state.attachment).toBeNull();
 		expect(state.notice).toBeNull();
+	});
+});
+
+describe("useComposer restored passage", () => {
+	const restorePassage = () => {
+		mocks.saved = {
+			text: "Hi",
+			attachment: { kind: "passage", ref, snapshot },
+		};
+	};
+
+	it("drops the restored chip when a superseding check fails", async () => {
+		restorePassage();
+		const resolveQuiet = deferCheck();
+		await mount();
+		const resolve = deferCheck();
+		await act(async () => {
+			void state.attachPassage({ locator: "bbbbbbbbbbbb:v1:1.1" });
+		});
+		await resolve({ status: "invalid", reason: "not_found" });
+		await resolveQuiet({ status: "ok", snapshot });
+		expect(state.attachment).toBeNull();
+		expect(state.notice?.kind).toBe("invalid");
+		expect(state.blockedReason).not.toBe("Checking passage…");
+	});
+
+	it("drops the restored chip when an invalid handoff notice is dismissed", async () => {
+		restorePassage();
+		handoff = { ref: "not a locator" };
+		const resolveQuiet = deferCheck();
+		await mount();
+		expect(state.notice?.kind).toBe("invalid");
+		await act(() => state.dismissNotice());
+		expect(state.blockedReason).not.toBe("Checking passage…");
+		expect(state.attachment).toBeNull();
+		await resolveQuiet({ status: "ok", snapshot });
+		expect(state.attachment).toBeNull();
 	});
 });
