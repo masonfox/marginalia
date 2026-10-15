@@ -71,10 +71,30 @@ export function buildUnitPrompt(input: {
 	return `${head}\n\n${prev}Text of this section:\n\n${body}`;
 }
 
-/** Extracts and validates the JSON object from a model reply (tolerates code fences and prose). */
+/** Returns the end index (exclusive) of the balanced object opening at `start`, or -1. Braces inside strings are ignored. */
+function objectEnd(text: string, start: number): number {
+	let depth = 0;
+	let inString = false;
+	for (let i = start; i < text.length; i++) {
+		const ch = text[i];
+		if (inString) {
+			if (ch === "\\") i++;
+			else if (ch === '"') inString = false;
+		} else if (ch === '"') inString = true;
+		else if (ch === "{") depth++;
+		else if (ch === "}" && --depth === 0) return i + 1;
+	}
+	return -1;
+}
+
+/**
+ * Extracts and validates the first JSON object in a model reply. Tolerates code
+ * fences, prose, and trailing content such as a stray brace or a second object.
+ */
 export function parseUnitOutput(text: string): UnitOutput {
 	const start = text.indexOf("{");
-	const end = text.lastIndexOf("}");
-	if (start < 0 || end < start) throw new Error("Model reply had no JSON");
-	return unitOutputSchema.parse(JSON.parse(text.slice(start, end + 1)));
+	if (start < 0) throw new Error("Model reply had no JSON");
+	const end = objectEnd(text, start);
+	if (end < 0) throw new Error("Model reply had incomplete JSON");
+	return unitOutputSchema.parse(JSON.parse(text.slice(start, end)));
 }

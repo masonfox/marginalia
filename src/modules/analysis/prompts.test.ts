@@ -49,6 +49,18 @@ describe("parseUnitOutput", () => {
 		expect(out.observations[0]?.citations).toEqual([cite]);
 	});
 
+	it("ignores content after the first complete object", () => {
+		const json = reply({ summary: "Anna {sails}.", citations: [cite] });
+		for (const tail of ["}", `\n${json}`, "\nNote: {done}"]) {
+			const out = parseUnitOutput(`\`\`\`json\n${json}\n\`\`\`${tail}`);
+			expect(out.summary).toBe("Anna {sails}.");
+		}
+	});
+
+	it("rejects an unterminated object", () => {
+		expect(() => parseUnitOutput('{"summary": "Anna')).toThrow(/incomplete/);
+	});
+
 	it("accepts zero observations", () => {
 		const out = parseUnitOutput(
 			reply({ summary: "Quiet.", citations: [cite] }),
