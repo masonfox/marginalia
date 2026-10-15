@@ -1,6 +1,6 @@
 import { asSchema, type FlexibleSchema } from "ai";
 import { describe, expect, it } from "vitest";
-import { buildSystemPrompt } from "./prompt";
+import { buildBookMapMessage, buildSystemPrompt } from "./prompt";
 import type { ConversationBook } from "./repository";
 import { createConversationTools, type ToolDeps } from "./tools";
 
@@ -81,17 +81,21 @@ describe("request prefix", () => {
 				scopeLabel: "Chapter 1",
 			},
 		];
-		const options = { ...opts, bookMaps: { b1: [first] } };
-		const prompt = buildSystemPrompt(bounded, options);
+		const maps = { b1: [first] };
+		const map = buildBookMapMessage(bounded, maps);
 		expect(
-			buildSystemPrompt(structuredClone(bounded), structuredClone(options)),
-		).toBe(prompt);
-		expect(prompt).not.toContain(later.summary);
-		const widened = buildSystemPrompt(books, {
-			...opts,
-			bookMaps: { b1: [first, later] },
-		});
+			buildBookMapMessage(structuredClone(bounded), structuredClone(maps)),
+		).toBe(map);
+		expect(map).not.toContain(later.summary);
+		const widened = buildBookMapMessage(books, { b1: [first, later] });
 		expect(widened).toContain(later.summary);
-		expect(widened).not.toBe(prompt);
+		expect(widened).not.toBe(map);
+	});
+
+	it("keeps the system prompt independent of map content", () => {
+		const prompt = buildSystemPrompt(structuredClone(books), opts);
+		expect(buildBookMapMessage(books, { b1: [] })).toBeNull();
+		expect(prompt).not.toContain("<book_maps>\n");
+		expect(prompt).toBe(buildSystemPrompt(structuredClone(books), opts));
 	});
 });

@@ -24,7 +24,7 @@ import {
 	searchBooks,
 	type ToolDeps,
 } from ".";
-import { buildSystemPrompt } from "./prompt";
+import { buildBookMapMessage } from "./prompt";
 import { lookupObservations, readSection } from "./tools";
 
 let t: TestDb;
@@ -177,19 +177,16 @@ describe("preprocessed conversation guidance", () => {
 
 	it("loads a scope-limited map, including no unit when the bound is inside it", async () => {
 		const boundedBook = { ...alpha, maxPosition: 40, scopeLabel: "Chapter 2" };
-		const options = {
-			maxSteps: 8,
-			bookMaps: { b1: await getBookMap(t.db, alpha.editionId, 40) },
-		};
-		const prompt = buildSystemPrompt([boundedBook], options);
-		expect(prompt).toContain("Chapter 2: Lantern summary 2.");
-		expect(prompt).not.toContain("Lantern summary 3");
+		const map = buildBookMapMessage([boundedBook], {
+			b1: await getBookMap(t.db, alpha.editionId, 40),
+		});
+		expect(map).toContain("Chapter 2: Lantern summary 2.");
+		expect(map).not.toContain("Lantern summary 3");
 		expect(
-			buildSystemPrompt([boundedBook], {
-				...options,
-				bookMaps: { b1: await getBookMap(t.db, alpha.editionId, 40) },
+			buildBookMapMessage([boundedBook], {
+				b1: await getBookMap(t.db, alpha.editionId, 40),
 			}),
-		).toBe(prompt);
+		).toBe(map);
 		expect(await getBookMap(t.db, alpha.editionId, 19)).toEqual([]);
 	});
 
@@ -283,9 +280,7 @@ describe("preprocessed conversation guidance", () => {
 		await t.db.transaction((tx) => markDerivedStale(tx, alpha.editionId));
 		const map = await getBookMap(t.db, alpha.editionId, null);
 		expect(map).toEqual([]);
-		expect(
-			buildSystemPrompt([alpha], { maxSteps: 8, bookMaps: { b1: map } }),
-		).not.toContain("# Book maps");
+		expect(buildBookMapMessage([alpha], { b1: map })).toBeNull();
 		expect(
 			await lookupObservations(deps, { book: "b1", name: "Lantern" }),
 		).toMatchObject({ status: "unavailable" });

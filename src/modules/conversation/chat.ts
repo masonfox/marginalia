@@ -14,7 +14,11 @@ import { createRetrieval } from "#/modules/retrieval";
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
 import type { Database } from "#/server/db";
 import type { Logger } from "#/server/logger";
-import { buildSystemPrompt, PROMPT_VERSION } from "./prompt";
+import {
+	buildBookMapMessage,
+	buildSystemPrompt,
+	PROMPT_VERSION,
+} from "./prompt";
 import {
 	appendMessage,
 	type ConversationDetail,
@@ -163,16 +167,20 @@ function generate(
 					]),
 				),
 			);
+			// Untrusted derived data goes in a message after the instructions, never in them.
+			const map = buildBookMapMessage(conversation.books, bookMaps);
 			const result = streamText({
 				// `model` is non-null: startChat checked.
 				model: ai.model as NonNullable<AiRuntime["model"]>,
 				system: buildSystemPrompt(conversation.books, {
 					maxSteps: ai.maxSteps,
-					bookMaps,
 				}),
-				messages: await convertToModelMessages(history.map(toUIMessage), {
-					tools,
-				}),
+				messages: [
+					...(map === null ? [] : [{ role: "user" as const, content: map }]),
+					...(await convertToModelMessages(history.map(toUIMessage), {
+						tools,
+					})),
+				],
 				tools,
 				stopWhen: stepCountIs(ai.maxSteps),
 				// The last step must answer. "none" keeps the tool definitions, so the cached prefix holds.
