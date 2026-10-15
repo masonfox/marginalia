@@ -139,7 +139,8 @@ function SectionText({
 				editionId={view.edition.id}
 				aiEnabled={aiEnabled}
 			/>
-			<article className="mt-6 font-serif text-lg leading-relaxed">
+			{/* Below lg the page has no side margin, so indent the text to make a gutter for the reference buttons. */}
+			<article className="mt-6 pl-12 font-serif text-lg leading-relaxed lg:pl-0">
 				{view.passages.map((p) => (
 					<PassageBlock
 						key={p.locator}
@@ -208,9 +209,8 @@ function PassageBlock({
 	range: { start: number; end: number } | null;
 }) {
 	const className = [
-		// Right padding leaves room for the reference button.
 		"group relative my-3 scroll-mt-24 whitespace-pre-line rounded-sm",
-		highlighted ? "-mx-2 bg-highlight py-1 pr-11 pl-2" : "pr-9",
+		highlighted ? "-mx-2 bg-highlight px-2 py-1" : "",
 		passage.kind === "heading" ? "font-sans text-xl font-semibold" : "",
 		passage.kind === "quote" ? "border-l-2 pl-4 italic" : "",
 		passage.kind === "footnote" ? "text-base text-muted-foreground" : "",

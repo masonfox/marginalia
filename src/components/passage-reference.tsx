@@ -186,21 +186,23 @@ export function PassageReferenceMenu({
 }
 
 /**
- * The per-passage reference button. Shown on hover and focus, and always on
- * touch screens, which have no hover.
+ * The per-passage reference button, floating in the gutter left of the text.
+ * Shown on hover and focus, and always on touch screens, which have no hover.
+ * The wrapper's right padding bridges the gap to the text, so moving the
+ * pointer from the text to the button keeps the passage hovered.
  */
 export function PassageReferenceButton(
 	props: Omit<MenuProps, "children" | "onActiveChange">,
 ) {
 	return (
-		<span className="absolute top-0 right-0 font-sans select-none">
+		<span className="absolute top-0 right-full pr-3 font-sans select-none">
 			<PassageReferenceMenu {...props}>
 				<button
 					type="button"
 					aria-label="Reference this passage"
-					className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-ring data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
+					className="inline-flex size-9 cursor-pointer items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-ring data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
 				>
-					<Link2 className="size-4" aria-hidden />
+					<Link2 className="size-5" aria-hidden />
 				</button>
 			</PassageReferenceMenu>
 		</span>
