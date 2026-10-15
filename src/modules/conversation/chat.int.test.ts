@@ -771,13 +771,18 @@ describe("scope during chat", () => {
 							type: "text",
 							text: JSON.stringify({
 								summary: second ? "Boris leaves." : "Anna arrives.",
-								citations: [],
+								citations: [
+									{
+										locator: "x",
+										quote: second ? "Boris sails" : "Anna sails",
+									},
+								],
 								observations: [
 									{
 										name: "Ship",
 										kind: "object",
 										note: second ? "Departs." : "Arrives.",
-										citations: [],
+										citations: [{ locator: "x", quote: "sails" }],
 									},
 								],
 							}),
