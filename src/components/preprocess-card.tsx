@@ -48,6 +48,8 @@ export function PreprocessCardView({
 	error?: string | null;
 	onStart?: () => void;
 }) {
+	// Without AI there is no preprocessing status or action to show.
+	if (!view.aiEnabled) return null;
 	const active = isActive(view.status);
 	const failed = view.failedUnits > 0 || view.lastError !== null;
 	const action =
@@ -92,31 +94,23 @@ export function PreprocessCardView({
 				{view.lastError && (
 					<p className="text-destructive-foreground">{view.lastError}</p>
 				)}
-				{!view.aiEnabled ? (
-					<p className="text-muted-foreground">
-						AI is not configured, so this book cannot be preprocessed.
+				<p className="text-muted-foreground">
+					Preprocessing sends the whole book text to your AI provider, and it
+					can cost real money on long books.
+				</p>
+				{error && (
+					<p role="alert" className="text-destructive-foreground">
+						{error}
 					</p>
-				) : (
-					<>
-						<p className="text-muted-foreground">
-							Preprocessing sends the whole book text to your AI provider, and
-							it can cost real money on long books.
-						</p>
-						{error && (
-							<p role="alert" className="text-destructive-foreground">
-								{error}
-							</p>
-						)}
-						<Button
-							type="button"
-							size="sm"
-							disabled={active || busy}
-							onClick={onStart}
-						>
-							{action}
-						</Button>
-					</>
 				)}
+				<Button
+					type="button"
+					size="sm"
+					disabled={active || busy}
+					onClick={onStart}
+				>
+					{action}
+				</Button>
 			</div>
 		</section>
 	);

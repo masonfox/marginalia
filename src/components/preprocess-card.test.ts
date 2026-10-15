@@ -67,9 +67,17 @@ describe("PreprocessCardView", () => {
 		expect(h).toContain("boom");
 		expect(h).toContain("Retry");
 	});
-	it("AI unconfigured hides the action", () => {
-		const h = render({ aiEnabled: false });
-		expect(h).toContain("AI is not configured");
-		expect(h).not.toContain("<button");
+	it("AI unconfigured shows no status or action", () => {
+		expect(render({ aiEnabled: false })).toBe("");
+		expect(
+			render({
+				aiEnabled: false,
+				status: "complete",
+				totalUnits: 3,
+				doneUnits: 3,
+				model: "m1",
+				hasSpend: true,
+			}),
+		).toBe("");
 	});
 });
