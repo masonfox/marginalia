@@ -4,8 +4,14 @@ import {
 	redirect,
 	useRouter,
 } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { z } from "zod";
+import {
+	PassageReferenceButton,
+	PassageSelectionAction,
+} from "#/components/passage-reference";
+import { PassageText } from "#/components/passage-text";
+import { getAiStatusFn } from "#/fns/conversations";
 import { getSectionViewFn } from "#/fns/retrieval";
 import { parseHighlight } from "#/lib/citations";
 import type { SectionPassage, SectionView } from "#/modules/retrieval";
@@ -13,7 +19,10 @@ import type { SectionPassage, SectionView } from "#/modules/retrieval";
 export const Route = createFileRoute("/p/$locator")({
 	validateSearch: z.object({ hl: z.string().max(20).optional() }),
 	loader: async ({ params }) => {
-		const view = await getSectionViewFn({ data: { locator: params.locator } });
+		const [view, ai] = await Promise.all([
+			getSectionViewFn({ data: { locator: params.locator } }),
+			getAiStatusFn(),
+		]);
 		// Locators from an earlier parse forward to the passage that holds their text now.
 		if (view.status === "found" && view.superseded) {
 			throw redirect({
@@ -22,14 +31,14 @@ export const Route = createFileRoute("/p/$locator")({
 				replace: true,
 			});
 		}
-		return view;
+		return { view, aiEnabled: ai.enabled };
 	},
 	head: ({ loaderData }) => ({
 		meta: [
 			{
 				title:
-					loaderData?.status === "found"
-						? `${loaderData.section.title ?? loaderData.edition.title} · Marginalia`
+					loaderData?.view.status === "found"
+						? `${loaderData.view.section.title ?? loaderData.view.edition.title} · Marginalia`
 						: "Passage · Marginalia",
 			},
 		],
@@ -38,7 +47,7 @@ export const Route = createFileRoute("/p/$locator")({
 });
 
 function PassagePage() {
-	const view = Route.useLoaderData();
+	const { view, aiEnabled } = Route.useLoaderData();
 	const { hl } = Route.useSearch();
 
 	if (view.status === "not_found") {
@@ -74,7 +83,9 @@ function PassagePage() {
 			</main>
 		);
 	}
-	return <SectionText view={view} range={parseHighlight(hl)} />;
+	return (
+		<SectionText view={view} range={parseHighlight(hl)} aiEnabled={aiEnabled} />
+	);
 }
 
 type FoundView = Extract<SectionView, { status: "found" }>;
@@ -82,12 +93,18 @@ type FoundView = Extract<SectionView, { status: "found" }>;
 function SectionText({
 	view,
 	range,
+	aiEnabled,
 }: {
 	view: FoundView;
 	range: { start: number; end: number } | null;
+	aiEnabled: boolean;
 }) {
 	const target = view.currentLocator;
 	const router = useRouter();
+	const revealPositions = useMemo(
+		() => new Map(view.passages.map((p) => [p.locator, p.revealPosition])),
+		[view.passages],
+	);
 	useEffect(() => {
 		document.getElementById(domId(target))?.scrollIntoView({ block: "center" });
 	}, [target]);
@@ -117,11 +134,18 @@ function SectionText({
 
 			<SectionNav view={view} />
 
+			<PassageSelectionAction
+				passages={revealPositions}
+				editionId={view.edition.id}
+				aiEnabled={aiEnabled}
+			/>
 			<article className="mt-6 font-serif text-lg leading-relaxed">
 				{view.passages.map((p) => (
 					<PassageBlock
 						key={p.locator}
 						passage={p}
+						editionId={view.edition.id}
+						aiEnabled={aiEnabled}
 						highlighted={p.locator === target}
 						range={p.locator === target ? range : null}
 					/>
@@ -172,16 +196,21 @@ function domId(locator: string) {
 
 function PassageBlock({
 	passage,
+	editionId,
+	aiEnabled,
 	highlighted,
 	range,
 }: {
 	passage: SectionPassage;
+	editionId: string;
+	aiEnabled: boolean;
 	highlighted: boolean;
 	range: { start: number; end: number } | null;
 }) {
 	const className = [
-		"my-3 scroll-mt-24 whitespace-pre-line rounded-sm",
-		highlighted ? "-mx-2 bg-highlight px-2 py-1" : "",
+		// Right padding leaves room for the reference button.
+		"group relative my-3 scroll-mt-24 whitespace-pre-line rounded-sm",
+		highlighted ? "-mx-2 bg-highlight py-1 pr-11 pl-2" : "pr-9",
 		passage.kind === "heading" ? "font-sans text-xl font-semibold" : "",
 		passage.kind === "quote" ? "border-l-2 pl-4 italic" : "",
 		passage.kind === "footnote" ? "text-base text-muted-foreground" : "",
@@ -194,20 +223,17 @@ function PassageBlock({
 			className={className}
 			aria-current={highlighted ? "true" : undefined}
 		>
-			{range && range.end <= passage.text.length ? (
-				<>
-					{passage.text.slice(0, range.start)}
-					<mark
-						data-testid="quote-highlight"
-						className="rounded-sm bg-primary/25 px-0.5 text-foreground"
-					>
-						{passage.text.slice(range.start, range.end)}
-					</mark>
-					{passage.text.slice(range.end)}
-				</>
-			) : (
-				passage.text
-			)}
+			<PassageText
+				locator={passage.locator}
+				text={passage.text}
+				range={range}
+			/>
+			<PassageReferenceButton
+				passageRef={{ locator: passage.locator }}
+				editionId={editionId}
+				revealPosition={passage.revealPosition}
+				aiEnabled={aiEnabled}
+			/>
 			{passage.notes.length > 0 && (
 				<div className="mt-1 space-y-1 font-sans text-sm">
 					{passage.notes.map((note, i) => (

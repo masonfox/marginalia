@@ -762,3 +762,124 @@ describe("quoted replay", () => {
 		);
 	});
 });
+
+describe("passage references", () => {
+	const bounded = () =>
+		createConversation(t.db, {
+			editionIds: [editionId],
+			scopes: { [editionId]: { maxPosition: 1, scopeLabel: "One" } },
+		}).then((c) => c.id);
+
+	it("rejects invalid and out-of-scope references before storing or calling the provider", async () => {
+		const id = await bounded();
+		const model = scripted(textReply("Never."));
+		const ai = runtime(model);
+		const locator = `${shortId}:v1:0.0`;
+		const results = [
+			await startChat(deps(ai), {
+				conversationId: id,
+				message: "Why?",
+				passageRef: { locator: `${shortId}:v1:0.1` },
+			}),
+			await startChat(deps(ai), {
+				conversationId: id,
+				message: "Why?",
+				passageRef: { locator: `${shortId}:v1:0.9` },
+			}),
+			await startChat(deps(ai), {
+				conversationId: id,
+				message: "Why?",
+				passageRef: { locator, range: { start: 40, end: 400 } },
+			}),
+			await startChat(deps(ai), {
+				conversationId: id,
+				message: " ",
+				passageRef: { locator },
+			}),
+		];
+		expect(results).toEqual([
+			{ status: "passage_out_of_scope", unitLabel: "One" },
+			{ status: "invalid_passage", reason: "not_found" },
+			{ status: "invalid_passage", reason: "bad_range" },
+			{ status: "invalid_passage", reason: "no_message" },
+		]);
+		expect(model.doStreamCalls).toHaveLength(0);
+		expect((await getConversation(t.db, id))?.messages).toEqual([]);
+	});
+
+	it("replays the snapshot with an unchanged prefix, once on retry, and verifies citations to it", async () => {
+		const id = await bounded();
+		const plain = await bounded();
+		const locator = `${shortId}:v1:0.0`;
+		const cite = `[[cite locator="${locator}" quote="green light"]]`;
+		const model = scripted(
+			textReply("Plain."),
+			[
+				{ type: "stream-start", warnings: [] },
+				{ type: "error", error: new Error("temporary failure") },
+			],
+			textReply(`It is hope. ${cite}`),
+		);
+		const ai = runtime(model);
+		await (await run(ai, plain, "Hello")).text();
+		await saved(plain, 2);
+
+		const first = await startChat(deps(ai), {
+			conversationId: id,
+			message: "What does it mean?",
+			passageRef: { locator, range: { start: 4, end: 15 } },
+		});
+		if (first.status !== "ok") throw new Error(first.status);
+		await first.response.text();
+		const failed = await saved(id, 2);
+		expect(failed.messages[0]?.parts).toEqual([
+			{
+				type: "data-passage-context",
+				data: {
+					version: 1,
+					locator,
+					range: { start: 4, end: 15 },
+					editionId,
+					bookTitle: "Chat Book",
+					sectionTitle: "One",
+					text: "green light",
+				},
+			},
+			{ type: "text", text: "What does it mean?" },
+		]);
+
+		const retry = await startChat(deps(ai), { conversationId: id });
+		if (retry.status !== "ok") throw new Error(retry.status);
+		await retry.response.text();
+		const done = await waitFor(
+			async () => {
+				const c = await getConversation(t.db, id);
+				return c?.messages.at(-1)?.finishReason === "stop" ? c : null;
+			},
+			{ what: "retried reply" },
+		);
+		expect(done.messages.filter((m) => m.role === "user")).toHaveLength(1);
+		expect(done.messages[0]?.parts).toEqual(failed.messages[0]?.parts);
+		expect(done.messages.at(-1)?.citations.map((c) => c.status)).toEqual([
+			"verified",
+		]);
+
+		const [plainCall, firstCall, retryCall] = model.doStreamCalls;
+		const system = (call: typeof plainCall) =>
+			JSON.stringify(call?.prompt.filter((m) => m.role === "system"));
+		expect(system(firstCall)).toBe(system(plainCall));
+		expect(JSON.stringify(firstCall?.tools)).toBe(
+			JSON.stringify(plainCall?.tools),
+		);
+		expect(retryCall?.prompt).toEqual(firstCall?.prompt);
+		const user = JSON.stringify(
+			firstCall?.prompt.filter((m) => m.role === "user"),
+		);
+		expect(user).toContain(
+			`The reader is referring to this passage from Chat Book (One), locator ${locator}. It is quoted from the book.`,
+		);
+		expect(user.match(/<referenced-passage /g)).toHaveLength(1);
+		expect(user.match(/What does it mean\?/g)).toHaveLength(1);
+		expect(user).not.toContain("data-passage-context");
+	});
+});

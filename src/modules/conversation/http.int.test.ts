@@ -406,3 +406,102 @@ describe("assistant-response context", () => {
 		);
 	});
 });
+
+describe("passage references", () => {
+	const firstLocator = async () => {
+		const id = await newConversation();
+		return `${(await getConversation(t.db, id))?.books[0]?.shortId}:v1:0.0`;
+	};
+
+	it("rejects invalid and out-of-scope references without writes or provider calls", async () => {
+		const locator = await firstLocator();
+		const model = modelWith(() => [
+			{ type: "text-delta", id: "t1", delta: "Answer" },
+		]);
+		const id = await newConversation();
+		const bounded = (
+			await createConversation(t.db, {
+				editionIds: [editionId],
+				scopes: { [editionId]: { maxPosition: 0, scopeLabel: "Nothing" } },
+			})
+		).id;
+		const cases: [string, Record<string, unknown>, number][] = [
+			[id, { message: "why", passageRef: { locator: "nonsense" } }, 400],
+			[id, { passageRef: { locator } }, 400],
+			[
+				id,
+				{
+					message: "why",
+					passageRef: { locator },
+					replyContext: {
+						messageId: "11111111-1111-4111-8111-111111111111",
+						text: "q",
+					},
+				},
+				400,
+			],
+			[id, { message: "why", passageRef: { locator: `${locator}9` } }, 400],
+			[
+				id,
+				{
+					message: "why",
+					passageRef: { locator, range: { start: 0, end: 999 } },
+				},
+				400,
+			],
+			[bounded, { message: "why", passageRef: { locator } }, 409],
+		];
+		for (const [conversationId, body, status] of cases) {
+			const res = await chat(enabled(model), post({ conversationId, ...body }));
+			expect(res.status).toBe(status);
+			if (status === 409)
+				expect(await res.json()).toMatchObject({
+					error: "The passage is beyond this conversation's scope",
+					unitLabel: expect.any(String),
+				});
+		}
+		expect(model.doStreamCalls).toHaveLength(0);
+		expect((await getConversation(t.db, id))?.messages).toEqual([]);
+		expect((await getConversation(t.db, bounded))?.messages).toEqual([]);
+	});
+
+	it("stores the server's snapshot with the message", async () => {
+		const locator = await firstLocator();
+		const model = modelWith(() => [
+			{ type: "text-delta", id: "t1", delta: "Answer" },
+		]);
+		const id = await newConversation();
+		const res = await chat(
+			enabled(model),
+			post({
+				conversationId: id,
+				message: "why",
+				passageRef: { locator, range: { start: 0, end: 4 } },
+			}),
+		);
+		expect(res.status).toBe(200);
+		await res.text();
+		const stored = await waitFor(
+			async () => {
+				const c = await getConversation(t.db, id);
+				return c?.messages.length === 2 ? c : null;
+			},
+			{ what: "referenced message" },
+		);
+		expect(stored.messages[0]?.parts).toEqual([
+			{
+				type: "data-passage-context",
+				data: {
+					version: 1,
+					locator,
+					range: { start: 0, end: 4 },
+					editionId,
+					bookTitle: "Route Book",
+					sectionTitle: null,
+					text: "Some",
+				},
+			},
+			{ type: "text", text: "why" },
+		]);
+	});
+});

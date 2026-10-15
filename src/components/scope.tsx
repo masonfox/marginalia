@@ -20,6 +20,7 @@ import {
 	getReadingUnitsFn,
 	widenScopeFn,
 } from "#/fns/conversations";
+import type { PassageRef } from "#/lib/passage-ref";
 import type { ReadingUnit } from "#/modules/catalog";
 import type { ConversationBook, Scope } from "#/modules/conversation";
 
@@ -261,18 +262,46 @@ export function ScopeNotice({ labels }: { labels: (string | null)[] }) {
 	);
 }
 
+/**
+ * The units a conversation started from a passage may be scoped to: those
+ * ending at or after the passage's reveal position. The first of them
+ * contains the passage.
+ */
+export function unitsForPassage(units: ReadingUnit[], revealPosition: number) {
+	const offered = units.filter((u) => u.endPosition >= revealPosition);
+	return { units: offered, containing: offered[0] ?? null };
+}
+
+/** A passage a new conversation starts from, attached to its composer once it opens. */
+export interface StartingPassage {
+	ref: PassageRef;
+	revealPosition: number;
+}
+
 /** Asks how far the reader has read, then starts a conversation and opens it. */
 export function NewConversationDialog({
 	editionId,
 	children,
+	passage,
+	open: controlledOpen,
+	onOpenChange,
 }: {
 	editionId: string;
-	/** The trigger button. */
-	children: ReactNode;
+	/** The trigger button; omit when `open` is controlled. */
+	children?: ReactNode;
+	/** Limits the choices to units that include the passage, and attaches it. */
+	passage?: StartingPassage;
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
 }) {
 	const navigate = useNavigate();
 	const create = useServerFn(createConversationFn);
-	const [open, setOpen] = useState(false);
+	const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+	const open = controlledOpen ?? uncontrolledOpen;
+	const setOpen = (next: boolean) => {
+		setUncontrolledOpen(next);
+		onOpenChange?.(next);
+	};
 	const [choice, setChoice] = useState<Choice | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -288,6 +317,10 @@ export function NewConversationDialog({
 				? null
 				: (units.data?.find((u) => `unit:${u.endPosition}` === choice)?.label ??
 					undefined);
+	const offered =
+		units.data && passage
+			? unitsForPassage(units.data, passage.revealPosition)
+			: null;
 
 	return (
 		<Dialog
@@ -299,7 +332,7 @@ export function NewConversationDialog({
 				setError(null);
 			}}
 		>
-			<DialogTrigger asChild>{children}</DialogTrigger>
+			{children && <DialogTrigger asChild>{children}</DialogTrigger>}
 			<DialogContent data-testid="new-conversation-dialog">
 				<DialogHeader>
 					<DialogTitle>How far have you read?</DialogTitle>
@@ -308,6 +341,9 @@ export function NewConversationDialog({
 						widen it later, but not narrow it.
 					</DialogDescription>
 				</DialogHeader>
+				{offered?.containing && (
+					<PassageUnitNote label={offered.containing.label} />
+				)}
 				{units.isPending ? (
 					<p className="text-sm text-muted-foreground">Loading chapters…</p>
 				) : units.isError ? (
@@ -316,7 +352,7 @@ export function NewConversationDialog({
 					</p>
 				) : (
 					<ScopeChoices
-						units={units.data}
+						units={offered?.units ?? units.data}
 						value={choice}
 						onChange={(c) => {
 							setChoice(c);
@@ -354,9 +390,16 @@ export function NewConversationDialog({
 									setError(STALE);
 									await units.refetch();
 								} else {
+									const range = passage?.ref.range;
 									await navigate({
 										to: "/c/$conversationId",
 										params: { conversationId: created.id },
+										search: passage
+											? {
+													ref: passage.ref.locator,
+													hl: range ? `${range.start}-${range.end}` : undefined,
+												}
+											: {},
 									});
 									return;
 								}
@@ -371,6 +414,15 @@ export function NewConversationDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+/** Which unit the passage a conversation starts from is in. */
+export function PassageUnitNote({ label }: { label: string }) {
+	return (
+		<p className="text-sm" data-testid="passage-unit-note">
+			This passage is in {label}.
+		</p>
 	);
 }
 

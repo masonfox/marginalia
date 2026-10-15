@@ -248,6 +248,15 @@ describe("login and request guard", () => {
 			app,
 		);
 		expect(res.status).toBe(401);
+		// Read-only functions such as checkPassageRefFn are GETs.
+		const get = await handleRequest(
+			new Request("http://books.local/_serverFn/abc?payload=%7B%7D", {
+				headers: { accept: "application/json" },
+			}),
+			{ config, access: deps },
+			app,
+		);
+		expect(get.status).toBe(401);
 	});
 
 	it("keeps the health check open", async () => {

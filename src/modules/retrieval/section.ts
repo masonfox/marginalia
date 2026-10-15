@@ -8,6 +8,8 @@ export interface SectionPassage {
 	kind: string;
 	text: string;
 	position: number | null;
+	/** Compared with a conversation's bound to decide whether the passage is in scope. */
+	revealPosition: number;
 	notes: { locator: string; text: string }[];
 }
 
@@ -49,6 +51,7 @@ export async function getSectionView(
 			kind: passages.kind,
 			text: passages.text,
 			position: passages.position,
+			revealPosition: passages.revealPosition,
 		})
 		.from(passages)
 		.where(
@@ -114,6 +117,7 @@ export async function getSectionView(
 			kind: r.kind,
 			text: r.text,
 			position: r.position,
+			revealPosition: r.revealPosition,
 			notes: notes
 				.filter((n) => n.from === r.id)
 				.map(({ locator, text }) => ({ locator, text })),
