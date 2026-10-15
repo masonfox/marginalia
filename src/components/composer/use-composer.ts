@@ -265,7 +265,8 @@ export function useComposer(
 			inputRef.current?.focus();
 		},
 		dismissNotice() {
-			checkSeq.current++;
+			// The long-quote notice is unrelated to any passage check in flight.
+			if (notice?.kind !== "quote_too_long") checkSeq.current++;
 			setNotice(null);
 			inputRef.current?.focus();
 		},
