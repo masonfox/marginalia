@@ -6,6 +6,7 @@ import {
 	createAi,
 	describeError,
 	MAX_ERROR_LENGTH,
+	maskSecrets,
 	redactSecrets,
 	registerSecret,
 } from "./index";
@@ -141,9 +142,30 @@ describe("secret masking", () => {
 		expect(long).not.toContain(plainKey.slice(0, 10));
 	});
 
-	it("ignores short values that would mangle ordinary text", () => {
-		registerSecret("the");
+	it("masks a short configured key", () => {
+		const shortKey = "token42";
+		createAi(cfg({ provider: "openai-compatible", apiKey: shortKey }));
+		const err = new APICallError({
+			message: `Invalid API token: ${shortKey}`,
+			url: "https://example.test/v1/chat",
+			requestBodyValues: {},
+			statusCode: 401,
+		});
+		expect(describeError(err)).not.toContain(shortKey);
+		expect(describeError(err)).toContain("[redacted]");
+		expect(redactSecrets(`bad ${shortKey}`)).toBe("bad [redacted]");
+		expect(maskSecrets(`bad ${shortKey}`)).toBe("bad [redacted]");
+	});
+
+	it("masks a longer secret whole when a shorter one is inside it", () => {
+		registerSecret("token4242");
+		registerSecret("token4242-extended");
+		expect(maskSecrets("bad token4242-extended")).toBe("bad [redacted]");
+	});
+
+	it("ignores undefined and empty values", () => {
 		registerSecret(undefined);
+		createAi(cfg({ provider: "openai-compatible", apiKey: "" }));
 		expect(redactSecrets("the book")).toBe("the book");
 	});
 });

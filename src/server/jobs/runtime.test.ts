@@ -93,6 +93,47 @@ describe("JobRuntime failed jobs", () => {
 		expect(JSON.stringify(logged)).not.toContain(secret);
 		expect(JSON.stringify(logged)).toContain("[redacted]");
 	});
+
+	it("masks a short configured key in the job output and the logged error", async () => {
+		const secret = "token42";
+		registerSecret(secret);
+		const logged: object[] = [];
+		const log = {
+			child: () => log,
+			debug() {},
+			warn(o: object) {
+				logged.push(o);
+			},
+		};
+		const Ctor = JobRuntime as unknown as new (
+			boss: unknown,
+			log: unknown,
+		) => JobRuntime;
+		const rt = new Ctor(fakeBoss([]), log) as unknown as {
+			run(
+				kind: string,
+				handler: () => Promise<void>,
+				job: object,
+			): Promise<{ status: string; output?: { message: string } }>;
+		};
+		const result = await rt.run(
+			"analysis.preprocess",
+			async () => {
+				throw new Error(`bad token ${secret}`);
+			},
+			{
+				id: "job-1",
+				data: { editionId },
+				retryCount: 0,
+				retryLimit: 2,
+				signal: new AbortController().signal,
+			},
+		);
+		expect(result.status).toBe("failed");
+		expect(JSON.stringify(result.output)).not.toContain(secret);
+		expect(logged).toHaveLength(1);
+		expect(JSON.stringify(logged)).not.toContain(secret);
+	});
 });
 
 describe("JobRuntime live job lookup", () => {
