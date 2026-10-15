@@ -35,6 +35,7 @@ import {
 	unitSummaries,
 	updateRun,
 } from ".";
+import { UNIT_OUTPUT_JSON_SCHEMA } from "./prompts";
 
 let t: TestDb;
 
@@ -91,6 +92,10 @@ function model(
 		uncitedOn?: string;
 		/** An extra summary citation added to every reply. */
 		cite?: { locator: string; quote: string };
+		/** Receives each call's response format. */
+		formats?: unknown[];
+		/** Turns the reply object into the reply text; plain JSON by default. */
+		reply?: (out: object) => string;
 	} = {},
 ) {
 	return new MockLanguageModelV4({
@@ -101,6 +106,7 @@ function model(
 				reasoning: options.reasoning,
 				providerOptions: options.providerOptions,
 			});
+			opts.formats?.push(options.responseFormat);
 			if (opts.failOn && prompt.includes(opts.failOn)) {
 				throw new Error("provider down");
 			}
@@ -121,7 +127,7 @@ function model(
 				],
 			};
 			return {
-				content: [{ type: "text", text: JSON.stringify(out) }],
+				content: [{ type: "text", text: (opts.reply ?? JSON.stringify)(out) }],
 				finishReason: { unified: "stop", raw: "stop" },
 				usage: {
 					inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
@@ -234,6 +240,68 @@ describe("preprocessEdition", () => {
 		expect(calls).toHaveLength(chapters.length);
 		for (const c of calls) {
 			expect(c).toEqual({ reasoning: "low", providerOptions });
+		}
+	});
+
+	it("recovers the first JSON object from a wrapped reply and drops unknown kinds", async () => {
+		const id = await newEdition("Wrapped");
+		const formats: unknown[] = [];
+		const warned: object[] = [];
+		const log = { info: () => {}, warn: (o: object) => warned.push(o) };
+		const reply = (out: object) => {
+			const o = out as { observations: object[] };
+			const withUnknown = {
+				...o,
+				observations: [
+					...o.observations,
+					{ name: "Gulls", kind: "creature", note: "Fly.", citations: [] },
+				],
+			};
+			return `Here you go:\n\`\`\`json\n${JSON.stringify(withUnknown)}\n\`\`\`\nAlso: {"extra": true}`;
+		};
+		await preprocessEdition({ ...deps(model({ formats, reply })), log }, id);
+		expect(formats).toHaveLength(chapters.length);
+		for (const f of formats) {
+			expect(f).toMatchObject({
+				type: "json",
+				schema: UNIT_OUTPUT_JSON_SCHEMA,
+			});
+		}
+		expect(await getBookMap(t.db, id, null)).toHaveLength(chapters.length);
+		expect(await lookupObservations(t.db, id, "anna", null, 50)).toHaveLength(
+			chapters.length,
+		);
+		expect(await lookupObservations(t.db, id, "gulls", null, 50)).toHaveLength(
+			0,
+		);
+		expect(warned).toHaveLength(chapters.length);
+		expect(warned[0]).toEqual({ editionId: id, kind: "creature" });
+		const usage = await t.db
+			.select()
+			.from(aiUsage)
+			.where(eq(aiUsage.editionId, id));
+		expect(usage).toHaveLength(chapters.length);
+		for (const u of usage) {
+			expect(u).toMatchObject({ complete: true, inputTokens: 10 });
+		}
+	});
+
+	it("records incomplete usage for a wrapped reply with no JSON", async () => {
+		const id = await newEdition("NoJson");
+		await expect(
+			preprocessEdition(
+				deps(model({ reply: () => "Sorry, I cannot summarize this." })),
+				id,
+			),
+		).rejects.toThrow(/failed/);
+		expect(await getBookMap(t.db, id, null)).toHaveLength(0);
+		const usage = await t.db
+			.select()
+			.from(aiUsage)
+			.where(eq(aiUsage.editionId, id));
+		expect(usage).toHaveLength(chapters.length);
+		for (const u of usage) {
+			expect(u).toMatchObject({ complete: false, inputTokens: 10 });
 		}
 	});
 
