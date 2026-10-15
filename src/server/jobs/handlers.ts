@@ -70,6 +70,8 @@ export function jobHandlers(): JobHandlers {
 					modelName: ai.status.preprocessModel ?? "unknown",
 					provider: ai.status.provider ?? "unknown",
 					log,
+					reasoning: ai.reasoning,
+					providerOptions: ai.providerOptions,
 				},
 				editionId,
 				{ signal: ctx.signal },

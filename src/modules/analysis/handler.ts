@@ -18,6 +18,8 @@ export interface PreprocessDeps {
 	provider: string;
 	log: { info(o: object, m: string): void; warn(o: object, m: string): void };
 	chunkChars?: number;
+	reasoning?: ProcessDeps["reasoning"];
+	providerOptions?: ProcessDeps["providerOptions"];
 }
 
 /**
@@ -66,6 +68,8 @@ export async function preprocessEdition(
 		editionId,
 		chunkChars: deps.chunkChars,
 		signal: ctx.signal,
+		reasoning: deps.reasoning,
+		providerOptions: deps.providerOptions,
 	};
 	let failed = 0;
 	let lastError: string | null = null;

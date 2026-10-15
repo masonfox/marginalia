@@ -49,6 +49,8 @@ function model(
 	opts: {
 		failOn?: string;
 		prompts?: string[];
+		/** Receives each call's reasoning and provider options. */
+		calls?: { reasoning?: string; providerOptions?: unknown }[];
 		/** An extra summary citation added to every reply. */
 		cite?: { locator: string; quote: string };
 	} = {},
@@ -57,6 +59,10 @@ function model(
 		doGenerate: async (options) => {
 			const prompt = JSON.stringify(options.prompt);
 			opts.prompts?.push(prompt);
+			opts.calls?.push({
+				reasoning: options.reasoning,
+				providerOptions: options.providerOptions,
+			});
 			if (opts.failOn && prompt.includes(opts.failOn)) {
 				throw new Error("provider down");
 			}
@@ -169,6 +175,22 @@ describe("preprocessEdition", () => {
 		expect(await lookupObservations(t.db, id, "Anna", null, 50)).toHaveLength(
 			3,
 		);
+	});
+
+	it("sends the configured reasoning effort and provider options on every call", async () => {
+		const id = await newEdition("Options");
+		const calls: { reasoning?: string; providerOptions?: unknown }[] = [];
+		const providerOptions = {
+			anthropic: { cacheControl: { type: "ephemeral" } },
+		};
+		await preprocessEdition(
+			{ ...deps(model({ calls })), reasoning: "low", providerOptions },
+			id,
+		);
+		expect(calls).toHaveLength(chapters.length);
+		for (const c of calls) {
+			expect(c).toEqual({ reasoning: "low", providerOptions });
+		}
 	});
 
 	it("is non-retryable without AI", async () => {

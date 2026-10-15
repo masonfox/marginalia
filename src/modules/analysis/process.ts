@@ -1,5 +1,6 @@
 import { generateText, type LanguageModel } from "ai";
 import { and, asc, between, eq } from "drizzle-orm";
+import type { AiRuntime, ProviderOptions } from "#/modules/ai";
 import { passages, type ReadingUnit } from "#/modules/catalog";
 import { findQuote } from "#/modules/retrieval";
 import {
@@ -31,6 +32,10 @@ export interface ProcessDeps {
 	editionId: string;
 	chunkChars?: number;
 	signal?: AbortSignal;
+	/** Configured reasoning effort; undefined leaves the provider default. */
+	reasoning?: AiRuntime["reasoning"];
+	/** Provider-specific call options, such as Anthropic prompt caching. */
+	providerOptions?: ProviderOptions;
 }
 
 export async function loadUnitPassages(
@@ -135,6 +140,8 @@ async function callModel(
 			model: deps.model,
 			system: UNIT_SYSTEM_PROMPT,
 			prompt,
+			reasoning: deps.reasoning,
+			providerOptions: deps.providerOptions,
 			abortSignal: deps.signal,
 		});
 		usage = addUsage(NO_USAGE, result.usage);
