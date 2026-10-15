@@ -1,4 +1,4 @@
-import { and, asc, count, eq, lte, sql } from "drizzle-orm";
+import { and, asc, count, eq, lte, ne, sql } from "drizzle-orm";
 import { redactSecrets } from "#/modules/ai";
 import { editions } from "#/modules/library";
 import type { Executor } from "#/server/db";
@@ -262,7 +262,7 @@ export async function getCurrentUnits(
 }
 
 export type RunProgress = Partial<{
-	status: "queued" | "running" | "complete" | "failed";
+	status: "queued" | "running" | "complete" | "failed" | "cancelled";
 	totalUnits: number;
 	doneUnits: number;
 	failedUnits: number;
@@ -276,16 +276,17 @@ export type RunProgress = Partial<{
 /**
  * Creates or updates the edition's single run row. With `attempt`, only
  * updates the row while that attempt still owns it, so an obsolete attempt
- * never overwrites a newer one; see claimRun.
+ * never overwrites a newer one; see claimRun. Returns false when `attempt`
+ * no longer owns the row (superseded or cancelled), true otherwise.
  */
 export async function updateRun(
 	db: Executor,
 	editionId: string,
 	progress: RunProgress,
 	attempt?: string,
-): Promise<void> {
+): Promise<boolean> {
 	if (attempt !== undefined) {
-		await db
+		const owned = await db
 			.update(preprocessRuns)
 			.set(progress)
 			.where(
@@ -293,13 +294,15 @@ export async function updateRun(
 					eq(preprocessRuns.editionId, editionId),
 					eq(preprocessRuns.attemptId, attempt),
 				),
-			);
-		return;
+			)
+			.returning({ editionId: preprocessRuns.editionId });
+		return owned.length > 0;
 	}
 	await db
 		.insert(preprocessRuns)
 		.values({ editionId, status: "queued", ...progress })
 		.onConflictDoUpdate({ target: preprocessRuns.editionId, set: progress });
+	return true;
 }
 
 /** Makes `attempt` the run row's owner and writes `progress`. */
@@ -312,12 +315,38 @@ export async function claimRun(
 	await updateRun(db, editionId, { ...progress, attemptId: attempt });
 }
 
+/**
+ * Marks an unfinished run cancelled and releases it from its attempt, so a
+ * still-running attempt stops at its next progress write and cannot
+ * overwrite the cancellation. Units already saved are kept.
+ */
+export async function cancelRun(
+	db: Executor,
+	editionId: string,
+): Promise<void> {
+	await db
+		.update(preprocessRuns)
+		.set({
+			status: "cancelled",
+			attemptId: null,
+			lastError: null,
+			finishedAt: new Date(),
+		})
+		.where(
+			and(
+				eq(preprocessRuns.editionId, editionId),
+				ne(preprocessRuns.status, "complete"),
+			),
+		);
+}
+
 export type PreprocessState =
 	| "not_started"
 	| "queued"
 	| "running"
 	| "complete"
 	| "partial"
+	| "cancelled"
 	| "stale";
 
 export interface PreprocessStatus {
@@ -405,6 +434,8 @@ export async function getPreprocessStatus(
 		status = run.status;
 	} else if (outdated > 0) {
 		status = "stale";
+	} else if (run?.status === "cancelled") {
+		status = "cancelled";
 	} else if (run?.status === "failed" || orphaned) {
 		status = "partial";
 	} else {

@@ -15,6 +15,8 @@ import {
 	updateRun,
 } from "./queries";
 
+const RUN_RELEASED = "The preprocessing run was cancelled or replaced.";
+
 export interface PreprocessDeps {
 	db: Database;
 	/** Null when AI is not configured. */
@@ -35,7 +37,8 @@ export interface PreprocessDeps {
  * credentials. Units, passages, and saves are all fenced on the edition's
  * structure generation: if a reparse replaces the structure mid-run, nothing
  * more is saved and the run fails retryably, so the retry starts over from
- * the new structure.
+ * the new structure. A run cancelled from outside (see cancelRun) stops after
+ * the unit in progress, or sooner when the job's signal aborts.
  */
 export async function preprocessEdition(
 	deps: PreprocessDeps,
@@ -123,12 +126,17 @@ export async function preprocessEdition(
 					"unit preprocessing failed",
 				);
 			}
-			await updateRun(
+			const owned = await updateRun(
 				db,
 				editionId,
 				{ doneUnits: done, failedUnits: failed, lastError },
 				attempt,
 			);
+			if (!owned) {
+				// Cancelled, or superseded by a newer attempt; either way spend no more.
+				log.info({ editionId }, "preprocessing run released; stopping");
+				throw new NonRetryableError(RUN_RELEASED);
+			}
 		}
 	} catch (err) {
 		// Ends this attempt inactive and retryable; the queue shows any pending retry.

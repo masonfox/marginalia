@@ -1,6 +1,7 @@
 import { type Job, PgBoss } from "pg-boss";
 import type { Logger } from "../logger";
 import {
+	type CancelJob,
 	type Enqueue,
 	type JobConfig,
 	type JobHandler,
@@ -31,6 +32,8 @@ export interface JobRuntimeOptions {
 	retry?: Partial<RetryPolicy>;
 	/** Seconds between polls when idle. */
 	pollingIntervalSeconds?: number;
+	/** Seconds between a running job's claim checks, so how soon a cancelled job aborts. */
+	heartbeatRefreshSeconds?: number;
 	/** How often due schedules are checked, in seconds (pg-boss default 30). */
 	cronIntervalSeconds?: number;
 	schema?: string;
@@ -122,6 +125,7 @@ export class JobRuntime {
 				batchSize: 1,
 				localConcurrency: def.concurrency(options.config),
 				pollingIntervalSeconds: options.pollingIntervalSeconds ?? 2,
+				heartbeatRefreshSeconds: options.heartbeatRefreshSeconds ?? 5,
 				includeMetadata: true,
 				perJobResults: true,
 			},
@@ -182,6 +186,23 @@ export class JobRuntime {
 		if (jobs.some((j) => j.state === "created" || j.state === "retry"))
 			return "queued";
 		return null;
+	};
+
+	cancelJob: CancelJob = async (kind, payload) => {
+		const def = jobKinds[kind];
+		const key = (def.key as (p: unknown) => string)(def.payload.parse(payload));
+		const ids = (await this.boss.findJobs(kind, { key }))
+			.filter(
+				(j) =>
+					j.state === "created" || j.state === "retry" || j.state === "active",
+			)
+			.map((j) => j.id);
+		if (ids.length === 0) return false;
+		// pg-boss returns { affected } but types the response as an empty interface.
+		const result = (await this.boss.cancel(kind, ids)) as {
+			affected?: number;
+		};
+		return (result.affected ?? 0) > 0;
 	};
 
 	/** Stops polling and waits up to `timeoutMs` for running jobs to finish. */

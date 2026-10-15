@@ -3,7 +3,11 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import { getPreprocessStatusFn, startPreprocessFn } from "#/fns/preprocess";
+import {
+	cancelPreprocessFn,
+	getPreprocessStatusFn,
+	startPreprocessFn,
+} from "#/fns/preprocess";
 
 export interface PreprocessView {
 	status:
@@ -12,6 +16,7 @@ export interface PreprocessView {
 		| "running"
 		| "complete"
 		| "partial"
+		| "cancelled"
 		| "stale";
 	totalUnits: number;
 	doneUnits: number;
@@ -39,6 +44,7 @@ const LABELS: Record<PreprocessView["status"], string> = {
 	running: "Running",
 	complete: "Complete",
 	partial: "Incomplete",
+	cancelled: "Cancelled",
 	stale: "Out of date",
 };
 
@@ -48,25 +54,31 @@ export function PreprocessCardView({
 	busy = false,
 	error = null,
 	onStart,
+	onCancel,
 }: {
 	view: PreprocessView;
 	busy?: boolean;
 	error?: string | null;
 	onStart?: () => void;
+	onCancel?: () => void;
 }) {
 	// Without AI there is no preprocessing status or action to show.
 	if (!view.aiEnabled) return null;
 	const active = isActive(view.status);
 	const failed = view.failedUnits > 0 || view.lastError !== null;
 	// A complete book has nothing to regenerate: the job skips current units.
-	const action =
-		view.status === "not_started"
+	// While a job is pending the only action is to cancel it.
+	const action = active
+		? null
+		: view.status === "not_started"
 			? "Start preprocessing"
 			: view.status === "complete"
 				? null
 				: view.status === "stale"
 					? "Regenerate"
-					: "Retry";
+					: view.status === "cancelled"
+						? "Resume"
+						: "Retry";
 	return (
 		<section className="mt-8" aria-labelledby="preprocess">
 			<h2 id="preprocess" className="font-medium">
@@ -107,6 +119,27 @@ export function PreprocessCardView({
 				{view.lastError && (
 					<p className="text-destructive-foreground">{view.lastError}</p>
 				)}
+				{active && (
+					<>
+						{error && (
+							<p role="alert" className="text-destructive-foreground">
+								{error}
+							</p>
+						)}
+						<p className="text-muted-foreground">
+							Sections already finished are kept if you cancel.
+						</p>
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							disabled={busy}
+							onClick={onCancel}
+						>
+							Cancel preprocessing
+						</Button>
+					</>
+				)}
 				{action && (
 					<>
 						<p className="text-muted-foreground">
@@ -118,12 +151,7 @@ export function PreprocessCardView({
 								{error}
 							</p>
 						)}
-						<Button
-							type="button"
-							size="sm"
-							disabled={active || busy}
-							onClick={onStart}
-						>
+						<Button type="button" size="sm" disabled={busy} onClick={onStart}>
 							{action}
 						</Button>
 					</>
@@ -137,6 +165,7 @@ export function PreprocessCard({ editionId }: { editionId: string }) {
 	const queryClient = useQueryClient();
 	const load = useServerFn(getPreprocessStatusFn);
 	const start = useServerFn(startPreprocessFn);
+	const cancel = useServerFn(cancelPreprocessFn);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const key = ["preprocess", editionId];
@@ -147,23 +176,35 @@ export function PreprocessCard({ editionId }: { editionId: string }) {
 			q.state.data && isActive(q.state.data.status) ? 3000 : false,
 	});
 	if (!data) return null;
+	const act = async (run: () => Promise<unknown>, failure: string) => {
+		setBusy(true);
+		setError(null);
+		try {
+			await run();
+			await queryClient.invalidateQueries({ queryKey: key });
+		} catch {
+			setError(failure);
+		} finally {
+			setBusy(false);
+		}
+	};
 	return (
 		<PreprocessCardView
 			view={data}
 			busy={busy}
 			error={error}
-			onStart={async () => {
-				setBusy(true);
-				setError(null);
-				try {
-					await start({ data: { editionId } });
-					await queryClient.invalidateQueries({ queryKey: key });
-				} catch {
-					setError("Preprocessing could not be started.");
-				} finally {
-					setBusy(false);
-				}
-			}}
+			onStart={() =>
+				act(
+					() => start({ data: { editionId } }),
+					"Preprocessing could not be started.",
+				)
+			}
+			onCancel={() =>
+				act(
+					() => cancel({ data: { editionId } }),
+					"Preprocessing could not be cancelled.",
+				)
+			}
 		/>
 	);
 }

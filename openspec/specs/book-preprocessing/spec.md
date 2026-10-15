@@ -99,8 +99,23 @@ When automatic preprocessing is enabled, the system SHALL enqueue the job at the
 - **WHEN** automatic preprocessing is off and a book finishes ingest
 - **THEN** no job is enqueued until a reader requests it
 
+### Requirement: Cancellation
+A reader SHALL be able to cancel an edition's queued or running preprocessing job. A cancelled job SHALL NOT be retried. A running job SHALL stop making model calls promptly: at the latest after the unit in progress, and sooner when the in-flight call can be aborted. Units completed before cancellation SHALL be kept, and a later run SHALL resume from the first unfinished unit. Cancelling SHALL NOT change a complete run.
+
+#### Scenario: Cancel a running job
+- **WHEN** a reader cancels preprocessing while unit 5 of 30 is being processed
+- **THEN** no unit after 5 is sent to the provider, the job is not retried, and status reports cancelled with the completed units kept
+
+#### Scenario: Cancel a queued job
+- **WHEN** a reader cancels preprocessing before a worker starts it
+- **THEN** the job never runs
+
+#### Scenario: Resume after cancelling
+- **WHEN** a reader starts preprocessing again after cancelling
+- **THEN** only the unfinished units are processed
+
 ### Requirement: Status
-The system SHALL expose, per edition, preprocessing status (not started, queued, running, complete, partially failed, or stale), the number of units done out of total, the model used, and the last error. Status SHALL never include credentials.
+The system SHALL expose, per edition, preprocessing status (not started, queued, running, complete, partially failed, cancelled, or stale), the number of units done out of total, the model used, and the last error. Status SHALL never include credentials.
 
 #### Scenario: Progress
 - **WHEN** 12 of 30 units are done and the job is running

@@ -10,6 +10,7 @@ import {
 import { parseEpub } from "#/modules/epub";
 import { editions, uploadedBookPath } from "#/modules/library";
 import { aiUsage } from "#/modules/usage";
+import { NonRetryableError } from "#/server/jobs/kinds";
 import { createTestDb, type TestDb } from "../../../test/db";
 import { buildEpub } from "../../../test/epub-builder";
 import {
@@ -19,6 +20,7 @@ import {
 	tempDataDir,
 } from "../../../test/library";
 import {
+	cancelRun,
 	claimRun,
 	getBookMap,
 	getPreprocessStatus,
@@ -505,6 +507,45 @@ describe("preprocessing run lifecycle", () => {
 			status: "running",
 			lastError: null,
 		});
+	});
+
+	it("a cancelled run stops after the unit in progress, keeps it, and resumes", async () => {
+		const id = await newEdition("Cancelled");
+		const inner = model();
+		let calls = 0;
+		const m = new MockLanguageModelV4({
+			doGenerate: async (options) => {
+				calls++;
+				// The reader cancels while the first unit is with the provider.
+				if (calls === 1) await cancelRun(t.db, id);
+				return inner.doGenerate(options);
+			},
+		});
+		await expect(preprocessEdition(deps(m), id)).rejects.toThrow(
+			NonRetryableError,
+		);
+		expect(calls).toBe(1);
+		const status = await getPreprocessStatus(t.db, id, null);
+		expect(status).toMatchObject({
+			status: "cancelled",
+			doneUnits: 1,
+			totalUnits: chapters.length,
+			lastError: null,
+		});
+		expect(status.finishedAt).not.toBeNull();
+		// Resuming skips the saved unit.
+		await preprocessEdition(deps(model()), id);
+		expect(await getPreprocessStatus(t.db, id, null)).toMatchObject({
+			status: "complete",
+			doneUnits: chapters.length,
+		});
+	});
+
+	it("cancelling leaves a complete run alone", async () => {
+		const id = await newEdition("CancelDone");
+		await preprocessEdition(deps(model()), id);
+		await cancelRun(t.db, id);
+		expect((await getPreprocessStatus(t.db, id, null)).status).toBe("complete");
 	});
 
 	it("masks credential-shaped values in stored, shown, and thrown errors", async () => {

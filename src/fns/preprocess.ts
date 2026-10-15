@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { getPreprocessStatus } from "#/modules/analysis";
+import { cancelRun, getPreprocessStatus } from "#/modules/analysis";
 import { getEditionDetail } from "#/modules/library";
 import { priceTable, totalOf, usageForEdition } from "#/modules/usage";
 import { appContext } from "#/server/context";
@@ -44,4 +44,17 @@ export const startPreprocessFn = createServerFn({ method: "POST" })
 			editionId: data.editionId,
 		});
 		return { enqueued: id !== null };
+	});
+
+/** Stops a queued or running preprocessing job. Sections already saved are kept. */
+export const cancelPreprocessFn = createServerFn({ method: "POST" })
+	.validator(z.object({ editionId: z.uuid() }))
+	.handler(async ({ data }) => {
+		const { db, cancelJob } = appContext();
+		// The job first, so no retry can claim the run after it is marked cancelled.
+		const cancelled = await cancelJob("analysis.preprocess", {
+			editionId: data.editionId,
+		});
+		await cancelRun(db, data.editionId);
+		return { cancelled };
 	});

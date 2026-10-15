@@ -103,7 +103,7 @@ export const preprocessRuns = pgTable(
 			.primaryKey()
 			.references(() => editions.id, { onDelete: "cascade" }),
 		status: text("status", {
-			enum: ["queued", "running", "complete", "failed"],
+			enum: ["queued", "running", "complete", "failed", "cancelled"],
 		}).notNull(),
 		totalUnits: integer("total_units").notNull().default(0),
 		doneUnits: integer("done_units").notNull().default(0),
@@ -118,7 +118,7 @@ export const preprocessRuns = pgTable(
 	(t) => [
 		check(
 			"preprocess_runs_status_ck",
-			sql`${t.status} in ('queued','running','complete','failed')`,
+			sql`${t.status} in ('queued','running','complete','failed','cancelled')`,
 		),
 	],
 );

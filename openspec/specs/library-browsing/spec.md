@@ -100,7 +100,7 @@ The book detail page SHALL link to conversations containing that book and SHALL 
 - **THEN** the confirmation says conversations about only that book will be deleted
 
 ### Requirement: Preprocessing on book detail
-When AI is configured, the book detail page SHALL show the edition's preprocessing status, progress while running, the model used, and its last error, together with the estimated spend (tokens and cost, labeled as an estimate). It SHALL offer an action to start preprocessing, or to regenerate it when stale or partly failed. The action SHALL warn that the whole book is sent to the provider. Status SHALL update without a manual reload while a job is active. When AI is not configured the page SHALL show no preprocessing status or action. Editions that are not ready SHALL NOT offer the action.
+When AI is configured, the book detail page SHALL show the edition's preprocessing status, progress while running, the model used, and its last error, together with the estimated spend (tokens and cost, labeled as an estimate). It SHALL offer an action to start preprocessing, or to regenerate it when stale, partly failed, or cancelled. The action SHALL warn that the whole book is sent to the provider. While a job is queued or running, the page SHALL instead offer an action to cancel it, noting that finished sections are kept. Status SHALL update without a manual reload while a job is active. When AI is not configured the page SHALL show no preprocessing status or action. Editions that are not ready SHALL NOT offer the action.
 
 #### Scenario: Start from the page
 - **WHEN** a reader starts preprocessing on a ready book
@@ -113,6 +113,10 @@ When AI is configured, the book detail page SHALL show the edition's preprocessi
 #### Scenario: Stale
 - **WHEN** a book was reparsed after preprocessing
 - **THEN** the page shows it as stale with an action to regenerate
+
+#### Scenario: Cancel from the page
+- **WHEN** a reader cancels preprocessing that is running
+- **THEN** status shows cancelled with the finished sections counted, and an action to resume
 
 #### Scenario: AI not configured
 - **WHEN** no provider is configured

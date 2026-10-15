@@ -33,7 +33,7 @@ describe("PreprocessCardView", () => {
 		expect(h).toContain("Start preprocessing");
 		expect(h).toContain("whole book text");
 	});
-	it("running shows progress and disables the action", () => {
+	it("running shows progress and offers only cancel", () => {
 		const h = render({
 			status: "running",
 			totalUnits: 10,
@@ -42,7 +42,17 @@ describe("PreprocessCardView", () => {
 		});
 		expect(h).toContain("4 of 10 sections");
 		expect(h).toContain("Model: m1");
-		expect(h).toMatch(/<button[^>]*disabled/);
+		expect(h).toContain("Cancel preprocessing");
+		expect(h).not.toContain(` disabled=""`);
+		expect(h).not.toContain("Retry");
+		expect(h).not.toContain("whole book text");
+	});
+	it("cancelled keeps progress and offers resume", () => {
+		const h = render({ status: "cancelled", totalUnits: 10, doneUnits: 4 });
+		expect(h).toContain("Cancelled");
+		expect(h).toContain("4 of 10 sections");
+		expect(h).toContain("Resume");
+		expect(h).not.toContain("Cancel preprocessing");
 	});
 	it("complete shows estimated spend and offers no action", () => {
 		const h = render({
@@ -101,10 +111,16 @@ describe("PreprocessCardView", () => {
 	it("queued shows the state and keeps polling until a terminal state", () => {
 		const h = render({ status: "queued", totalUnits: 0 });
 		expect(h).toContain("Queued");
-		expect(h).toContain(` disabled=""`);
+		expect(h).toContain("Cancel preprocessing");
 		expect(isActive("queued")).toBe(true);
 		expect(isActive("running")).toBe(true);
-		for (const s of ["not_started", "complete", "partial", "stale"] as const) {
+		for (const s of [
+			"not_started",
+			"complete",
+			"partial",
+			"cancelled",
+			"stale",
+		] as const) {
 			expect(isActive(s)).toBe(false);
 		}
 	});

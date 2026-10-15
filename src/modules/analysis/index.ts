@@ -8,6 +8,7 @@ export {
 	UNIT_SYSTEM_PROMPT,
 } from "./prompts";
 export {
+	cancelRun,
 	claimRun,
 	getBookMap,
 	getCurrentUnits,

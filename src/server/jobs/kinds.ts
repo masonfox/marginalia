@@ -95,3 +95,13 @@ export type PendingJob = <K extends JobKind>(
 	kind: K,
 	payload: JobPayload<K>,
 ) => Promise<"queued" | "active" | null>;
+
+/**
+ * Cancels the pending job with this kind and key, waiting or running, so it
+ * is not retried. A running handler's signal aborts at the worker's next
+ * heartbeat. Returns whether a job was cancelled.
+ */
+export type CancelJob = <K extends JobKind>(
+	kind: K,
+	payload: JobPayload<K>,
+) => Promise<boolean>;

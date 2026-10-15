@@ -243,6 +243,57 @@ describe("job runtime", () => {
 		);
 	});
 
+	it("cancels a queued job, and a running one aborts its handler without retrying", async () => {
+		const url = await createEmptyDatabase();
+		const editionId = randomUUID();
+		const web = await start(url, {}, { worker: false });
+		expect(await web.cancelJob("analysis.preprocess", { editionId })).toBe(
+			false,
+		);
+		await web.enqueue("analysis.preprocess", { editionId });
+		expect(await web.cancelJob("analysis.preprocess", { editionId })).toBe(
+			true,
+		);
+		expect(await web.pendingJob("analysis.preprocess", { editionId })).toBe(
+			null,
+		);
+
+		let calls = 0;
+		let aborted = false;
+		await start(
+			url,
+			{
+				"analysis.preprocess": (_p, ctx) => {
+					calls++;
+					return new Promise<void>((_resolve, reject) => {
+						ctx.signal.addEventListener("abort", () => {
+							aborted = true;
+							reject(ctx.signal.reason);
+						});
+					});
+				},
+			},
+			{ heartbeatRefreshSeconds: 0.5 },
+		);
+		await web.enqueue("analysis.preprocess", { editionId });
+		await waitFor(
+			async () =>
+				(await web.pendingJob("analysis.preprocess", { editionId })) ===
+				"active",
+			{ what: "job to become active" },
+		);
+		expect(await web.cancelJob("analysis.preprocess", { editionId })).toBe(
+			true,
+		);
+		await waitFor(async () => aborted, { what: "handler signal to abort" });
+		expect(await web.pendingJob("analysis.preprocess", { editionId })).toBe(
+			null,
+		);
+		// Past the retry delay, the cancelled job has not run again.
+		await sleep(2_000);
+		expect(calls).toBe(1);
+	});
+
 	it("enqueues but does not process jobs when the worker is disabled", async () => {
 		const url = await createEmptyDatabase();
 		let calls = 0;

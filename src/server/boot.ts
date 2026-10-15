@@ -68,6 +68,7 @@ async function start(): Promise<AppContext> {
 		ai,
 		enqueue: jobs.enqueue,
 		pendingJob: jobs.pendingJob,
+		cancelJob: jobs.cancelJob,
 		access,
 	};
 	setAppContext(ctx);
