@@ -64,6 +64,20 @@ beforeAll(async () => {
 	t = await createTestDb();
 });
 
+/** A citation of the first passage in the prompt's unit text. */
+function firstPassageCitation(prompt: { role: string; content: unknown }[]) {
+	const userText = prompt
+		.filter((p) => p.role === "user")
+		.flatMap((p) => p.content as { type: string; text?: string }[])
+		.map((c) => (c.type === "text" ? (c.text ?? "") : ""))
+		.join(" ");
+	const m = /\[([^\]]+)\] ([^\n]+)/.exec(userText);
+	return {
+		locator: m?.[1] ?? "x",
+		quote: (m?.[2] ?? "").split(" ").slice(0, 2).join(" "),
+	};
+}
+
 /** Replies with a valid JSON for whatever unit text is in the prompt. */
 function model(
 	opts: {
@@ -88,14 +102,7 @@ function model(
 			if (opts.failOn && prompt.includes(opts.failOn)) {
 				throw new Error("provider down");
 			}
-			const userText = options.prompt
-				.filter((p) => p.role === "user")
-				.flatMap((p) => p.content)
-				.map((c) => (c.type === "text" ? c.text : ""))
-				.join(" ");
-			const m = /\[([^\]]+)\] ([^\n]+)/.exec(userText);
-			const locator = m?.[1] ?? "x";
-			const quote = (m?.[2] ?? "").split(" ").slice(0, 2).join(" ");
+			const { locator, quote } = firstPassageCitation(options.prompt);
 			const out = {
 				summary: "A thing happens.",
 				citations:
@@ -289,7 +296,7 @@ describe("preprocessEdition across a reparse", () => {
 		});
 		let calls = 0;
 		const m = new MockLanguageModelV4({
-			doGenerate: async () => {
+			doGenerate: async (options) => {
 				if (++calls === nth) {
 					entered();
 					await gate;
@@ -300,7 +307,7 @@ describe("preprocessEdition across a reparse", () => {
 							type: "text",
 							text: JSON.stringify({
 								summary,
-								citations: [],
+								citations: [firstPassageCitation(options.prompt)],
 								observations: [],
 							}),
 						},
