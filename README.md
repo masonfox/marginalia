@@ -8,7 +8,9 @@ This release (0.1) provides the text foundation and a small reading UI:
 - **Structure**: metadata, cover, table of contents, spine-ordered sections, block-level passages, and footnotes and endnotes. Each passage has a reading-order position.
 - **Citation locators** like `3f9a1c07b2de:v1:12.47`. They stay valid when the parser improves, because old locators forward to the passage that now holds their text.
 - **Search** with PostgreSQL full-text search, using language-aware stemming, phrases, and highlighted snippets.
-- **AI conversations** (optional): discuss a book with a model you configure (OpenAI, Anthropic, Google, or a local OpenAI-compatible endpoint). The assistant searches the book through tools, separates quoted evidence from its own interpretation, pushes back on weak readings, and every quote it cites is checked against the text on the server. Unverifiable citations are flagged. Passages and messages go to the configured provider; see [AI conversations](docs/deployment.md#ai-conversations). There is no spoiler protection yet: the assistant can read the whole book.
+- **AI conversations** (optional): discuss a book with a model you configure (OpenAI, Anthropic, Google, or a local OpenAI-compatible endpoint). The assistant searches the book through tools, separates quoted evidence from its own interpretation, pushes back on weak readings, and every quote it cites is checked against the text on the server. Unverifiable citations are flagged. Passages and messages go to the configured provider; see [AI conversations](docs/deployment.md#ai-conversations). Each conversation is limited to the part of each book you choose, so the assistant cannot read past it.
+- **Book Guide**: browse what preprocessing found in a book. Chapters lists chapter summaries with linked citations, Index lists characters, places, objects, and motifs (with merges you confirm, and aliases that stay separate until their reveal), and Notes holds your own Markdown notes. Correct or hide anything that is wrong, and see subjects as margin glosses in the reader. The Guide never shows anything past the point you have read, unless you peek for one visit. Conversations use your corrections and notes as guidance, never as evidence. See [Book Guide and reading position](docs/deployment.md#book-guide-and-reading-position).
+- **Reading position**: one chapter (or "Finished") per book that you set yourself. It only moves forward unless you move it back, and it is the Guide's default, never a conversation's limit. It is **shared by everyone who signs in**, so in a multi-reader household one reader advancing it can spoil the book for another; see [Sharing an instance](docs/deployment.md#sharing-an-instance).
 - **Optional single-password login**, persistent sessions, and login rate limiting.
 - **One container plus PostgreSQL**, for `amd64` and `arm64`.
 
@@ -65,6 +67,7 @@ src/
     retrieval/     search, citation resolution, quote verification (read-only)
     ai/            language model selection from environment configuration
     conversation/  conversations, retrieval tools, citations, chat streaming
+    guide/         reading position, subjects, corrections, reader notes, glosses
 ```
 
 ### Parser versions

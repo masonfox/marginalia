@@ -8,6 +8,7 @@ Marginalia runs as one container next to one PostgreSQL database. Everything sta
 - [Volumes and library folders](#volumes-and-library-folders)
 - [Using an existing PostgreSQL server](#using-an-existing-postgresql-server)
 - [Behind a reverse proxy (HTTPS)](#behind-a-reverse-proxy-https)
+- [Book Guide and reading position](#book-guide-and-reading-position)
 - [Upgrading](#upgrading)
 - [Running a separate worker](#running-a-separate-worker)
 
@@ -85,7 +86,7 @@ AI_MODEL=llama3.1
 
 Small local models vary in how well they call tools and follow the citation format. Citations are always checked against the book regardless, and anything that does not match is shown as unverified.
 
-**What is sent to the provider.** Each message you send, the earlier messages of that conversation, and every passage the assistant reads or searches for are sent to the configured provider to produce a reply. With a hosted provider, that text leaves your instance. Use a local endpoint if that is not acceptable. Marginalia has no reading progress yet, so the assistant can read, and may reveal, any part of the book.
+**What is sent to the provider.** Each message you send, the earlier messages of that conversation, and every passage the assistant reads or searches for are sent to the configured provider to produce a reply. With a hosted provider, that text leaves your instance. Use a local endpoint if that is not acceptable. Each conversation is limited to the scope you choose for each book, so the assistant reads nothing past it. Your [reading position](#reading-position) only suggests that scope. If the assistant looks up your [reader notes](#corrections-and-notes), the notes within scope are sent too.
 
 Conversations are stored in your PostgreSQL database. Deleting a book deletes the conversations about it.
 
@@ -106,7 +107,7 @@ Most of a conversation's cost is input, not output. To answer one message the as
 
 ## Setting a password
 
-Marginalia has one shared password for the whole instance, set with `AUTH_PASSWORD`. Everyone who knows it has the same access. Per-reader profiles come in a later release.
+Marginalia has one shared password for the whole instance, set with `AUTH_PASSWORD`. Everyone who knows it has the same access, and shares one reading position per book (see [Sharing an instance](#sharing-an-instance)). Per-reader profiles come in a later release.
 
 - **Use a long passphrase**, for example four or five random words. Login attempts are limited to 10 failures per 15 minutes per client, and each check is deliberately slow, but a long passphrase is what really keeps guessing out.
 - Put it in the `.env` file next to `compose.yaml` (`AUTH_PASSWORD=...`) or export it in your shell. The reference `compose.yaml` passes it through as `AUTH_PASSWORD: ${AUTH_PASSWORD:-}` and never contains a default.
@@ -142,7 +143,7 @@ Books are identified by the SHA-256 of their bytes:
 
 ### Deleting books
 
-**Delete book** on a book's page permanently removes it: its passages, search entries, cover, and (for uploads) the stored EPUB in `/data`. Conversations about the book are deleted with it. There is no undo, and links to its passages stop resolving.
+**Delete book** on a book's page permanently removes it: its passages, search entries, cover, and (for uploads) the stored EPUB in `/data`. Conversations about the book are deleted with it, and so are its reading position, reader notes, corrections, and subjects. The confirmation says so when there are any. There is no undo, and links to its passages stop resolving.
 
 Marginalia never deletes files in library folders. Instead it remembers the deleted book's SHA-256, and scans skip any file with those bytes, at any path, including on a full rescan. To bring the book back, upload the same file: this clears the exclusion and imports it again, with the same citation locators as before. Any library copies show up as sources again. To get rid of the file itself, delete it from the folder yourself.
 
@@ -214,6 +215,56 @@ With `MARGINALIA_TRUST_PROXY=true`, Marginalia takes the client address for logi
 
 **Enable it only when a proxy you control is in front and the container is not reachable directly.** Otherwise a client can set those headers itself, for example to dodge the login limit. The reference Compose file binds the port to `127.0.0.1`, which keeps direct access to the local machine.
 
+## Book Guide and reading position
+
+Each ready book has a **Guide**, opened from its page. It shows what [preprocessing](#book-preprocessing) found, lets you fix it, and holds your own notes. It works without an AI provider and makes no model calls. Chapters and Index need preprocessing. Notes always work.
+
+- **Chapters**: chapter summaries in reading order, with citations linked to their passages. Unverified citations are marked, and a chapter without a summary says so.
+- **Index**: the characters, places, objects, and motifs seen so far, filterable by kind and name. Open one for its timeline across chapters. Marginalia proposes merges of names such as "Brawne" and "Brawne Lamia", but merges nothing until you confirm. You can also merge, split, rename, and change a subject's kind yourself.
+- **Notes**: your own Markdown pages, optionally attached to a subject or a chapter.
+
+The Guide shows which model and prompt version produced its summaries, and whether preprocessing is current, stale, or partial. It offers no whole-book themes.
+
+### Spoiler bound
+
+The Guide shows nothing until it knows how far you have read, shown as "Through Chapter 12" or "Whole book". It then shows only chapters that end at or before that point, and the same rule hides later observations, notes, and aliases. With a reading position set, the Guide starts there. Without one, it asks on every visit, with nothing preselected.
+
+**Peeking** past your position asks for confirmation first. A peek lasts for the current visit only: it is not stored on the server or in the browser, and leaving or reloading the Guide returns to your position. **Back to my position** ends it early.
+
+Each alias has its own **reveal position**, because learning that two names are one person can be a spoiler. Before that point the names are listed as separate subjects. When you merge, it defaults to your reading position, or to the later of the two names' first appearances when no position is set. You can set it to the chapter where the identity is actually revealed, or paste a passage link from the reader to anchor it to an exact passage.
+
+### Corrections and notes
+
+**Correct this** replaces a summary or an observation with your own text, optionally with one verified citation from the same chapter, or hides it as wrong. The generated data is never changed, and removing a correction restores it. Corrected items are marked "corrected by reader", and hidden ones stay behind **Show hidden** so you can restore them.
+
+Corrections survive regenerating the guide and reparsing the book. When the generated text changes underneath a correction, the Guide flags it so you can keep or drop it. A correction whose chapter no longer exists after a reparse applies nowhere and is listed for you to drop.
+
+Each note has an **"as of"** point (a chapter, a passage, or the end of the book) and is shown only at or after it. It defaults to your reading position, or to the end of the book once you have finished. A theory written after finishing stays hidden on a re-read. Titles are limited to 200 characters and bodies to 20,000. Raw HTML in a note is not rendered.
+
+### Margin glosses
+
+In the passage reader, the first mention of each known subject becomes a gloss. Opening it shows the subject's recent observations, with your corrections applied, and your notes about it, with a link to the Guide. A gloss shows only what is known before that passage, not at your reading position, so jumping ahead by search reveals nothing extra. Names match as exact whole words, and no model is called. The **Margin glosses: on/off** setting is remembered by your browser, and **Don't gloss this name** stops one name from being marked anywhere in that book.
+
+### Reading position
+
+The position is a chapter, or "Finished", set on the book's page. It never moves on its own: opening, searching, or citing a later passage leaves it where it is. Moving it forward takes effect at once. Moving it back, for example for a re-read, asks for confirmation. You can also clear it.
+
+It is a default, not a conversation's limit. It sets the Guide's starting bound and the default "as of" for notes. A new conversation highlights the matching scope but does not choose it for you. Changing the position never changes an existing conversation. When you widen a conversation past your position, Marginalia asks **Also update my reading position?**, and moves it only if you accept.
+
+### In conversations
+
+The assistant's chapter map and its observation lookups use the Guide as you have edited it: merged names, your corrections labelled as reader corrections, and hidden items left out. A `lookupNotes` tool lets it read your notes within the conversation's scope, attributed to you as possibly speculative. Corrections and notes are never evidence: the assistant must still cite the book's text, and should not confirm your theory without it.
+
+Each reply's research trail starts with the guide it used, such as "Used chapter summaries through Chapter 12", and says when the guide has changed since. The summaries listed there, and the observations a lookup returned, offer **Correct this**, which affects later replies only. Selecting text in a reply offers **Save as note**, which opens a new note with the excerpt and a link to the conversation, anchored at the conversation's scope. Nothing is saved until you save it.
+
+### Sharing an instance
+
+**The reading position is shared by everyone who signs in to the instance.** There is one shared password and no per-reader identity, so Marginalia cannot tell readers apart. In a household where several people read the same book, one reader advancing the position moves the Guide's default bound for everyone, which can spoil the book for a reader further behind. Notes, corrections, and subjects are shared the same way. Until per-reader profiles exist, readers at different points in a book can leave its position unset and choose a bound on each Guide visit.
+
+### Database tables
+
+The Guide adds tables for reading positions, subjects and aliases, corrections, reader notes, and gloss exclusions, plus a column on conversation messages. The migrations that run at startup create them, as in any upgrade. In development, apply them with `pnpm db:migrate`.
+
 ## Upgrading
 
 Database migrations are forward-only. **Back up before upgrading:**
@@ -246,7 +297,7 @@ Imports run inside the web container by default. To move them into their own con
 
 ## Book preprocessing
 
-Preprocessing reads a whole book once, unit by unit, and stores a short summary and notes (characters, places, terms) for each unit. Conversations then get a map of the book and a lookup tool, limited to the reader's position so it never reveals later text.
+Preprocessing reads a whole book once, unit by unit, and stores a short summary and notes (characters, places, terms) for each unit. Conversations then get a map of the book and a lookup tool, limited to the conversation's scope so it never reveals later text. You can also browse and correct the results yourself in the [Book Guide](#book-guide-and-reading-position).
 
 - **Privacy:** preprocessing sends the full text of the book to your AI provider, not only passages. Use a local `openai-compatible` endpoint if that is not acceptable.
 - **Cost:** it is one-time per book, billed as the input of the whole book plus a small output per unit, so a typical novel costs roughly the price of reading it once with your model. Spend is shown on the book page and is an estimate (see above). Re-importing a changed file regenerates it.

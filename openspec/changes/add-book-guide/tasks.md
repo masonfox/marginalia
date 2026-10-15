@@ -79,5 +79,5 @@ Phases follow the epic's dependency graph and each one can merge on its own: 1 (
 ## 9. Wrap-up
 
 - [ ] 9.1 Add an end-to-end Playwright flow: set the position, open the Guide, merge an alias, correct a summary, write a note, see a gloss, and see the guide step in a conversation (AI stubbed as in the existing e2e setup). Verify that `pnpm test:e2e` passes.
-- [ ] 9.2 Document the Guide, the reading position, and the shared-instance caveat in the README and self-hosting docs. Verify that the docs render and link correctly.
+- [x] 9.2 Document the Guide, the reading position, and the shared-instance caveat in the README and self-hosting docs. Verify that the docs render and link correctly.
 - [ ] 9.3 Run the full suite (`pnpm typecheck && pnpm lint && pnpm test`) and `openspec validate add-book-guide --strict`. Verify that all pass.
