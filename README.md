@@ -38,6 +38,8 @@ pnpm dev
 
 `pnpm dev` and `pnpm db:migrate` read `.env.development` if it exists. In a git worktree without its own copy, they read the main checkout's, and relative paths in it (such as `MARGINALIA_DATA_DIR`) resolve against the main checkout, so worktrees share its database and data. Variables already set in your shell take precedence. Production never reads this file.
 
+Dependencies are not shared between worktrees, because a branch can change them. Each worktree runs its own `pnpm install`, which pnpm makes fast by linking files from its shared store. Worktrees created by [Orca](https://github.com/stablyai/orca) run that install automatically through the setup hook in `orca.yaml`.
+
 | Command | What it does |
 | --- | --- |
 | `pnpm typecheck` / `pnpm lint` | TypeScript (strict) and Biome, including module-boundary rules |

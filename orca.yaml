@@ -1,0 +1,7 @@
+# Orca worktree hooks. Each worktree gets its own node_modules (branches can
+# change dependencies), but pnpm hard-links files from its shared store, so
+# this install is quick and uses little extra disk.
+scripts:
+  setup: pnpm install --frozen-lockfile --prefer-offline
+# Start the agent only after dependencies are installed.
+setupAgentStartupPolicy: wait-for-setup
