@@ -6,7 +6,13 @@ import {
 	useNavigate,
 } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { MessageSquare, MessageSquarePlus, Search, Trash2 } from "lucide-react";
+import {
+	BookOpenText,
+	MessageSquare,
+	MessageSquarePlus,
+	Search,
+	Trash2,
+} from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
 import { PreprocessCard } from "#/components/preprocess-card";
@@ -198,6 +204,13 @@ function ConversationActions({ editionId }: { editionId: string }) {
 				className={buttonVariants({ variant: "outline", size: "sm" })}
 			>
 				<MessageSquare aria-hidden /> Conversations
+			</Link>
+			<Link
+				to="/books/$editionId/guide/chapters"
+				params={{ editionId }}
+				className={buttonVariants({ variant: "outline", size: "sm" })}
+			>
+				<BookOpenText aria-hidden /> Guide
 			</Link>
 		</div>
 	);

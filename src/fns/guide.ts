@@ -2,7 +2,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import {
 	clearReadingPosition,
+	getGuideChapters,
+	getGuideOverview,
+	getGuideProvenance,
+	getGuideSubject,
 	getReadingPosition,
+	listGuideSubjects,
 	setReadingPosition,
 } from "#/modules/guide";
 import { appContext } from "#/server/context";
@@ -44,3 +49,45 @@ export const clearReadingPositionFn = createServerFn({ method: "POST" })
 	.handler(async ({ data }) => ({
 		cleared: await clearReadingPosition(appContext().db, data.editionId),
 	}));
+
+/** The book, its reading position and whether it has guide data, or null when it does not exist. */
+export const getGuideFn = createServerFn({ method: "GET" })
+	.validator(z.object({ editionId: z.uuid() }))
+	.handler(({ data }) => getGuideOverview(appContext().db, data.editionId));
+
+// Every Guide read names its bound, validated against the book's current
+// units: `stale_bound` when it is not one of them.
+const boundedSchema = z.object({ editionId: z.uuid(), bound: choiceSchema });
+
+/** The reading units within the bound, with their summaries. */
+export const getGuideChaptersFn = createServerFn({ method: "GET" })
+	.validator(boundedSchema)
+	.handler(({ data }) =>
+		getGuideChapters(appContext().db, data.editionId, data.bound),
+	);
+
+/** The subjects observed within the bound. */
+export const listGuideSubjectsFn = createServerFn({ method: "GET" })
+	.validator(boundedSchema)
+	.handler(({ data }) =>
+		listGuideSubjects(appContext().db, data.editionId, data.bound),
+	);
+
+/** One subject's timeline within the bound. */
+export const getGuideSubjectFn = createServerFn({ method: "GET" })
+	.validator(boundedSchema.extend({ subjectRef: z.string().min(1).max(500) }))
+	.handler(({ data }) =>
+		getGuideSubject(
+			appContext().db,
+			data.editionId,
+			data.bound,
+			data.subjectRef,
+		),
+	);
+
+/** The model, prompt version and preprocessing state behind the Guide's data. */
+export const getGuideProvenanceFn = createServerFn({ method: "GET" })
+	.validator(boundedSchema)
+	.handler(({ data }) =>
+		getGuideProvenance(appContext().db, data.editionId, data.bound),
+	);

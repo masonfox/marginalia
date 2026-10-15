@@ -11,9 +11,33 @@ export {
 	setReadingPosition,
 } from "./position";
 export {
+	dominantKind,
+	type GuideObservation,
+	type GuideSubjectEntry,
+	type GuideSummary,
+	getMergedObservations,
+	getMergedSummaries,
+	getSubjectTimeline,
 	getUnitAnchors,
+	listSubjects,
+	resolveNames,
+	type SubjectResolution,
+	type SubjectTimeline,
+	type TimelineEntry,
 	type UnitAnchors,
 	type UnitRowKey,
 	unitAnchorsCache,
 } from "./queries";
 export * from "./schema";
+export {
+	type GuideBoundChoice,
+	type GuideChapter,
+	type GuideOverview,
+	type GuideProvenance,
+	type GuideResult,
+	getGuideChapters,
+	getGuideOverview,
+	getGuideProvenance,
+	getGuideSubject,
+	listGuideSubjects,
+} from "./view";

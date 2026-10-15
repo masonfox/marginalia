@@ -1,4 +1,4 @@
-import { and, asc, count, eq, lte, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, lte, ne, sql } from "drizzle-orm";
 import { redactSecrets } from "#/modules/ai";
 import { getReadingUnits } from "#/modules/catalog";
 import { editions } from "#/modules/library";
@@ -109,6 +109,121 @@ export async function lookupObservations(
 		)
 		.orderBy(asc(unitObservations.endPosition), asc(unitObservations.id))
 		.limit(cap);
+}
+
+/** A current summary with the provenance the Guide shows. */
+export interface SummaryRow extends UnitSummaryView {
+	model: string;
+	promptVersion: number;
+}
+
+/** A current observation row, for the Guide's merged view. */
+export interface ObservationRow extends ObservationView {
+	nameKey: string;
+}
+
+/** Current summaries ending at or before `bound` (null: whole book), in reading order. */
+export async function listSummaries(
+	db: Executor,
+	editionId: string,
+	bound: number | null,
+): Promise<SummaryRow[]> {
+	return db
+		.select({
+			unitOrdinal: unitSummaries.unitOrdinal,
+			unitLabel: unitSummaries.unitLabel,
+			endPosition: unitSummaries.endPosition,
+			summary: unitSummaries.summary,
+			citations: unitSummaries.citations,
+			model: unitSummaries.model,
+			promptVersion: unitSummaries.promptVersion,
+		})
+		.from(unitSummaries)
+		.where(
+			and(
+				currentSummary(editionId),
+				bound === null ? undefined : lte(unitSummaries.endPosition, bound),
+			),
+		)
+		.orderBy(asc(unitSummaries.unitOrdinal));
+}
+
+const currentObservation = (editionId: string, bound: number | null) =>
+	and(
+		eq(unitObservations.editionId, editionId),
+		eq(unitObservations.stale, false),
+		eq(unitObservations.promptVersion, PREPROCESS_PROMPT_VERSION),
+		bound === null ? undefined : lte(unitObservations.endPosition, bound),
+	);
+
+/**
+ * Current observations ending at or before `bound` (null: whole book), in
+ * reading order, optionally only those of `nameKeys`. Uncapped: the Guide
+ * shows a subject's whole timeline.
+ */
+export async function listObservations(
+	db: Executor,
+	editionId: string,
+	bound: number | null,
+	nameKeys?: string[],
+): Promise<ObservationRow[]> {
+	if (nameKeys?.length === 0) return [];
+	return db
+		.select({
+			unitOrdinal: unitObservations.unitOrdinal,
+			endPosition: unitObservations.endPosition,
+			name: unitObservations.name,
+			nameKey: unitObservations.nameKey,
+			kind: unitObservations.kind,
+			note: unitObservations.note,
+			citations: unitObservations.citations,
+		})
+		.from(unitObservations)
+		.where(
+			and(
+				currentObservation(editionId, bound),
+				nameKeys ? inArray(unitObservations.nameKey, nameKeys) : undefined,
+			),
+		)
+		.orderBy(asc(unitObservations.endPosition), asc(unitObservations.id));
+}
+
+/** One observed name in one unit: the Index listing's grain. */
+export interface ObservedName {
+	nameKey: string;
+	/** One of the names observed under the key in the unit. */
+	name: string;
+	unitOrdinal: number;
+	endPosition: number;
+	/** The kind of each observation of the key in the unit. */
+	kinds: ObservationKind[];
+}
+
+/**
+ * Distinct observed names per unit, for current observations ending at or
+ * before `bound` (null: whole book), in reading order.
+ */
+export async function listObservedNames(
+	db: Executor,
+	editionId: string,
+	bound: number | null,
+): Promise<ObservedName[]> {
+	return db
+		.select({
+			nameKey: unitObservations.nameKey,
+			name: sql<string>`min(${unitObservations.name})`,
+			unitOrdinal: unitObservations.unitOrdinal,
+			endPosition: unitObservations.endPosition,
+			kinds: sql<ObservationKind[]>`array_agg(${unitObservations.kind})`,
+		})
+		.from(unitObservations)
+		.where(currentObservation(editionId, bound))
+		.groupBy(
+			unitObservations.nameKey,
+			unitObservations.unitOrdinal,
+			unitObservations.endPosition,
+		)
+		.orderBy(asc(unitObservations.endPosition), asc(unitObservations.nameKey));
 }
 
 /** Whether the edition has at least one current summary. */

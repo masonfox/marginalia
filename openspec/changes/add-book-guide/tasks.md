@@ -21,14 +21,14 @@ Phases follow the epic's dependency graph and each one can merge on its own: 1 (
 
 ## 3. Book Guide, read-only (#21)
 
-- [ ] 3.1 Implement the merged-view core in `guide/queries.ts`: bounded summaries and observations over the analysis queries, with a correction-merge hook that is a no-op until phase 5. Verify with integration tests for a bound inside a unit and for stale rows hidden.
-- [ ] 3.2 Add a listing query for the Index: distinct names with kind, unit count, and first appearance at a bound. Verify with an integration test that a subject first seen after the bound is not listed.
-- [ ] 3.3 Add `getSubjectTimeline` (observations of a subject ref at a bound, in reading order). Verify with an integration test.
-- [ ] 3.4 Add Guide server functions (`getGuideChapters`, `listGuideSubjects`, `getGuideSubject`, `getGuideProvenance`) that validate the requested bound against current units. Verify with an integration test that a bound not matching a unit is rejected.
-- [ ] 3.5 Create the layout route `/books/$editionId_/guide`, which holds the visit bound in React context. It defaults to the position, shows a picker with nothing preselected when the position is unset, offers a peek with a spoiler confirmation, and supports "back to my position". Verify in the app that a reload after a peek returns to the position.
-- [ ] 3.6 Build the Chapters view: summaries, citation links to `/p/$locator`, unverified markers, "not yet summarized" units, and a provenance line. Verify in the app and with a component test for the unverified marker.
-- [ ] 3.7 Build the Index view (kind and name filters) and the subject timeline route `index/$subjectRef`. Verify in the app on a preprocessed fixture.
-- [ ] 3.8 Add the Guide entry point on the book detail page (ready editions only), and the empty state when there is no current preprocessing. Verify in the app.
+- [x] 3.1 Implement the merged-view core in `guide/queries.ts`: bounded summaries and observations over the analysis queries, with a correction-merge hook that is a no-op until phase 5. Verify with integration tests for a bound inside a unit and for stale rows hidden.
+- [x] 3.2 Add a listing query for the Index: distinct names with kind, unit count, and first appearance at a bound. Verify with an integration test that a subject first seen after the bound is not listed.
+- [x] 3.3 Add `getSubjectTimeline` (observations of a subject ref at a bound, in reading order). Verify with an integration test.
+- [x] 3.4 Add Guide server functions (`getGuideChapters`, `listGuideSubjects`, `getGuideSubject`, `getGuideProvenance`) that validate the requested bound against current units. Verify with an integration test that a bound not matching a unit is rejected.
+- [x] 3.5 Create the layout route `/books/$editionId_/guide`, which holds the visit bound in React context. It defaults to the position, shows a picker with nothing preselected when the position is unset, offers a peek with a spoiler confirmation, and supports "back to my position". Verify in the app that a reload after a peek returns to the position.
+- [x] 3.6 Build the Chapters view: summaries, citation links to `/p/$locator`, unverified markers, "not yet summarized" units, and a provenance line. Verify in the app and with a component test for the unverified marker.
+- [x] 3.7 Build the Index view (kind and name filters) and the subject timeline route `index/$subjectRef`. Verify in the app on a preprocessed fixture.
+- [x] 3.8 Add the Guide entry point on the book detail page (ready editions only), and the empty state when there is no current preprocessing. Verify in the app.
 
 ## 4. Subjects and aliases (#23)
 
