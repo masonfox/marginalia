@@ -265,8 +265,10 @@ export function useComposer(
 			inputRef.current?.focus();
 		},
 		dismissNotice() {
-			// The long-quote notice is unrelated to any passage check in flight.
-			if (notice?.kind !== "quote_too_long") checkSeq.current++;
+			// The long-quote notice may cover a quiet recheck, which must still
+			// settle; any other check in flight is cancelled with its slot.
+			if (!(notice?.kind === "quote_too_long" && rechecking))
+				checkSeq.current++;
 			setNotice(null);
 			inputRef.current?.focus();
 		},
