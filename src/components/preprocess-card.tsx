@@ -22,7 +22,13 @@ export interface PreprocessView {
 	configuredModel: string | null;
 	spendUsd: number | null;
 	hasSpend: boolean;
+	/** Null when unreported. */
+	inputTokens: number | null;
+	outputTokens: number | null;
 }
+
+const tokens = (n: number | null) =>
+	n === null ? "unknown" : n.toLocaleString("en-US");
 
 export const isActive = (s: PreprocessView["status"]) =>
 	s === "queued" || s === "running";
@@ -85,6 +91,12 @@ export function PreprocessCardView({
 							? "unknown"
 							: `$${view.spendUsd.toFixed(4)}`}{" "}
 						(estimate)
+					</p>
+				)}
+				{view.hasSpend && (
+					<p>
+						Tokens: {tokens(view.inputTokens)} in ·{" "}
+						{tokens(view.outputTokens)} out
 					</p>
 				)}
 				{view.failedUnits > 0 && (

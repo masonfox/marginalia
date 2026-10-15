@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getPreprocessStatus } from "#/modules/analysis";
 import { getEditionDetail } from "#/modules/library";
-import { estimateCost, priceTable, usageForEdition } from "#/modules/usage";
+import { priceTable, totalOf, usageForEdition } from "#/modules/usage";
 import { appContext } from "#/server/context";
 
 // Only server functions are exported here.
@@ -15,17 +15,16 @@ export const getPreprocessStatusFn = createServerFn({ method: "GET" })
 		const status = await getPreprocessStatus(db, data.editionId);
 		const table = priceTable(config.ai?.prices);
 		const rows = await usageForEdition(db, data.editionId);
-		let cost: number | null = 0;
-		for (const r of rows) {
-			const c = estimateCost(r, r.model, table);
-			cost = cost === null || c === null ? null : cost + c;
-		}
+		const total = totalOf({ byMessage: {}, byModel: rows, missing: 0 }, table);
 		return {
 			...status,
 			aiEnabled: ai.status.enabled,
 			configuredModel: ai.status.preprocessModel ?? null,
-			spendUsd: rows.length === 0 ? 0 : cost,
+			spendUsd: rows.length === 0 ? 0 : total.estimatedCost,
 			hasSpend: rows.length > 0,
+			// Null when the provider never reported the count.
+			inputTokens: total.inputTokens,
+			outputTokens: total.outputTokens,
 		};
 	});
 

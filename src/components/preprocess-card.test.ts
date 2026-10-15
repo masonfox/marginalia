@@ -14,6 +14,8 @@ const base: PreprocessView = {
 	configuredModel: "m",
 	spendUsd: 0,
 	hasSpend: false,
+	inputTokens: null,
+	outputTokens: null,
 };
 const render = (v: Partial<PreprocessView>) =>
 	renderToStaticMarkup(
@@ -50,6 +52,20 @@ describe("PreprocessCardView", () => {
 		expect(h).toContain("(estimate)");
 		expect(h).not.toContain("Regenerate");
 		expect(h).not.toContain("<button");
+	});
+	it("shows token counts even when the price is unknown", () => {
+		const h = render({
+			status: "complete",
+			totalUnits: 3,
+			doneUnits: 3,
+			hasSpend: true,
+			spendUsd: null,
+			inputTokens: 12345,
+			outputTokens: null,
+		});
+		expect(h).toContain("Spend: unknown");
+		expect(h).toContain("Tokens: 12,345 in");
+		expect(h).toContain("unknown out");
 	});
 	it("stale offers regenerate", () => {
 		const h = render({ status: "stale", totalUnits: 3, doneUnits: 0 });
