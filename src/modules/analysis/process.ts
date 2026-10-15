@@ -50,6 +50,11 @@ export async function loadUnitPassages(
 		.orderBy(asc(passages.position));
 }
 
+/**
+ * Groups passages into chunks of at most `cap` prompt characters, counting
+ * each passage's locator prefix. A passage too long for one chunk is sliced;
+ * every slice keeps its locator, so citations verify against the full text.
+ */
 export function chunkPassages(
 	items: PromptPassage[],
 	cap: number,
@@ -58,16 +63,37 @@ export function chunkPassages(
 	let cur: PromptPassage[] = [];
 	let size = 0;
 	for (const p of items) {
-		if (cur.length > 0 && size + p.text.length > cap) {
-			chunks.push(cur);
-			cur = [];
-			size = 0;
+		// "[locator] " before the text and the blank line after it.
+		const overhead = p.locator.length + 5;
+		for (const text of sliceText(p.text, Math.max(1, cap - overhead))) {
+			const length = overhead + text.length;
+			if (cur.length > 0 && size + length > cap) {
+				chunks.push(cur);
+				cur = [];
+				size = 0;
+			}
+			cur.push({ locator: p.locator, text });
+			size += length;
 		}
-		cur.push(p);
-		size += p.text.length;
 	}
 	if (cur.length > 0) chunks.push(cur);
 	return chunks;
+}
+
+/** Splits text into pieces of at most `max` characters, never inside a surrogate pair. */
+function sliceText(text: string, max: number): string[] {
+	if (text.length <= max) return [text];
+	const pieces: string[] = [];
+	let at = 0;
+	while (at < text.length) {
+		let end = Math.min(at + max, text.length);
+		const last = text.charCodeAt(end - 1);
+		if (end < text.length && end - at > 1 && last >= 0xd800 && last <= 0xdbff)
+			end--;
+		pieces.push(text.slice(at, end));
+		at = end;
+	}
+	return pieces;
 }
 
 /** Verifies citations against the unit's own passages only. Anything else is stored unverified. */
