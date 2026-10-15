@@ -99,6 +99,29 @@ The book detail page SHALL link to conversations containing that book and SHALL 
 - **WHEN** a reader begins deleting a book that has conversations
 - **THEN** the confirmation says conversations about only that book will be deleted
 
+### Requirement: Preprocessing on book detail
+When AI is configured, the book detail page SHALL show the edition's preprocessing status, progress while running, the model used, and its last error, together with the estimated spend (tokens and cost, labeled as an estimate). It SHALL offer an action to start preprocessing, or to regenerate it when stale, partly failed, or cancelled. The action SHALL warn that the whole book is sent to the provider. While a job is queued or running, the page SHALL instead offer an action to cancel it, noting that finished sections are kept. Status SHALL update without a manual reload while a job is active. When AI is not configured the page SHALL show no preprocessing status or action. Editions that are not ready SHALL NOT offer the action.
+
+#### Scenario: Start from the page
+- **WHEN** a reader starts preprocessing on a ready book
+- **THEN** status shows queued, then running with progress, then complete
+
+#### Scenario: Spend shown
+- **WHEN** preprocessing has completed
+- **THEN** the page shows its estimated cost and token counts
+
+#### Scenario: Stale
+- **WHEN** a book was reparsed after preprocessing
+- **THEN** the page shows it as stale with an action to regenerate
+
+#### Scenario: Cancel from the page
+- **WHEN** a reader cancels preprocessing that is running
+- **THEN** status shows cancelled with the finished sections counted, and an action to resume
+
+#### Scenario: AI not configured
+- **WHEN** no provider is configured
+- **THEN** no preprocessing action or status is shown
+
 ### Requirement: Passage reference actions
 The passage view SHALL offer a reference action for each displayed passage, and for a non-whitespace text selection that lies wholly within the text of one passage. Selections that span passages, or that include footnote panels, navigation, or other page chrome, SHALL get no action. A selection reference SHALL identify its text by character offsets into that passage's text, and those offsets SHALL produce the same highlight when the reference's link is opened. The action SHALL offer:
 - "Copy link", which copies the passage view URL for the passage, with the selection's range when there is one.

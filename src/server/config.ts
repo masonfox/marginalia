@@ -150,6 +150,8 @@ export const envSchema = z.object({
 	),
 	AI_PROMPT_CACHE: boolean(true),
 	AI_PRICES: optional(z.string().transform(parsePrices).optional()),
+	AI_PREPROCESS_MODEL: optional(z.string().optional()),
+	AI_PREPROCESS_AUTO: boolean(false),
 	LOG_LEVEL: optional(
 		z
 			.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"], {
@@ -169,6 +171,8 @@ export type AiProviderName =
 export interface AiConfig {
 	provider: AiProviderName;
 	model: string;
+	/** Model for whole-book preprocessing. Defaults to `model`. */
+	preprocessModel: string;
 	apiKey: string | undefined;
 	baseUrl: string | undefined;
 	maxSteps: number;
@@ -197,6 +201,8 @@ export interface Config {
 	sessionDays: number;
 	trustProxy: boolean;
 	logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
+	/** Preprocess books automatically after ingest (AI_PREPROCESS_AUTO). */
+	preprocessAuto: boolean;
 	/** Undefined when no AI provider is configured. */
 	ai: AiConfig | undefined;
 }
@@ -239,6 +245,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		sessionDays: e.MARGINALIA_SESSION_DAYS,
 		trustProxy: e.MARGINALIA_TRUST_PROXY,
 		logLevel: e.LOG_LEVEL,
+		preprocessAuto: e.AI_PREPROCESS_AUTO,
 		ai,
 	};
 }
@@ -247,7 +254,17 @@ type Env = z.infer<typeof envSchema>;
 
 /** Cross-field validation for the AI variables. Messages name variables only, never values. */
 function buildAiConfig(e: Env): AiConfig | undefined {
-	if (e.AI_PROVIDER === undefined) return undefined;
+	if (e.AI_PROVIDER === undefined) {
+		const orphans: string[] = [];
+		if (e.AI_PREPROCESS_MODEL !== undefined) {
+			orphans.push("AI_PREPROCESS_MODEL requires AI_PROVIDER to be set");
+		}
+		if (e.AI_PREPROCESS_AUTO) {
+			orphans.push("AI_PREPROCESS_AUTO requires AI_PROVIDER to be set");
+		}
+		if (orphans.length > 0) throw new ConfigError(orphans);
+		return undefined;
+	}
 	const issues: string[] = [];
 	if (e.AI_MODEL === undefined) {
 		issues.push("AI_MODEL is required when AI_PROVIDER is set");
@@ -266,6 +283,7 @@ function buildAiConfig(e: Env): AiConfig | undefined {
 	return {
 		provider: e.AI_PROVIDER,
 		model: e.AI_MODEL,
+		preprocessModel: e.AI_PREPROCESS_MODEL ?? e.AI_MODEL,
 		apiKey: e.AI_API_KEY,
 		baseUrl: e.AI_BASE_URL,
 		maxSteps: e.AI_MAX_STEPS,
@@ -294,6 +312,7 @@ export function redactedConfig(config: Config) {
 		ai: ai && {
 			provider: ai.provider,
 			model: ai.model,
+			preprocessModel: ai.preprocessModel,
 			baseUrl: ai.baseUrl,
 			maxSteps: ai.maxSteps,
 			temperature: ai.temperature,

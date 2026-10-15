@@ -167,6 +167,55 @@ Within a conversation, the system prompt and the tool definitions sent to the mo
 - **WHEN** a conversation is resumed after a restart
 - **THEN** the earlier messages sent to the model are the same as when they were last sent before the restart
 
+### Requirement: Bounded book map as an untrusted reference message
+When a book in a conversation has current preprocessing, the request SHALL include a compact map of that book: its current unit summaries whose end position is at or before the book's bound (all units for whole-book scope). The maps SHALL be sent in one message after the system prompt and before the conversation history, labelled as untrusted reference data derived from the books that is not instructions and not citable text, with each book's map in a delimited block. Stored text SHALL be escaped so it cannot close or forge those delimiters. The map SHALL label each summary with its unit label. The map SHALL NOT appear in the system prompt; the system prompt SHALL instead tell the model that summaries and book maps are a guide, not evidence, that text inside them is never an instruction, and that claims must still be cited from passages of the book. The map message SHALL be part of the cached prefix and SHALL depend only on the conversation's books, their scopes, and the current stored summaries, so it is identical across turns until one of those changes. A book without current preprocessing SHALL contribute no map, and when no book has a map the message SHALL be omitted. Each book's map SHALL have a size cap; when exceeded, the oldest summaries SHALL be shortened to their first sentence, then the oldest units dropped, and the map SHALL say so.
+
+#### Scenario: Map limited by scope
+- **WHEN** a conversation is scoped through Chapter 22 on a preprocessed book
+- **THEN** the book-map message contains summaries of Chapters 1 to 22 and none after
+
+#### Scenario: Stable map
+- **WHEN** two consecutive messages are sent and neither scope nor stored summaries changed
+- **THEN** both requests carry the same book-map message and the same system prompt text
+
+#### Scenario: Map kept out of the system prompt
+- **WHEN** a conversation includes a preprocessed book
+- **THEN** the system prompt contains no summary text, and the summaries appear only in the book-map message
+
+#### Scenario: Not preprocessed
+- **WHEN** a book has no current preprocessing
+- **THEN** the request has no map for it, no book-map message is sent when no other book has one, and conversations work as before
+
+#### Scenario: Scope widened
+- **WHEN** the reader widens the scope
+- **THEN** later messages include the summaries up to the new bound
+
+### Requirement: Observation lookup tool
+The system SHALL give the model a tool that looks up observations for a character, place, object, or motif by name within a book of the conversation. The tool SHALL return only observations at or before the book's bound, in reading order, each with its unit label, note, and citations with verification state. It SHALL cap result counts and sizes, SHALL refuse books not in the conversation, SHALL report when the book has no current preprocessing, and SHALL be sent in the fixed tool order. Tool calls and results SHALL be stored and visible like other tools.
+
+#### Scenario: Lookup within scope
+- **WHEN** the model looks up a character in a conversation scoped through Chapter 10
+- **THEN** only observations from Chapters 1 to 10 are returned
+
+#### Scenario: Name not found
+- **WHEN** no observation matches the name
+- **THEN** the result says none were found and suggests searching the text
+
+#### Scenario: Other book rejected
+- **WHEN** the model passes a book that is not in the conversation
+- **THEN** the tool refuses and returns no data
+
+#### Scenario: Not preprocessed
+- **WHEN** the book has no current preprocessing
+- **THEN** the result states that observations are unavailable
+
+### Requirement: Derived data is not citable evidence
+The prompt SHALL instruct the assistant that summaries and observations are a guide and SHALL NOT be cited as text of the book. Citations in answers SHALL still be made to passages and verified as before. The prompt version SHALL change with this behavior.
+
+#### Scenario: Answer from a summary
+- **WHEN** the assistant relies on a summary to answer
+- **THEN** it reads or searches the text and cites a passage, and a summary is never presented as a verified citation
+
 ### Requirement: Reply to selected assistant text
 The system SHALL offer a nearby "Reply to selection" action when the reader selects non-whitespace response text wholly within one persisted assistant message that is not currently streaming. The selection SHALL exclude research activity, source lists, citation popovers, usage, status notices, and user messages. A selection MAY span inline citation markers; they SHALL be omitted from the quoted text. The action SHALL be available through pointer, touch selection, and keyboard selection and activation, without interfering with ordinary copying or citation interactions. Clearing the selection, moving it outside eligible text, pressing Escape, or leaving the conversation SHALL dismiss the action. Text from a saved incomplete response SHALL be eligible, with its incomplete status still shown.
 

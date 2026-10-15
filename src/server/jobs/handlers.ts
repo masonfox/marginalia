@@ -1,4 +1,5 @@
 import { purgeExpiredSessions } from "#/modules/access";
+import { markDerivedStale, preprocessEdition } from "#/modules/analysis";
 import {
 	type IngestDeps,
 	ingestEdition,
@@ -9,17 +10,41 @@ import { scanLibraries } from "#/modules/library";
 import { appContext } from "../context";
 import type { JobHandlers } from "./kinds";
 
+/** Enqueues preprocessing after ingest only when AI is configured and auto mode is on. */
+export async function enqueueAutoPreprocess(
+	deps: {
+		config: { preprocessAuto: boolean };
+		ai: { status: { enabled: boolean } };
+		enqueue: (
+			kind: "analysis.preprocess",
+			p: { editionId: string },
+		) => Promise<unknown>;
+	},
+	editionId: string,
+): Promise<boolean> {
+	if (!deps.config.preprocessAuto || !deps.ai.status.enabled) return false;
+	await deps.enqueue("analysis.preprocess", { editionId });
+	return true;
+}
+
 /** Wires each job kind to the module that handles it. */
 export function jobHandlers(): JobHandlers {
 	const ingestDeps = () => {
-		const { db, config, log } = appContext();
+		const { db, config, log, ai, enqueue } = appContext();
 		return {
 			db,
 			dataDir: config.dataDir,
 			log,
 			// Keeps conversation bounds on the same text when a reparse shifts positions.
-			onReplaced: (tx, { editionId, rebase }) =>
-				rebaseScopes(tx, editionId, rebase),
+			onReplaced: async (tx, { editionId, rebase }) => {
+				await rebaseScopes(tx, editionId, rebase);
+				// Derived summaries describe the old structure.
+				await markDerivedStale(tx, editionId);
+			},
+			// Preprocessing starts after a successful ingest or reparse when enabled.
+			onIngested: async (editionId) => {
+				await enqueueAutoPreprocess({ config, ai, enqueue }, editionId);
+			},
 		} satisfies IngestDeps;
 	};
 	return {
@@ -35,6 +60,22 @@ export function jobHandlers(): JobHandlers {
 		},
 		"catalog.reparse": async ({ editionId }, ctx) => {
 			await reparseEdition(ingestDeps(), editionId, ctx);
+		},
+		"analysis.preprocess": async ({ editionId }, ctx) => {
+			const { db, ai, log } = appContext();
+			await preprocessEdition(
+				{
+					db,
+					model: ai.preprocessModel,
+					modelName: ai.status.preprocessModel ?? "unknown",
+					provider: ai.status.provider ?? "unknown",
+					log,
+					reasoning: ai.reasoning,
+					providerOptions: ai.providerOptions,
+				},
+				editionId,
+				{ id: ctx.id, signal: ctx.signal },
+			);
 		},
 		"access.purge-sessions": async () => {
 			const { db, log } = appContext();

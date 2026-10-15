@@ -1,0 +1,1 @@
+ALTER TABLE "editions" ADD COLUMN "structure_generation" integer DEFAULT 0 NOT NULL;

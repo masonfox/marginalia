@@ -40,6 +40,8 @@ services:
       AI_EFFORT: ${AI_EFFORT:-}
       AI_PROMPT_CACHE: ${AI_PROMPT_CACHE:-}
       AI_PRICES: ${AI_PRICES:-}
+      AI_PREPROCESS_MODEL: ${AI_PREPROCESS_MODEL:-}
+      AI_PREPROCESS_AUTO: ${AI_PREPROCESS_AUTO:-}
       # Behind a TLS-terminating reverse proxy, also set:
       # MARGINALIA_PUBLIC_URL: https://books.example.com
       # MARGINALIA_TRUST_PROXY: "true"

@@ -28,6 +28,13 @@ export const jobKinds = {
 		retryLimit: 4,
 		concurrency: (c: JobConfig) => c.ingestConcurrency,
 	},
+	"analysis.preprocess": {
+		payload: z.object({ editionId: z.uuid() }),
+		key: (p: { editionId: string }) => p.editionId,
+		retryLimit: 2,
+		// Fixed at 1 to bound spend.
+		concurrency: () => 1,
+	},
 	"access.purge-sessions": {
 		payload: z.object({}),
 		key: () => "sessions",
@@ -79,3 +86,22 @@ export type Enqueue = <K extends JobKind>(
 	kind: K,
 	payload: JobPayload<K>,
 ) => Promise<string | null>;
+
+/**
+ * The pending job with this kind and key: "queued" while it waits (including
+ * between retries), "active" while a worker has it, null when there is none.
+ */
+export type PendingJob = <K extends JobKind>(
+	kind: K,
+	payload: JobPayload<K>,
+) => Promise<"queued" | "active" | null>;
+
+/**
+ * Cancels the pending job with this kind and key, waiting or running, so it
+ * is not retried. A running handler's signal aborts at the worker's next
+ * heartbeat. Returns the ids of the jobs it cancelled, empty when none.
+ */
+export type CancelJob = <K extends JobKind>(
+	kind: K,
+	payload: JobPayload<K>,
+) => Promise<string[]>;

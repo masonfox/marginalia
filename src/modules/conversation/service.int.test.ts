@@ -182,6 +182,7 @@ describe("conversation operations behind the server functions", () => {
 		const ai = createAi({
 			provider: "openai",
 			model: "gpt-test",
+			preprocessModel: "gpt-test",
 			apiKey: SECRET,
 			baseUrl: undefined,
 			maxSteps: 8,
@@ -194,6 +195,7 @@ describe("conversation operations behind the server functions", () => {
 			enabled: true,
 			provider: "openai",
 			model: "gpt-test",
+			preprocessModel: "gpt-test",
 		});
 		expect(JSON.stringify(ai.status)).not.toContain(SECRET);
 		expect(createAi(undefined).status).toEqual({ enabled: false });

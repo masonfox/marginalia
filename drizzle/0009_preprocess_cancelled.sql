@@ -1,0 +1,2 @@
+ALTER TABLE "preprocess_runs" DROP CONSTRAINT "preprocess_runs_status_ck";--> statement-breakpoint
+ALTER TABLE "preprocess_runs" ADD CONSTRAINT "preprocess_runs_status_ck" CHECK ("preprocess_runs"."status" in ('queued','running','complete','failed','cancelled'));

@@ -10,11 +10,23 @@ import type {
 	ReasoningEffort,
 } from "#/server/config";
 
+import { registerSecret } from "./errors";
+
+export {
+	clearSecrets,
+	describeError,
+	MAX_ERROR_LENGTH,
+	maskSecrets,
+	redactSecrets,
+	registerSecret,
+} from "./errors";
+
 /** What the UI may know about the AI setup. Never contains the API key. */
 export interface AiStatus {
 	enabled: boolean;
 	provider?: AiProviderName;
 	model?: string;
+	preprocessModel?: string;
 }
 
 export type ProviderOptions = NonNullable<
@@ -24,6 +36,8 @@ export type ProviderOptions = NonNullable<
 export interface AiRuntime {
 	/** The configured model, or null when AI is disabled. */
 	model: LanguageModel | null;
+	/** The model for whole-book preprocessing, or null when AI is disabled. */
+	preprocessModel: LanguageModel | null;
 	status: AiStatus;
 	maxSteps: number;
 	temperature: number | undefined;
@@ -38,6 +52,7 @@ export function createAi(config: AiConfig | undefined): AiRuntime {
 	if (!config) {
 		return {
 			model: null,
+			preprocessModel: null,
 			status: { enabled: false },
 			maxSteps: 8,
 			temperature: undefined,
@@ -45,9 +60,17 @@ export function createAi(config: AiConfig | undefined): AiRuntime {
 			providerOptions: {},
 		};
 	}
+	// Providers may echo the key in errors, whatever its shape.
+	registerSecret(config.apiKey);
 	return {
 		model: buildModel(config),
-		status: { enabled: true, provider: config.provider, model: config.model },
+		preprocessModel: buildModel(config, config.preprocessModel),
+		status: {
+			enabled: true,
+			provider: config.provider,
+			model: config.model,
+			preprocessModel: config.preprocessModel,
+		},
 		maxSteps: config.maxSteps,
 		temperature: config.temperature,
 		reasoning: config.effort,
@@ -67,19 +90,24 @@ function buildProviderOptions(c: AiConfig): ProviderOptions {
 	return {};
 }
 
-function buildModel(c: AiConfig): LanguageModel {
+function buildModel(c: AiConfig, modelId: string = c.model): LanguageModel {
 	switch (c.provider) {
 		case "openai":
-			return createOpenAI({ apiKey: c.apiKey, baseURL: c.baseUrl })(c.model);
+			return createOpenAI({ apiKey: c.apiKey, baseURL: c.baseUrl })(modelId);
 		case "anthropic":
-			return createAnthropic({ apiKey: c.apiKey, baseURL: c.baseUrl })(c.model);
+			return createAnthropic({ apiKey: c.apiKey, baseURL: c.baseUrl })(modelId);
 		case "google":
-			return createGoogle({ apiKey: c.apiKey, baseURL: c.baseUrl })(c.model);
+			return createGoogle({ apiKey: c.apiKey, baseURL: c.baseUrl })(modelId);
 		case "openai-compatible":
 			return createOpenAICompatible({
 				name: "openai-compatible",
 				baseURL: c.baseUrl ?? "",
 				apiKey: c.apiKey,
-			})(c.model);
+			})(modelId);
 	}
+}
+
+/** The model used for whole-book preprocessing, or null when AI is disabled. */
+export function getPreprocessModel(ai: AiRuntime): LanguageModel | null {
+	return ai.preprocessModel;
 }

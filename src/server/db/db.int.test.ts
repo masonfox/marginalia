@@ -35,9 +35,12 @@ describe("database", () => {
 			"messages",
 			"note_refs",
 			"passages",
+			"preprocess_runs",
 			"sections",
 			"sessions",
 			"toc_entries",
+			"unit_observations",
+			"unit_summaries",
 		]);
 		// The generated tsvector column uses each passage's own search config.
 		const ed = await pool.query(

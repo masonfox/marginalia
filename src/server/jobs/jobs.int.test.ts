@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pino } from "pino";
 import { afterEach, describe, expect, it } from "vitest";
 import { createEmptyDatabase } from "../../../test/db";
@@ -199,6 +200,98 @@ describe("job runtime", () => {
 		expect(
 			await runtime.enqueue("library.ingest", { sha256: sha(7) }),
 		).toBeTruthy();
+	});
+
+	it("reports a pending job per key: queued with no worker, then active, then none", async () => {
+		const url = await createEmptyDatabase();
+		const editionId = randomUUID();
+		const web = await start(url, {}, { worker: false });
+		expect(await web.pendingJob("analysis.preprocess", { editionId })).toBe(
+			null,
+		);
+		expect(
+			await web.enqueue("analysis.preprocess", { editionId }),
+		).toBeTruthy();
+		expect(await web.pendingJob("analysis.preprocess", { editionId })).toBe(
+			"queued",
+		);
+		// A duplicate enqueue is refused but the accepted job stays visible.
+		expect(await web.enqueue("analysis.preprocess", { editionId })).toBeNull();
+		expect(await web.pendingJob("analysis.preprocess", { editionId })).toBe(
+			"queued",
+		);
+		expect(
+			await web.pendingJob("analysis.preprocess", { editionId: randomUUID() }),
+		).toBe(null);
+
+		let release!: () => void;
+		const gate = new Promise<void>((r) => {
+			release = r;
+		});
+		await start(url, { "analysis.preprocess": () => gate });
+		await waitFor(
+			async () =>
+				(await web.pendingJob("analysis.preprocess", { editionId })) ===
+				"active",
+			{ what: "job to become active" },
+		);
+		release();
+		await waitFor(
+			async () =>
+				(await web.pendingJob("analysis.preprocess", { editionId })) === null,
+			{ what: "job to finish" },
+		);
+	});
+
+	it("cancels a queued job, and a running one aborts its handler without retrying", async () => {
+		const url = await createEmptyDatabase();
+		const editionId = randomUUID();
+		const web = await start(url, {}, { worker: false });
+		expect(await web.cancelJob("analysis.preprocess", { editionId })).toEqual(
+			[],
+		);
+		const queued = await web.enqueue("analysis.preprocess", { editionId });
+		expect(await web.cancelJob("analysis.preprocess", { editionId })).toEqual([
+			queued,
+		]);
+		expect(await web.pendingJob("analysis.preprocess", { editionId })).toBe(
+			null,
+		);
+
+		let calls = 0;
+		let aborted = false;
+		await start(
+			url,
+			{
+				"analysis.preprocess": (_p, ctx) => {
+					calls++;
+					return new Promise<void>((_resolve, reject) => {
+						ctx.signal.addEventListener("abort", () => {
+							aborted = true;
+							reject(ctx.signal.reason);
+						});
+					});
+				},
+			},
+			{ heartbeatRefreshSeconds: 0.5 },
+		);
+		const running = await web.enqueue("analysis.preprocess", { editionId });
+		await waitFor(
+			async () =>
+				(await web.pendingJob("analysis.preprocess", { editionId })) ===
+				"active",
+			{ what: "job to become active" },
+		);
+		expect(await web.cancelJob("analysis.preprocess", { editionId })).toEqual([
+			running,
+		]);
+		await waitFor(async () => aborted, { what: "handler signal to abort" });
+		expect(await web.pendingJob("analysis.preprocess", { editionId })).toBe(
+			null,
+		);
+		// Past the retry delay, the cancelled job has not run again.
+		await sleep(2_000);
+		expect(calls).toBe(1);
 	});
 
 	it("enqueues but does not process jobs when the worker is disabled", async () => {

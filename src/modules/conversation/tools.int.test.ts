@@ -1,4 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import {
+	getBookMap,
+	markDerivedStale,
+	saveUnitResult,
+} from "#/modules/analysis";
 import { ingestEdition } from "#/modules/catalog";
 import { parseEpub } from "#/modules/epub";
 import { createRetrieval } from "#/modules/retrieval";
@@ -19,7 +24,8 @@ import {
 	searchBooks,
 	type ToolDeps,
 } from ".";
-import { readSection } from "./tools";
+import { buildBookMapMessage } from "./prompt";
+import { lookupObservations, readSection } from "./tools";
 
 let t: TestDb;
 let dataDir: string;
@@ -136,6 +142,148 @@ describe("searchBooks", () => {
 		const dflt = await searchBooks(unbounded, { query: "lantern" });
 		if (dflt.status !== "ok") throw new Error("expected ok");
 		expect(dflt.count).toBe(LIMITS.defaultSearchResults);
+	});
+});
+
+describe("preprocessed conversation guidance", () => {
+	beforeAll(async () => {
+		for (const unitOrdinal of [0, 1, 2]) {
+			await t.db.transaction((tx) =>
+				saveUnitResult(tx, alpha.editionId, {
+					unitOrdinal,
+					unitLabel: `Chapter ${unitOrdinal + 1}`,
+					endPosition: (unitOrdinal + 1) * 20,
+					summary: `Lantern summary ${unitOrdinal + 1}.`,
+					summaryCitations: [],
+					observations: [
+						{
+							name: "Lantern",
+							kind: "object",
+							note: `Lantern note ${unitOrdinal + 1}.`,
+							citations: [
+								{
+									locator: `${alpha.shortId}:v1:${unitOrdinal}.0`,
+									quote: "The lantern",
+									verified: unitOrdinal === 0,
+								},
+							],
+						},
+					],
+					model: "mock",
+				}),
+			);
+		}
+	});
+
+	it("loads a scope-limited map, including no unit when the bound is inside it", async () => {
+		const boundedBook = { ...alpha, maxPosition: 40, scopeLabel: "Chapter 2" };
+		const map = buildBookMapMessage([boundedBook], {
+			b1: await getBookMap(t.db, alpha.editionId, 40),
+		});
+		expect(map).toContain("Chapter 2: Lantern summary 2.");
+		expect(map).not.toContain("Lantern summary 3");
+		expect(
+			buildBookMapMessage([boundedBook], {
+				b1: await getBookMap(t.db, alpha.editionId, 40),
+			}),
+		).toBe(map);
+		expect(await getBookMap(t.db, alpha.editionId, 19)).toEqual([]);
+	});
+
+	it("looks up only observations within the book's bound, in reading order", async () => {
+		const bounded = { ...deps, books: [{ ...alpha, maxPosition: 40 }] };
+		const r = await lookupObservations(bounded, {
+			book: "b1",
+			name: "lantern",
+		});
+		if (r.status !== "ok") throw new Error("expected ok");
+		expect(r.results.map((o) => o.unitLabel)).toEqual([
+			"Chapter 1",
+			"Chapter 2",
+		]);
+		expect(r.results.map((o) => o.citations[0]?.verified)).toEqual([
+			true,
+			false,
+		]);
+		expect(JSON.stringify(r)).not.toContain("Lantern note 3");
+		expect(r.message).toContain("guide, not evidence");
+		const whole = await lookupObservations(
+			{ ...deps, books: [{ ...alpha, maxPosition: null }] },
+			{ book: "b1", name: "lantern", limit: 1 },
+		);
+		expect(whole).toMatchObject({ status: "ok", count: 1, truncated: true });
+	});
+
+	it("rejects other books and distinguishes unavailable from a name not found", async () => {
+		expect(
+			await lookupObservations(deps, { book: "b9", name: "Lantern" }),
+		).toMatchObject({ status: "unknown_book" });
+		expect(
+			await lookupObservations(deps, { book: "b2", name: "Lantern" }),
+		).toMatchObject({ status: "unavailable" });
+		expect(
+			await lookupObservations(
+				{ ...deps, books: [{ ...alpha, maxPosition: 20 }] },
+				{ book: "b1", name: "Nobody" },
+			),
+		).toMatchObject({
+			status: "not_found",
+			message: expect.stringContaining("Search the text"),
+		});
+		expect(
+			await lookupObservations(deps, { book: "b1", name: "Lantern" }),
+		).toMatchObject({ status: "not_found" });
+	});
+
+	it("caps large notes, citation lists, and serialized observation results", async () => {
+		await t.db.transaction((tx) =>
+			saveUnitResult(tx, alpha.editionId, {
+				unitOrdinal: 3,
+				unitLabel: "Chapter 4",
+				endPosition: 80,
+				summary: "Long observations.",
+				summaryCitations: [],
+				model: "mock",
+				observations: Array.from({ length: 30 }, () => ({
+					name: "Large",
+					kind: "motif" as const,
+					note: "x".repeat(2000),
+					citations: Array.from({ length: 10 }, () => ({
+						locator: "locator",
+						quote: "q".repeat(2000),
+						verified: false,
+					})),
+				})),
+			}),
+		);
+		const r = await lookupObservations(
+			{ ...deps, books: [{ ...alpha, maxPosition: null }] },
+			{ book: "b1", name: "Large", limit: 500 },
+		);
+		if (r.status !== "ok") throw new Error("expected ok");
+		expect(r.count).toBeGreaterThan(0);
+		expect(r.count).toBeLessThanOrEqual(LIMITS.observations);
+		expect(r.truncated).toBe(true);
+		expect(JSON.stringify(r.results).length).toBeLessThanOrEqual(
+			LIMITS.resultChars + r.count + 1,
+		);
+		expect(
+			r.results.every(
+				(o) =>
+					o.note.length <= LIMITS.observationChars &&
+					o.citations.length <= LIMITS.observationCitations,
+			),
+		).toBe(true);
+	});
+
+	it("omits maps and reports observations unavailable after preprocessing goes stale", async () => {
+		await t.db.transaction((tx) => markDerivedStale(tx, alpha.editionId));
+		const map = await getBookMap(t.db, alpha.editionId, null);
+		expect(map).toEqual([]);
+		expect(buildBookMapMessage([alpha], { b1: map })).toBeNull();
+		expect(
+			await lookupObservations(deps, { book: "b1", name: "Lantern" }),
+		).toMatchObject({ status: "unavailable" });
 	});
 });
 

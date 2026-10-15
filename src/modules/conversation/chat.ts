@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-	APICallError,
 	convertToModelMessages,
 	createUIMessageStream,
 	createUIMessageStreamResponse,
@@ -23,13 +22,18 @@ import {
 	replyContextSchema,
 	type StoredReplyContext,
 } from "#/lib/reply-context";
-import type { AiRuntime } from "#/modules/ai";
+import { type AiRuntime, describeError } from "#/modules/ai";
+import { getBookMap } from "#/modules/analysis";
 import { createRetrieval } from "#/modules/retrieval";
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
 import type { Database } from "#/server/db";
 import type { Logger } from "#/server/logger";
 import { checkPassageRef, type PassageRefInvalid } from "./passage-ref";
-import { buildSystemPrompt, PROMPT_VERSION } from "./prompt";
+import {
+	buildBookMapMessage,
+	buildSystemPrompt,
+	PROMPT_VERSION,
+} from "./prompt";
 import {
 	appendMessage,
 	type ConversationDetail,
@@ -38,7 +42,7 @@ import {
 	setProvisionalTitle,
 } from "./repository";
 import { type CitationRecord, type Json, messages } from "./schema";
-import { createConversationTools } from "./tools";
+import { bookHandle, createConversationTools } from "./tools";
 import { verifyCitations } from "./verify";
 
 /** The UI message shape: text and tool parts plus a data part carrying verified citations. */
@@ -219,15 +223,29 @@ function generate(
 	const stream = createUIMessageStream<ChatUIMessage>({
 		onError: describeError,
 		execute: async ({ writer }) => {
+			// Load once per turn; stored summaries and scope alone determine the cached prefix.
+			const bookMaps = Object.fromEntries(
+				await Promise.all(
+					conversation.books.map(async (book) => [
+						bookHandle(book),
+						await getBookMap(db, book.editionId, book.maxPosition),
+					]),
+				),
+			);
+			// Untrusted derived data goes in a message after the instructions, never in them.
+			const map = buildBookMapMessage(conversation.books, bookMaps);
 			const result = streamText({
 				// `model` is non-null: startChat checked.
 				model: ai.model as NonNullable<AiRuntime["model"]>,
 				system: buildSystemPrompt(conversation.books, {
 					maxSteps: ai.maxSteps,
 				}),
-				messages: await convertToModelMessages(history.map(toUIMessage), {
-					tools,
-				}),
+				messages: [
+					...(map === null ? [] : [{ role: "user" as const, content: map }]),
+					...(await convertToModelMessages(history.map(toUIMessage), {
+						tools,
+					})),
+				],
 				tools,
 				stopWhen: stepCountIs(ai.maxSteps),
 				// The last step must answer. "none" keeps the tool definitions, so the cached prefix holds.
@@ -356,24 +374,4 @@ function replayableParts(parts: unknown[]): ChatUIMessage["parts"] {
 }
 
 /** A reader-safe message for a stream error. Never includes credentials. */
-export function describeError(error: unknown): string {
-	if (APICallError.isInstance(error)) {
-		const status = error.statusCode ? ` (HTTP ${error.statusCode})` : "";
-		const hint =
-			error.statusCode === 401 || error.statusCode === 403
-				? " Check AI_API_KEY and that the key may use this model."
-				: "";
-		return redact(
-			`The AI provider returned an error${status}: ${error.message}.${hint}`,
-		);
-	}
-	if (error instanceof Error) return redact(error.message);
-	return "The AI provider failed.";
-}
-
-/** Truncates and masks anything shaped like an API key, in case a provider echoes one. */
-function redact(message: string): string {
-	return message
-		.replace(/(?<![A-Za-z0-9])(sk|key|AIza)[-_A-Za-z0-9]{12,}/g, "[redacted]")
-		.slice(0, 500);
-}
+export { describeError };

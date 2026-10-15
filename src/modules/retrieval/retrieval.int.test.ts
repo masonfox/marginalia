@@ -259,6 +259,8 @@ describe("search", () => {
 			config: {} as never,
 			log: silentLog,
 			enqueue: async () => null,
+			pendingJob: async () => null,
+			cancelJob: async () => [],
 			ai: {} as never,
 			access: {} as never,
 		});

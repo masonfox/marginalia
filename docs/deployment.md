@@ -55,6 +55,8 @@ All configuration comes from environment variables. They are validated at startu
 | `AI_EFFORT` | *(unset)* | Reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. Unset uses the model's default. A level the model does not support is adjusted or dropped by the provider library, with a logged warning, not an error. See [controlling cost](#choosing-a-model-and-controlling-cost). |
 | `AI_PROMPT_CACHE` | `true` | Ask the provider to cache the unchanged start of each request (Anthropic). Set `false` to turn it off. OpenAI and Google cache on their own and ignore this. |
 | `AI_PRICES` | *(unset)* | Price overrides for the cost estimates shown in conversations, as JSON in USD per million tokens: `{"my-model": {"input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75}}`. `cacheRead` and `cacheWrite` are optional and default to the input price. Entries add to or replace the built-in Anthropic prices. |
+| `AI_PREPROCESS_MODEL` | `AI_MODEL` | The model used for book preprocessing. A cheaper model is usually enough. Requires `AI_PROVIDER`. See [book preprocessing](#book-preprocessing). |
+| `AI_PREPROCESS_AUTO` | `false` | Preprocess each book automatically after import. Off by default because it sends whole books to the provider and costs money. Requires `AI_PROVIDER`. |
 | `MARGINALIA_MIGRATIONS_DIR` | `/app/drizzle` (in the image) | Location of the database migrations. Only change this if you build your own image layout. |
 | `NODE_ENV` | `production` (in the image) | Runtime mode. Leave as is. |
 
@@ -241,3 +243,11 @@ Imports run inside the web container by default. To move them into their own con
 ## Health checks
 
 `GET /api/health` is open without a login. It returns `200` when the database is reachable and `503` when it is not. The image's Docker `HEALTHCHECK` uses it.
+
+## Book preprocessing
+
+Preprocessing reads a whole book once, unit by unit, and stores a short summary and notes (characters, places, terms) for each unit. Conversations then get a map of the book and a lookup tool, limited to the reader's position so it never reveals later text.
+
+- **Privacy:** preprocessing sends the full text of the book to your AI provider, not only passages. Use a local `openai-compatible` endpoint if that is not acceptable.
+- **Cost:** it is one-time per book, billed as the input of the whole book plus a small output per unit, so a typical novel costs roughly the price of reading it once with your model. Spend is shown on the book page and is an estimate (see above). Re-importing a changed file regenerates it.
+- **Recommendations:** set `AI_PREPROCESS_MODEL` to a cheaper model, try one book manually from its page to check the cost, and enable `AI_PREPROCESS_AUTO` only once you are comfortable with it.

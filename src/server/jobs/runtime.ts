@@ -1,6 +1,8 @@
 import { type Job, PgBoss } from "pg-boss";
+import { maskSecrets, redactSecrets } from "#/modules/ai";
 import type { Logger } from "../logger";
 import {
+	type CancelJob,
 	type Enqueue,
 	type JobConfig,
 	type JobHandler,
@@ -9,6 +11,7 @@ import {
 	jobKindNames,
 	jobKinds,
 	NonRetryableError,
+	type PendingJob,
 } from "./kinds";
 
 export interface RetryPolicy {
@@ -30,16 +33,32 @@ export interface JobRuntimeOptions {
 	retry?: Partial<RetryPolicy>;
 	/** Seconds between polls when idle. */
 	pollingIntervalSeconds?: number;
+	/** Seconds between a running job's claim checks, so how soon a cancelled job aborts. */
+	heartbeatRefreshSeconds?: number;
 	/** How often due schedules are checked, in seconds (pg-boss default 30). */
 	cronIntervalSeconds?: number;
 	schema?: string;
 }
 
 const defaultRetry: RetryPolicy = { retryDelay: 5, retryDelayMax: 300 };
+/** Jobs per findJobs page when scanning a key's history. */
+const FIND_PAGE = 1000;
+/** Scans of a key's history before a vanished page anchor is rethrown. */
+const FIND_ATTEMPTS = 3;
 
 /** Every `minutes` minutes, or null when 0 disables the schedule. */
 export function everyMinutes(minutes: number): string | null {
 	return minutes > 0 ? `FREQ=MINUTELY;INTERVAL=${minutes}` : null;
+}
+
+/** What is logged of a failed job's error: no cause or provider fields, secrets masked. */
+function maskedError(err: unknown) {
+	if (!(err instanceof Error)) return { message: maskSecrets(String(err)) };
+	return {
+		type: err.name,
+		message: maskSecrets(err.message),
+		stack: err.stack && maskSecrets(err.stack),
+	};
 }
 
 export class JobRuntime {
@@ -121,6 +140,7 @@ export class JobRuntime {
 				batchSize: 1,
 				localConcurrency: def.concurrency(options.config),
 				pollingIntervalSeconds: options.pollingIntervalSeconds ?? 2,
+				heartbeatRefreshSeconds: options.heartbeatRefreshSeconds ?? 5,
 				includeMetadata: true,
 				perJobResults: true,
 			},
@@ -155,9 +175,11 @@ export class JobRuntime {
 			log.debug("job completed");
 			return { id: job.id, status: "completed" as const };
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+			const message = redactSecrets(
+				err instanceof Error ? err.message : String(err),
+			);
 			const nonRetryable = err instanceof NonRetryableError;
-			log.warn({ err, nonRetryable }, "job failed");
+			log.warn({ err: maskedError(err), nonRetryable }, "job failed");
 			return {
 				id: job.id,
 				status: nonRetryable ? ("deadletter" as const) : ("failed" as const),
@@ -171,6 +193,62 @@ export class JobRuntime {
 		const parsed = def.payload.parse(payload);
 		const key = (def.key as (p: unknown) => string)(parsed);
 		return this.boss.send(kind, parsed, { singletonKey: key });
+	};
+
+	/**
+	 * Created, retrying and active jobs for the payload's key. Pages through the
+	 * key's whole history, which keeps finished jobs until maintenance deletes
+	 * them; if maintenance deletes a page's anchor mid-scan, the scan restarts.
+	 */
+	private async liveJobs(kind: JobKind, payload: unknown) {
+		const def = jobKinds[kind];
+		const key = (def.key as (p: unknown) => string)(def.payload.parse(payload));
+		for (let attempt = 1; ; attempt++) {
+			const live: { id: string; state: string }[] = [];
+			let after: string | undefined;
+			try {
+				for (;;) {
+					const page = await this.boss.findJobs(kind, {
+						key,
+						after,
+						limit: FIND_PAGE,
+					});
+					live.push(
+						...page.filter(
+							(j) =>
+								j.state === "created" ||
+								j.state === "retry" ||
+								j.state === "active",
+						),
+					);
+					if (page.length < FIND_PAGE) return live;
+					after = page[page.length - 1]?.id;
+				}
+			} catch (err) {
+				const anchorGone =
+					after !== undefined &&
+					err instanceof Error &&
+					err.message.includes("no longer exists");
+				if (!anchorGone || attempt >= FIND_ATTEMPTS) throw err;
+			}
+		}
+	}
+
+	pendingJob: PendingJob = async (kind, payload) => {
+		const jobs = await this.liveJobs(kind, payload);
+		if (jobs.some((j) => j.state === "active")) return "active";
+		if (jobs.length > 0) return "queued";
+		return null;
+	};
+
+	cancelJob: CancelJob = async (kind, payload) => {
+		const ids = (await this.liveJobs(kind, payload)).map((j) => j.id);
+		if (ids.length === 0) return [];
+		// pg-boss returns the cancelled ids as `settled` but types the response as an empty interface.
+		const result = (await this.boss.cancel(kind, ids)) as {
+			settled?: string[];
+		};
+		return result.settled ?? [];
 	};
 
 	/** Stops polling and waits up to `timeoutMs` for running jobs to finish. */

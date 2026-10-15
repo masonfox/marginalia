@@ -66,6 +66,11 @@ export async function replaceEditionStructure(
 		.where(eq(editions.id, edition.id))
 		.for("update");
 	if (!live) return false;
+	// Fences derived work (preprocessing) computed from the previous structure.
+	await tx
+		.update(editions)
+		.set({ structureGeneration: sql`${editions.structureGeneration} + 1` })
+		.where(eq(editions.id, edition.id));
 	const batchSize = options.batchSize ?? 2000;
 	const locatorOf = (p: { spineIndex: number; blockIndex: number }) =>
 		formatLocator({

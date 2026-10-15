@@ -1,0 +1,1 @@
+ALTER TABLE "preprocess_runs" ADD COLUMN "cancelled_job_ids" uuid[] DEFAULT '{}' NOT NULL;
