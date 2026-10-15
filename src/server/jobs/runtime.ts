@@ -40,6 +40,10 @@ export interface JobRuntimeOptions {
 }
 
 const defaultRetry: RetryPolicy = { retryDelay: 5, retryDelayMax: 300 };
+/** Jobs per findJobs page when scanning a key's history. */
+const FIND_PAGE = 1000;
+/** Scans of a key's history before a vanished page anchor is rethrown. */
+const FIND_ATTEMPTS = 3;
 
 /** Every `minutes` minutes, or null when 0 disables the schedule. */
 export function everyMinutes(minutes: number): string | null {
@@ -178,25 +182,54 @@ export class JobRuntime {
 		return this.boss.send(kind, parsed, { singletonKey: key });
 	};
 
-	pendingJob: PendingJob = async (kind, payload) => {
+	/**
+	 * Created, retrying and active jobs for the payload's key. Pages through the
+	 * key's whole history, which keeps finished jobs until maintenance deletes
+	 * them; if maintenance deletes a page's anchor mid-scan, the scan restarts.
+	 */
+	private async liveJobs(kind: JobKind, payload: unknown) {
 		const def = jobKinds[kind];
 		const key = (def.key as (p: unknown) => string)(def.payload.parse(payload));
-		const jobs = await this.boss.findJobs(kind, { key });
+		for (let attempt = 1; ; attempt++) {
+			const live: { id: string; state: string }[] = [];
+			let after: string | undefined;
+			try {
+				for (;;) {
+					const page = await this.boss.findJobs(kind, {
+						key,
+						after,
+						limit: FIND_PAGE,
+					});
+					live.push(
+						...page.filter(
+							(j) =>
+								j.state === "created" ||
+								j.state === "retry" ||
+								j.state === "active",
+						),
+					);
+					if (page.length < FIND_PAGE) return live;
+					after = page[page.length - 1]?.id;
+				}
+			} catch (err) {
+				const anchorGone =
+					after !== undefined &&
+					err instanceof Error &&
+					err.message.includes("no longer exists");
+				if (!anchorGone || attempt >= FIND_ATTEMPTS) throw err;
+			}
+		}
+	}
+
+	pendingJob: PendingJob = async (kind, payload) => {
+		const jobs = await this.liveJobs(kind, payload);
 		if (jobs.some((j) => j.state === "active")) return "active";
-		if (jobs.some((j) => j.state === "created" || j.state === "retry"))
-			return "queued";
+		if (jobs.length > 0) return "queued";
 		return null;
 	};
 
 	cancelJob: CancelJob = async (kind, payload) => {
-		const def = jobKinds[kind];
-		const key = (def.key as (p: unknown) => string)(def.payload.parse(payload));
-		const ids = (await this.boss.findJobs(kind, { key }))
-			.filter(
-				(j) =>
-					j.state === "created" || j.state === "retry" || j.state === "active",
-			)
-			.map((j) => j.id);
+		const ids = (await this.liveJobs(kind, payload)).map((j) => j.id);
 		if (ids.length === 0) return false;
 		// pg-boss returns { affected } but types the response as an empty interface.
 		const result = (await this.boss.cancel(kind, ids)) as {
