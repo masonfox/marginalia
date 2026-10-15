@@ -350,12 +350,13 @@ function ConversationPage() {
 					<DeleteConversation
 						conversationId={conversationId}
 						title={conversation.title}
-						onDeleted={() =>
-							router.navigate({
+						onDeleted={() => {
+							composer.clear();
+							return router.navigate({
 								to: "/books/$editionId/conversations",
 								params: { editionId: conversation.books[0]?.editionId ?? "" },
-							})
-						}
+							});
+						}}
 					/>
 				</div>
 			</header>
