@@ -1,18 +1,22 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
 	type DerivedCitation,
 	getPreprocessStatus,
 	hasCurrentPreprocessing,
 } from "#/modules/analysis";
+import { passages } from "#/modules/catalog";
 import { editions } from "#/modules/library";
 import type { Executor } from "#/server/db";
+import { listCorrections } from "./corrections";
 import {
 	getReadingPosition,
 	type PositionChoice,
 	type ReadingPosition,
 } from "./position";
 import {
+	type CorrectionMark,
 	type GuideSubjectEntry,
+	getMergedObservations,
 	getMergedSummaries,
 	getSubjectTimeline,
 	getUnitAnchors,
@@ -21,6 +25,7 @@ import {
 	type SubjectTimeline,
 	type UnitAnchors,
 } from "./queries";
+import type { CorrectionAction, CorrectionTarget } from "./schema";
 import type { MergeProposal } from "./subjects";
 
 /** The bound a Guide visit reads at: a reading unit by its end position, or the whole book. */
@@ -107,17 +112,31 @@ export interface GuideChapter {
 	label: string;
 	locator: string;
 	endPosition: number;
-	summary: { text: string; citations: DerivedCitation[] } | null;
+	summary: {
+		text: string;
+		citations: DerivedCitation[];
+		/**
+		 * The reader's correction, or null. A summary the reader suppressed
+		 * keeps its generated text here, for "show hidden" and restore.
+		 */
+		correction: CorrectionMark | null;
+	} | null;
 }
 
-/** Every reading unit ending at or before the bound, in reading order, with its merged summary. */
+/**
+ * Every reading unit ending at or before the bound, in reading order, with
+ * its merged summary. Suppressed summaries are included, marked, so the
+ * Guide can list them behind "show hidden".
+ */
 export async function getGuideChapters(
 	db: Executor,
 	editionId: string,
 	choice: GuideBoundChoice,
 ): Promise<GuideResult<{ chapters: GuideChapter[] }>> {
 	return atBound(db, editionId, choice, async ({ bound, anchors }) => {
-		const summaries = await getMergedSummaries(db, editionId, bound, anchors);
+		const summaries = await getMergedSummaries(db, editionId, bound, anchors, {
+			includeHidden: true,
+		});
 		const byOrdinal = new Map(summaries.map((s) => [s.unitOrdinal, s]));
 		const chapters = anchors.units
 			.filter((u) => bound === null || u.endPosition <= bound)
@@ -128,21 +147,30 @@ export async function getGuideChapters(
 					label: u.label,
 					locator: u.startLocator,
 					endPosition: u.endPosition,
-					summary: s ? { text: s.summary, citations: s.citations } : null,
+					summary: s
+						? {
+								text: s.summary,
+								citations: s.citations,
+								correction: s.correction,
+							}
+						: null,
 				};
 			});
 		return { chapters };
 	});
 }
 
-/** The Index at the bound. */
+/** The Index at the bound; with `includeHidden`, subjects the reader suppressed entirely too. */
 export async function listGuideSubjects(
 	db: Executor,
 	editionId: string,
 	choice: GuideBoundChoice,
+	{ includeHidden = false }: { includeHidden?: boolean } = {},
 ): Promise<GuideResult<{ subjects: GuideSubjectEntry[] }>> {
 	return atBound(db, editionId, choice, async ({ bound, anchors }) => ({
-		subjects: await listSubjects(db, editionId, bound, anchors),
+		subjects: await listSubjects(db, editionId, bound, anchors, {
+			includeHidden,
+		}),
 	}));
 }
 
@@ -157,7 +185,11 @@ export async function listGuideProposals(
 	}));
 }
 
-/** A subject's timeline at the bound; `subject` is null when it has nothing within the bound. */
+/**
+ * A subject's timeline at the bound; `subject` is null when it has nothing
+ * within the bound. Suppressed observations are included, marked, for
+ * "show hidden".
+ */
 export async function getGuideSubject(
 	db: Executor,
 	editionId: string,
@@ -165,7 +197,9 @@ export async function getGuideSubject(
 	ref: string,
 ): Promise<GuideResult<{ subject: SubjectTimeline | null }>> {
 	return atBound(db, editionId, choice, async ({ bound, anchors }) => ({
-		subject: await getSubjectTimeline(db, editionId, ref, bound, anchors),
+		subject: await getSubjectTimeline(db, editionId, ref, bound, anchors, {
+			includeHidden: true,
+		}),
 	}));
 }
 
@@ -190,7 +224,8 @@ export async function getGuideProvenance(
 ): Promise<GuideResult<{ provenance: GuideProvenance }>> {
 	return atBound(db, editionId, choice, async ({ bound, anchors }) => {
 		const [all, status] = await Promise.all([
-			getMergedSummaries(db, editionId, null, anchors),
+			// A summary the reader suppressed was still generated.
+			getMergedSummaries(db, editionId, null, anchors, { includeHidden: true }),
 			getPreprocessStatus(db, editionId),
 		]);
 		const shown = all.filter((s) => bound === null || s.endPosition <= bound);
@@ -209,5 +244,122 @@ export async function getGuideProvenance(
 							: "current",
 			},
 		};
+	});
+}
+
+/** A correction whose machine row was regenerated since: the reader keeps or drops it. */
+export interface RegeneratedCorrection {
+	id: number;
+	target: CorrectionTarget;
+	action: CorrectionAction;
+	unitLabel: string;
+	unitLocator: string;
+	/** The observed name, for an observation; null for a summary. */
+	name: string | null;
+	nameKey: string | null;
+	/** The reader's text; null when they suppressed the row. */
+	text: string | null;
+	/** The regenerated machine text. */
+	generated: string;
+}
+
+/** A correction that applies nowhere since a reparse moved its unit's boundary. */
+export interface DetachedCorrection {
+	id: number;
+	target: CorrectionTarget;
+	action: CorrectionAction;
+	nameKey: string | null;
+	text: string | null;
+	/** The current unit holding the passage it was anchored to; null when none does. */
+	unitLabel: string | null;
+}
+
+export interface CorrectionReview {
+	regenerated: RegeneratedCorrection[];
+	detached: DetachedCorrection[];
+}
+
+/**
+ * The reader's corrections that need review at the bound: those whose
+ * machine row was regenerated since, and those a reparse detached. Both are
+ * bounded like what they correct: a detached correction is listed once the
+ * unit now holding its anchor passage ends within the bound, and only for
+ * the whole book when no current unit holds it.
+ */
+export async function getCorrectionReview(
+	db: Executor,
+	editionId: string,
+	choice: GuideBoundChoice,
+): Promise<GuideResult<{ review: CorrectionReview }>> {
+	return atBound(db, editionId, choice, async ({ bound, anchors }) => {
+		const hidden = { includeHidden: true };
+		const [summaries, observations, all] = await Promise.all([
+			getMergedSummaries(db, editionId, bound, anchors, hidden),
+			getMergedObservations(db, editionId, bound, anchors, undefined, hidden),
+			listCorrections(db, editionId),
+		]);
+		const texts = new Map(all.map((c) => [c.id, c.text]));
+		const regenerated: RegeneratedCorrection[] = [];
+		const seen = new Set<number>();
+		const flag = (
+			row: { unitLabel: string; unitLocator: string },
+			c: CorrectionMark | null,
+			observed: { name: string; nameKey: string } | null,
+		) => {
+			if (!c?.regeneratedSince || seen.has(c.id)) return;
+			seen.add(c.id);
+			regenerated.push({
+				id: c.id,
+				target: observed ? "observation" : "summary",
+				action: c.action,
+				unitLabel: row.unitLabel,
+				unitLocator: row.unitLocator,
+				name: observed?.name ?? null,
+				nameKey: observed?.nameKey ?? null,
+				text: texts.get(c.id) ?? null,
+				generated: c.generated,
+			});
+		};
+		for (const s of summaries) flag(s, s.correction, null);
+		for (const o of observations) flag(o, o.correction, o);
+
+		const detachedRows = all.filter((c) => c.detached);
+		const located =
+			detachedRows.length === 0
+				? []
+				: await db
+						.select({ locator: passages.locator, position: passages.position })
+						.from(passages)
+						.where(
+							and(
+								eq(passages.editionId, editionId),
+								inArray(
+									passages.locator,
+									detachedRows.map((c) => c.unitLocator),
+								),
+							),
+						);
+		const positionOf = new Map(located.map((p) => [p.locator, p.position]));
+		const detached = detachedRows.flatMap((c) => {
+			const position = positionOf.get(c.unitLocator) ?? null;
+			const unit =
+				position === null
+					? undefined
+					: anchors.units.find(
+							(u) => u.startPosition <= position && position <= u.endPosition,
+						);
+			if (bound !== null && (!unit || unit.endPosition > bound)) return [];
+			return [
+				{
+					id: c.id,
+					target: c.target,
+					action: c.action,
+					nameKey: c.nameKey,
+					text: c.text,
+					unitLabel: unit?.label ?? null,
+				},
+			];
+		});
+		return { review: { regenerated, detached } };
 	});
 }

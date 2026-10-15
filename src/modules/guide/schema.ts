@@ -7,6 +7,7 @@ import {
 	check,
 	index,
 	integer,
+	jsonb,
 	pgTable,
 	primaryKey,
 	serial,
@@ -15,7 +16,7 @@ import {
 	uniqueIndex,
 	uuid,
 } from "drizzle-orm/pg-core";
-import { OBSERVATION_KINDS } from "#/modules/analysis";
+import { type DerivedCitation, OBSERVATION_KINDS } from "#/modules/analysis";
 import { editions } from "#/modules/library";
 
 /**
@@ -144,4 +145,62 @@ export const guideGlossExclusions = pgTable(
 		nameKey: text("name_key").notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.editionId, t.nameKey] })],
+);
+
+export const CORRECTION_TARGETS = ["summary", "observation"] as const;
+export type CorrectionTarget = (typeof CORRECTION_TARGETS)[number];
+export const CORRECTION_ACTIONS = ["replace", "suppress"] as const;
+export type CorrectionAction = (typeof CORRECTION_ACTIONS)[number];
+
+/**
+ * A reader's correction of a machine summary or observation (design D3, D5).
+ * Keyed by the unit's anchor (the locator of its first passage) and, for an
+ * observation, the observed name key, never by machine row id, so it
+ * reapplies after regeneration and follows its text through a reparse. A
+ * correction applies only where a current machine row matches it.
+ */
+export const guideCorrections = pgTable(
+	"guide_corrections",
+	{
+		id: serial("id").primaryKey(),
+		editionId: uuid("edition_id")
+			.notNull()
+			.references(() => editions.id, { onDelete: "cascade" }),
+		target: text("target", { enum: CORRECTION_TARGETS }).notNull(),
+		/** The corrected unit's anchor: the locator of its first passage. */
+		unitLocator: text("unit_locator").notNull(),
+		/** The observation's name key; null exactly for a summary. */
+		nameKey: text("name_key"),
+		action: text("action", { enum: CORRECTION_ACTIONS }).notNull(),
+		/** The reader's text; set exactly when the action is `replace`. */
+		text: text("text"),
+		/** The one citation the reader attached, verified against the unit's passages. */
+		citation: jsonb("citation").$type<DerivedCitation>(),
+		/** sha256 of the machine text the reader last acknowledged. */
+		fingerprint: text("fingerprint").notNull(),
+		/** Set when a reparse left the anchor starting no unit: it applies nowhere. */
+		detached: boolean("detached").notNull().default(false),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [
+		uniqueIndex("guide_corrections_key_idx").on(
+			t.editionId,
+			t.target,
+			t.unitLocator,
+			sql`coalesce(${t.nameKey}, '')`,
+		),
+		check(
+			"guide_corrections_target_check",
+			sql`${t.target} in ('summary','observation') and (${t.nameKey} is null) = (${t.target} = 'summary')`,
+		),
+		check(
+			"guide_corrections_action_check",
+			sql`${t.action} in ('replace','suppress') and (${t.text} is null) = (${t.action} = 'suppress') and (${t.citation} is null or ${t.action} = 'replace')`,
+		),
+	],
 );

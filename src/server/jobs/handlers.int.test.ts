@@ -10,9 +10,15 @@ import {
 import { getReadingUnits, ingestEdition, passages } from "#/modules/catalog";
 import { PARSER_VERSION, parseEpub } from "#/modules/epub";
 import {
+	getCorrectionReview,
+	getMergedObservations,
+	getMergedSummaries,
 	getReadingPosition,
+	getUnitAnchors,
+	guideCorrections,
 	loadSubjectLinks,
 	mergeSubjects,
+	saveCorrection,
 	setReadingPosition,
 } from "#/modules/guide";
 import { getEdition } from "#/modules/library";
@@ -249,6 +255,247 @@ describe("reparse re-anchors alias reveals", () => {
 		const gammaNow = await passageOf("Gamma.");
 		expect(gammaNow.position).toBe(gamma.position - 1);
 		expect(reveals["brawne lamia"]).toEqual(gammaNow);
+	});
+});
+
+describe("reparse re-anchors corrections", () => {
+	/** Ingests `bytes` as parsed by an older parser, edited by `old`. */
+	async function olderParse(
+		name: string,
+		bytes: Buffer,
+		old: (
+			current: Awaited<ReturnType<typeof parseEpub>>,
+		) => Awaited<ReturnType<typeof parseEpub>>,
+	) {
+		const { sha256, edition } = await addUploadedBook(
+			t.db,
+			dataDir,
+			bytes,
+			`${name}.epub`,
+		);
+		const parsed = old(await parseEpub(bytes));
+		await ingestEdition(
+			{
+				db: t.db,
+				dataDir,
+				log: silentLog,
+				parse: async () => parsed,
+				parserVersion: OLD_VERSION,
+			},
+			sha256,
+			{ finalAttempt: true },
+		);
+		return edition.id;
+	}
+
+	/** Preprocesses every current unit, with an observation of Anna in each. */
+	async function preprocess(editionId: string, prefix: string) {
+		for (const unit of await getReadingUnits(t.db, editionId)) {
+			await saveUnitResult(t.db, editionId, {
+				unitOrdinal: unit.ordinal,
+				unitLabel: unit.label,
+				endPosition: unit.endPosition,
+				summary: `${prefix} ${unit.label}`,
+				summaryCitations: [],
+				observations: [
+					{ name: "Anna", kind: "character", note: unit.label, citations: [] },
+				],
+				model: "m",
+			});
+		}
+	}
+
+	it("keeps applying to a unit whose positions shift but whose first passage survives", async () => {
+		const bytes = await buildEpub({
+			title: "reparse-correction-shift",
+			chapters: [
+				{
+					href: "ch1.xhtml",
+					title: "Chapter 1",
+					body: "<h2>Chapter 1</h2><p>Alpha.</p>",
+				},
+				{
+					href: "ch2.xhtml",
+					title: "Chapter 2",
+					body: "<h2>Chapter 2</h2><p>Beta.</p>",
+				},
+				{
+					href: "ch3.xhtml",
+					title: "Chapter 3",
+					body: "<h2>Chapter 3</h2><p>Gamma.</p>",
+				},
+			],
+		});
+		// The older parser missed Chapter 1's paragraph, so every later position shifts.
+		const editionId = await olderParse("reparse-correction-shift", bytes, (p) =>
+			reshape(p, OLD_VERSION, (ps, spine) =>
+				spine === 0 ? ps.filter((x) => x.text !== "Alpha.") : ps,
+			),
+		);
+		await preprocess(editionId, "Old");
+		const [, before] = await getReadingUnits(t.db, editionId);
+		if (!before) throw new Error("expected units");
+		for (const input of [
+			{ target: "summary", action: "replace", text: "Mine." },
+			{
+				target: "observation",
+				nameKey: "anna",
+				action: "replace",
+				text: "Anna, corrected.",
+			},
+		] as const) {
+			const saved = await saveCorrection(t.db, editionId, {
+				...input,
+				unitLocator: before.startLocator,
+			});
+			expect(saved.ok).toBe(true);
+		}
+
+		await jobHandlers()["catalog.reparse"]?.({ editionId }, ctx);
+		expect((await getEdition(t.db, editionId))?.parserVersion).toBe(
+			PARSER_VERSION,
+		);
+		const [, after] = await getReadingUnits(t.db, editionId);
+		if (!after) throw new Error("expected units");
+		expect(after.label).toBe(before.label);
+		expect(after.startPosition).toBe(before.startPosition + 1);
+		const stored = await t.db
+			.select({
+				unitLocator: guideCorrections.unitLocator,
+				detached: guideCorrections.detached,
+			})
+			.from(guideCorrections)
+			.where(eq(guideCorrections.editionId, editionId));
+		expect(stored).toEqual([
+			{ unitLocator: after.startLocator, detached: false },
+			{ unitLocator: after.startLocator, detached: false },
+		]);
+		// Regenerated on the new structure, the corrections apply to Chapter 2 again.
+		await preprocess(editionId, "New");
+		const anchors = await getUnitAnchors(t.db, editionId);
+		expect(
+			(await getMergedSummaries(t.db, editionId, null, anchors)).map(
+				(s) => s.summary,
+			),
+		).toEqual(["New Chapter 1", "Mine.", "New Chapter 3"]);
+		expect(
+			(await getMergedObservations(t.db, editionId, null, anchors)).map(
+				(o) => o.note,
+			),
+		).toEqual(["Chapter 1", "Anna, corrected.", "Chapter 3"]);
+	});
+
+	it("detaches a correction whose unit was merged into another", async () => {
+		const bytes = await buildEpub({
+			title: "reparse-correction-merge",
+			chapters: [
+				{
+					href: "ch1.xhtml",
+					title: "Chapter 1",
+					body: "<h2>Chapter 1</h2><p>Alpha.</p>",
+				},
+				{
+					href: "ch2.xhtml",
+					title: "Chapter 2",
+					body: "<h2>Chapter 2</h2><p>Beta.</p>",
+				},
+				{
+					href: "ch3.xhtml",
+					title: "Chapter 3",
+					body: "<h2>Chapter 3</h2><p>Gamma.</p><h2>Chapter 4</h2><p>Delta.</p>",
+				},
+			],
+		});
+		// The older parser made Chapter 4 a unit of its own; the current one
+		// folds it into Chapter 3.
+		const editionId = await olderParse(
+			"reparse-correction-merge",
+			bytes,
+			(p) => {
+				const old = reshape(p, OLD_VERSION, (ps) => ps);
+				const fourth = old.sections[2]?.passages.find(
+					(x) => x.text === "Chapter 4",
+				);
+				if (!fourth) throw new Error("expected Chapter 4");
+				return {
+					...old,
+					toc: [
+						...old.toc,
+						{
+							label: "Chapter 4",
+							depth: 0,
+							target: { spineIndex: 2, blockIndex: fourth.blockIndex },
+							children: [],
+						},
+					],
+				};
+			},
+		);
+		await preprocess(editionId, "Old");
+		const old = await getReadingUnits(t.db, editionId);
+		expect(old.map((u) => u.label)).toEqual([
+			"Chapter 1",
+			"Chapter 2",
+			"Chapter 3",
+			"Chapter 4",
+		]);
+		const fourth = old[3] as (typeof old)[number];
+		const third = old[2] as (typeof old)[number];
+		for (const unit of [third, fourth]) {
+			const saved = await saveCorrection(t.db, editionId, {
+				target: "summary",
+				unitLocator: unit.startLocator,
+				action: "replace",
+				text: `Mine, ${unit.label}.`,
+			});
+			expect(saved.ok).toBe(true);
+		}
+
+		await jobHandlers()["catalog.reparse"]?.({ editionId }, ctx);
+		const units = await getReadingUnits(t.db, editionId);
+		expect(units.map((u) => u.label)).toEqual([
+			"Chapter 1",
+			"Chapter 2",
+			"Chapter 3",
+		]);
+		const stored = await t.db
+			.select({
+				text: guideCorrections.text,
+				unitLocator: guideCorrections.unitLocator,
+				detached: guideCorrections.detached,
+			})
+			.from(guideCorrections)
+			.where(eq(guideCorrections.editionId, editionId))
+			.orderBy(guideCorrections.id);
+		expect(stored.map((c) => [c.text, c.detached])).toEqual([
+			["Mine, Chapter 3.", false],
+			["Mine, Chapter 4.", true],
+		]);
+		expect(stored[0]?.unitLocator).toBe(units[2]?.startLocator);
+		// Applies nowhere: Chapter 3 shows only its own correction.
+		await preprocess(editionId, "New");
+		const anchors = await getUnitAnchors(t.db, editionId);
+		expect(
+			(await getMergedSummaries(t.db, editionId, null, anchors)).map(
+				(s) => s.summary,
+			),
+		).toEqual(["New Chapter 1", "New Chapter 2", "Mine, Chapter 3."]);
+		// Listed for review once the unit now holding it is within the bound.
+		const review = await getCorrectionReview(t.db, editionId, {
+			kind: "whole",
+		});
+		expect(review.ok && review.review.detached).toEqual([
+			expect.objectContaining({
+				target: "summary",
+				text: "Mine, Chapter 4.",
+				unitLabel: "Chapter 3",
+			}),
+		]);
+		const early = await getCorrectionReview(t.db, editionId, {
+			kind: "unit",
+			endPosition: (units[1] as (typeof units)[number]).endPosition,
+		});
+		expect(early.ok && early.review.detached).toEqual([]);
 	});
 });
 

@@ -14,6 +14,7 @@ import {
 	GuideContext,
 	positionBound,
 } from "#/components/guide";
+import { CorrectionReviewPanel } from "#/components/guide-corrections";
 import {
 	type Choice,
 	ScopeChoices,
@@ -221,6 +222,7 @@ function GuideLayout() {
 							position,
 						}}
 					>
+						<CorrectionReviewPanel />
 						<Outlet />
 					</GuideContext.Provider>
 				)}

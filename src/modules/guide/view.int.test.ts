@@ -165,6 +165,7 @@ describe("Index listing", () => {
 				unitCount: 2,
 				firstPosition: u(0).endPosition,
 				firstUnitLabel: u(0).label,
+				hidden: false,
 			},
 			{
 				ref: "k:moscow",
@@ -175,6 +176,7 @@ describe("Index listing", () => {
 				unitCount: 1,
 				firstPosition: u(0).endPosition,
 				firstUnitLabel: u(0).label,
+				hidden: false,
 			},
 			{
 				ref: "k:train",
@@ -185,6 +187,7 @@ describe("Index listing", () => {
 				unitCount: 1,
 				firstPosition: u(1).endPosition,
 				firstUnitLabel: u(1).label,
+				hidden: false,
 			},
 		]);
 		expect(subjects.map((s) => s.name)).not.toContain("Vronsky");
@@ -288,6 +291,7 @@ describe("Guide reads", () => {
 					citations: [
 						{ locator: u(0).startLocator, quote: "quote 0", verified: true },
 					],
+					correction: null,
 				},
 			},
 			{

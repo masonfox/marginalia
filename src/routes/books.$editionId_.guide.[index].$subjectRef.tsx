@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
 	boundKey,
 	GuideCitations,
@@ -9,6 +9,10 @@ import {
 	KIND_LABELS,
 	useGuide,
 } from "#/components/guide";
+import {
+	CorrectionControls,
+	ShowHiddenToggle,
+} from "#/components/guide-corrections";
 import { SubjectEditor } from "#/components/guide-subjects";
 import { scopeText } from "#/components/scope";
 import { Badge } from "#/components/ui/badge";
@@ -23,6 +27,7 @@ function SubjectView() {
 	const { subjectRef } = Route.useParams();
 	const { editionId, bound, preprocessed, onStaleBound } = useGuide();
 	const navigate = useNavigate();
+	const [showHidden, setShowHidden] = useState(false);
 	const subject = useQuery({
 		queryKey: [
 			"guide",
@@ -75,6 +80,13 @@ function SubjectView() {
 			</section>
 		);
 	}
+	const hiddenCount = timeline.entries.filter(
+		(e) => e.correction?.action === "suppress",
+	).length;
+	const entries = showHidden
+		? timeline.entries
+		: timeline.entries.filter((e) => e.correction?.action !== "suppress");
+	const visibleCount = timeline.entries.length - hiddenCount;
 	return (
 		<section aria-labelledby="guide-subject">
 			{back}
@@ -85,8 +97,8 @@ function SubjectView() {
 				<Badge variant="secondary">{KIND_LABELS[timeline.kind].singular}</Badge>
 			</div>
 			<p className="mt-1 text-xs text-muted-foreground">
-				{scopeText(bound?.label ?? null)} · {timeline.entries.length}{" "}
-				observation{timeline.entries.length === 1 ? "" : "s"}
+				{scopeText(bound?.label ?? null)} · {visibleCount} observation
+				{visibleCount === 1 ? "" : "s"}
 				{timeline.names.length > 1 &&
 					` · also ${timeline.names
 						.filter((n) => n.name !== timeline.name)
@@ -103,8 +115,20 @@ function SubjectView() {
 					})
 				}
 			/>
+			<div className="mt-4 flex flex-wrap items-center gap-2">
+				<ShowHiddenToggle
+					count={hiddenCount}
+					shown={showHidden}
+					onChange={setShowHidden}
+				/>
+				{entries.length === 0 && (
+					<p className="text-sm text-muted-foreground">
+						You hid every observation of this subject.
+					</p>
+				)}
+			</div>
 			<ol className="mt-4 space-y-5 border-l pl-4">
-				{timeline.entries.map((entry, i) => (
+				{entries.map((entry, i) => (
 					<li
 						// One subject has at most a few observations per unit, in a fixed order.
 						// biome-ignore lint/suspicious/noArrayIndexKey: entries are a fixed list
@@ -126,10 +150,24 @@ function SubjectView() {
 								</span>
 							)}
 						</h3>
-						<p className="mt-1 max-w-prose text-sm leading-relaxed">
-							{entry.note}
-						</p>
-						<GuideCitations citations={entry.citations} />
+						<CorrectionControls
+							item={{
+								unitLocator: entry.unitLocator,
+								unitLabel: entry.unitLabel,
+								observation: {
+									nameKey: entry.nameKey,
+									name: entry.observedAs ?? timeline.name,
+								},
+								text: entry.note,
+								citation: entry.citations[0] ?? null,
+							}}
+							mark={entry.correction}
+						>
+							<p className="mt-1 max-w-prose text-sm leading-relaxed">
+								{entry.note}
+							</p>
+							<GuideCitations citations={entry.citations} />
+						</CorrectionControls>
 					</li>
 				))}
 			</ol>

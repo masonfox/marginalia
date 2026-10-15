@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
 	boundKey,
 	GuideCitations,
@@ -9,6 +9,10 @@ import {
 	provenanceText,
 	useGuide,
 } from "#/components/guide";
+import {
+	CorrectionControls,
+	ShowHiddenToggle,
+} from "#/components/guide-corrections";
 import { getGuideChaptersFn, getGuideProvenanceFn } from "#/fns/guide";
 
 export const Route = createFileRoute("/books/$editionId_/guide/chapters")({
@@ -18,6 +22,7 @@ export const Route = createFileRoute("/books/$editionId_/guide/chapters")({
 /** Unit summaries within the bound, in reading order. */
 function ChaptersView() {
 	const { editionId, bound, preprocessed, onStaleBound } = useGuide();
+	const [showHidden, setShowHidden] = useState(false);
 	const key = bound ? boundKey(bound) : null;
 	const chapters = useQuery({
 		queryKey: ["guide", editionId, "chapters", key],
@@ -48,17 +53,27 @@ function ChaptersView() {
 	if (chapters.isError || !chapters.data.ok)
 		return <GuideError>Could not load the chapters.</GuideError>;
 	const list = chapters.data.chapters;
+	const hiddenCount = list.filter(
+		(c) => c.summary?.correction?.action === "suppress",
+	).length;
 	return (
 		<section aria-label="Chapters">
-			{provenance.data?.ok && (
-				<p
-					className="mb-4 text-xs text-muted-foreground"
-					data-testid="guide-provenance"
-				>
-					{provenanceText(provenance.data.provenance)}. Summaries are a guide,
-					not the text.
-				</p>
-			)}
+			<div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+				{provenance.data?.ok && (
+					<p
+						className="text-xs text-muted-foreground"
+						data-testid="guide-provenance"
+					>
+						{provenanceText(provenance.data.provenance)}. Summaries are a guide,
+						not the text.
+					</p>
+				)}
+				<ShowHiddenToggle
+					count={hiddenCount}
+					shown={showHidden}
+					onChange={setShowHidden}
+				/>
+			</div>
 			{list.length === 0 ? (
 				<p className="text-sm text-muted-foreground">
 					No chapters end within this bound yet.
@@ -76,13 +91,27 @@ function ChaptersView() {
 									{chapter.label}
 								</Link>
 							</h2>
-							{chapter.summary ? (
-								<>
+							{chapter.summary?.correction?.action === "suppress" &&
+							!showHidden ? (
+								<p className="mt-1 text-sm text-muted-foreground italic">
+									Summary hidden by you.
+								</p>
+							) : chapter.summary ? (
+								<CorrectionControls
+									item={{
+										unitLocator: chapter.locator,
+										unitLabel: chapter.label,
+										observation: null,
+										text: chapter.summary.text,
+										citation: chapter.summary.citations[0] ?? null,
+									}}
+									mark={chapter.summary.correction}
+								>
 									<p className="mt-1 max-w-prose text-sm leading-relaxed">
 										{chapter.summary.text}
 									</p>
 									<GuideCitations citations={chapter.summary.citations} />
-								</>
+								</CorrectionControls>
 							) : (
 								<p className="mt-1 text-sm text-muted-foreground italic">
 									Not yet summarized.

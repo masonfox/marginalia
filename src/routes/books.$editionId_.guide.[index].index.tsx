@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { cn } from "cn";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 import {
 	boundKey,
@@ -11,6 +11,7 @@ import {
 	KINDS,
 	useGuide,
 } from "#/components/guide";
+import { ShowHiddenToggle } from "#/components/guide-corrections";
 import { ProposalList } from "#/components/guide-subjects";
 import { Badge } from "#/components/ui/badge";
 import { Input } from "#/components/ui/input";
@@ -29,11 +30,23 @@ function IndexView() {
 	const { editionId, bound, preprocessed, onStaleBound } = useGuide();
 	const { kind, q } = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
+	const [showHidden, setShowHidden] = useState(false);
+	// Hidden subjects are always fetched, so the toggle can count them.
 	const subjects = useQuery({
-		queryKey: ["guide", editionId, "subjects", bound ? boundKey(bound) : null],
+		queryKey: [
+			"guide",
+			editionId,
+			"subjects",
+			bound ? boundKey(bound) : null,
+			"with-hidden",
+		],
 		queryFn: () =>
 			listGuideSubjectsFn({
-				data: { editionId, bound: bound?.choice ?? { kind: "whole" } },
+				data: {
+					editionId,
+					bound: bound?.choice ?? { kind: "whole" },
+					includeHidden: true,
+				},
 			}),
 		enabled: preprocessed && bound !== null,
 	});
@@ -45,7 +58,9 @@ function IndexView() {
 
 	if (!preprocessed) return <GuideEmpty editionId={editionId} />;
 	const text = q?.trim().toLocaleLowerCase() ?? "";
-	const all = subjects.data?.ok ? subjects.data.subjects : [];
+	const withHidden = subjects.data?.ok ? subjects.data.subjects : [];
+	const hiddenCount = withHidden.filter((s) => s.hidden).length;
+	const all = showHidden ? withHidden : withHidden.filter((s) => !s.hidden);
 	const shown = all.filter(
 		(s) =>
 			(!kind || s.kind === kind) &&
@@ -86,6 +101,11 @@ function IndexView() {
 					className="max-w-56"
 					onChange={(e) => filter({ q: e.currentTarget.value || undefined })}
 				/>
+				<ShowHiddenToggle
+					count={hiddenCount}
+					shown={showHidden}
+					onChange={setShowHidden}
+				/>
 			</div>
 			<ProposalList />
 			{subjects.isPending ? (
@@ -113,6 +133,7 @@ function IndexView() {
 								<Badge variant="secondary">
 									{KIND_LABELS[s.kind].singular}
 								</Badge>
+								{s.hidden && <Badge variant="outline">Hidden by you</Badge>}
 								<span className="text-xs text-muted-foreground">
 									{s.unitCount} chapter{s.unitCount === 1 ? "" : "s"} · first in{" "}
 									{s.firstUnitLabel}

@@ -28,6 +28,7 @@ describe("database", () => {
 			"conversations",
 			"editions",
 			"excluded_editions",
+			"guide_corrections",
 			"guide_dismissed_proposals",
 			"guide_gloss_exclusions",
 			"guide_subject_aliases",

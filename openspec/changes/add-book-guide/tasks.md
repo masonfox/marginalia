@@ -42,12 +42,12 @@ Phases follow the epic's dependency graph and each one can merge on its own: 1 (
 
 ## 5. Corrections (#24)
 
-- [ ] 5.1 Add the `guide_corrections` table and its migration, unique on (edition, target, unit locator, name key). Verify that the migration applies.
-- [ ] 5.2 Implement the replace, suppress, and remove correction mutations. Store the machine-text fingerprint, and verify the optional citation with `retrieval/verify.ts`, restricted to the unit's passages. Verify with integration tests that include a rejected citation from outside the unit.
-- [ ] 5.3 Implement the merge in the merged-view core: replaced text and citation, suppressed rows omitted, the `regeneratedSince` flag, and no effect when the machine row isn't current. Verify with integration tests for "reapplied after regeneration" and "bounded like the row".
-- [ ] 5.4 Add a "keep" action that refreshes the fingerprint. Verify with an integration test that the flag clears.
-- [ ] 5.5 Re-anchor corrections in `guide.reanchor`, setting `detached` when the forwarded locator no longer starts a unit. Verify with integration tests for a shifted unit (applies) and a merged unit (detached).
-- [ ] 5.6 Build the shared correction dialog component, and add Guide UI for "corrected by reader" labels, "show hidden" with restore, the "regenerated since" review, and a detached-corrections list. Verify in the app.
+- [x] 5.1 Add the `guide_corrections` table and its migration, unique on (edition, target, unit locator, name key). Verify that the migration applies.
+- [x] 5.2 Implement the replace, suppress, and remove correction mutations. Store the machine-text fingerprint, and verify the optional citation with `retrieval/verify.ts`, restricted to the unit's passages. Verify with integration tests that include a rejected citation from outside the unit.
+- [x] 5.3 Implement the merge in the merged-view core: replaced text and citation, suppressed rows omitted, the `regeneratedSince` flag, and no effect when the machine row isn't current. Verify with integration tests for "reapplied after regeneration" and "bounded like the row".
+- [x] 5.4 Add a "keep" action that refreshes the fingerprint. Verify with an integration test that the flag clears.
+- [x] 5.5 Re-anchor corrections in `guide.reanchor`, setting `detached` when the forwarded locator no longer starts a unit. Verify with integration tests for a shifted unit (applies) and a merged unit (detached).
+- [x] 5.6 Build the shared correction dialog component, and add Guide UI for "corrected by reader" labels, "show hidden" with restore, the "regenerated since" review, and a detached-corrections list. Verify in the app.
 
 ## 6. Reader notes (#25)
 

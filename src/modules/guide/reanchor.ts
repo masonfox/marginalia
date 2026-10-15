@@ -1,7 +1,8 @@
 import { and, eq, isNotNull } from "drizzle-orm";
-import type { Forward } from "#/modules/catalog";
+import { type Forward, getReadingUnits } from "#/modules/catalog";
 import type { Executor } from "#/server/db";
-import { guideSubjectAliases } from "./schema";
+import { correctionKey } from "./corrections";
+import { guideCorrections, guideSubjectAliases } from "./schema";
 
 /**
  * The position of a reveal anchor whose text no longer survives anywhere at
@@ -60,8 +61,57 @@ async function reanchorAliasReveals(
 	}
 }
 
+/**
+ * Correction unit anchors follow their passage's text too. A correction
+ * keeps applying when its forwarded anchor still starts a reading unit of
+ * the new structure; otherwise the unit it corrected is gone, so it is
+ * marked detached and applies nowhere, rather than being reapplied to a
+ * different unit. A detached correction stays detached until the reader
+ * drops or rewrites it.
+ */
+async function reanchorCorrections(
+	tx: Executor,
+	editionId: string,
+	forward: Forward,
+): Promise<void> {
+	const corrections = await tx
+		.select({
+			id: guideCorrections.id,
+			target: guideCorrections.target,
+			unitLocator: guideCorrections.unitLocator,
+			nameKey: guideCorrections.nameKey,
+			detached: guideCorrections.detached,
+		})
+		.from(guideCorrections)
+		.where(eq(guideCorrections.editionId, editionId))
+		.orderBy(guideCorrections.id);
+	if (corrections.length === 0) return;
+	const starts = new Set(
+		(await getReadingUnits(tx, editionId)).map((u) => u.startLocator),
+	);
+	// Two anchors forwarded to one passage would collide on the correction
+	// key; the later one keeps its old locator and is detached.
+	const taken = new Set<string>();
+	for (const c of corrections) {
+		const next = forward(c.unitLocator);
+		let locator = next?.locator ?? c.unitLocator;
+		let detached = c.detached || next === null || !starts.has(locator);
+		const key = `${c.target}
+${correctionKey(locator, c.nameKey)}`;
+		if (taken.has(key)) {
+			locator = c.unitLocator;
+			detached = true;
+		} else taken.add(key);
+		if (locator === c.unitLocator && detached === c.detached) continue;
+		await tx
+			.update(guideCorrections)
+			.set({ unitLocator: locator, detached, updatedAt: new Date() })
+			.where(eq(guideCorrections.id, c.id));
+	}
+}
+
 /** Every kind of reveal anchor, re-anchored in this order. */
-const REANCHORS: Reanchor[] = [reanchorAliasReveals];
+const REANCHORS: Reanchor[] = [reanchorAliasReveals, reanchorCorrections];
 
 /**
  * Re-anchors the edition's reader-authored reveal anchors after a reparse

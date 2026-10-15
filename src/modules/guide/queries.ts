@@ -9,6 +9,14 @@ import {
 import { getReadingUnits, type ReadingUnit } from "#/modules/catalog";
 import type { Executor } from "#/server/db";
 import {
+	type CorrectionRecord,
+	correctionKey,
+	fingerprintOf,
+	loadCorrections,
+	observationText,
+} from "./corrections";
+import {
+	type CorrectionAction,
 	guideDismissedProposals,
 	guideSubjectAliases,
 	guideSubjects,
@@ -102,6 +110,8 @@ export interface GuideSummary extends Placed {
 	citations: DerivedCitation[];
 	model: string;
 	promptVersion: number;
+	/** The reader's correction applied to it, or null. */
+	correction: CorrectionMark | null;
 }
 
 /** An observation in the merged view. */
@@ -111,6 +121,8 @@ export interface GuideObservation extends Placed {
 	kind: ObservationKind;
 	note: string;
 	citations: DerivedCitation[];
+	/** The reader's correction applied to it, or null. */
+	correction: CorrectionMark | null;
 }
 
 /** One observed name in one unit, placed: the Index's grain. */
@@ -118,6 +130,8 @@ interface GuideObservedName extends Placed {
 	name: string;
 	nameKey: string;
 	kinds: ObservationKind[];
+	/** Suppressed by the reader: listed only when hidden rows are asked for. */
+	hidden: boolean;
 }
 
 /** Places machine rows in the current units, dropping rows that match none. */
@@ -132,19 +146,119 @@ function place<T extends UnitRowKey>(
 	});
 }
 
+/** How a reader correction applies to a merged row. */
+export interface CorrectionMark {
+	id: number;
+	action: CorrectionAction;
+	/**
+	 * The machine text was regenerated since the reader's correction: it no
+	 * longer matches the fingerprint they acknowledged.
+	 */
+	regeneratedSince: boolean;
+	/** The current machine text the correction covers. */
+	generated: string;
+}
+
+/** Merge options: `includeHidden` keeps suppressed rows, marked, for "show hidden". */
+export interface MergeOptions {
+	includeHidden?: boolean;
+}
+
+/** The mark of a correction over the current machine text it covers. */
+const markOf = (c: CorrectionRecord, generated: string): CorrectionMark => ({
+	id: c.id,
+	action: c.action,
+	regeneratedSince: fingerprintOf(generated) !== c.fingerprint,
+	generated,
+});
+
 /**
- * Applies the edition's reader corrections to placed rows (design D5). A
- * correction is keyed by unit anchor locator and, for observations, name
- * key: it replaces or suppresses the matching current row. Corrections come
- * in a later phase; until then every row passes through unchanged.
+ * Applies the edition's reader corrections to placed summaries (design D5).
+ * A correction matches a current row by its unit anchor: a replaced row
+ * carries the reader's text and only their citation, a suppressed row is
+ * dropped. A correction with no current row has no effect, so it follows
+ * the row's bound and staleness and applies again once the row is
+ * regenerated.
  */
-async function mergeCorrections<T extends Placed>(
-	_db: Executor,
-	_editionId: string,
-	_target: "summary" | "observation",
+async function mergeSummaryCorrections<
+	T extends Placed & { summary: string; citations: DerivedCitation[] },
+>(
+	db: Executor,
+	editionId: string,
 	rows: T[],
-): Promise<T[]> {
-	return rows;
+	{ includeHidden = false }: MergeOptions,
+): Promise<(T & { correction: CorrectionMark | null })[]> {
+	const corrections = await loadCorrections(db, editionId, "summary");
+	return rows.flatMap((row): (T & { correction: CorrectionMark | null })[] => {
+		const c = corrections.get(correctionKey(row.unitLocator, null));
+		if (!c) return [{ ...row, correction: null }];
+		const correction = markOf(c, row.summary);
+		if (c.action === "suppress")
+			return includeHidden ? [{ ...row, correction }] : [];
+		return [
+			{
+				...row,
+				summary: c.text ?? row.summary,
+				citations: c.citation ? [c.citation] : [],
+				correction,
+			},
+		];
+	});
+}
+
+/**
+ * Applies the edition's reader corrections to placed observations. A
+ * correction covers every current observation of its name key in its unit:
+ * replaced, they read as one row with the reader's text and citation, in
+ * the place of the first; suppressed, they are dropped.
+ */
+async function mergeObservationCorrections<
+	T extends Placed & {
+		nameKey: string;
+		note: string;
+		citations: DerivedCitation[];
+	},
+>(
+	db: Executor,
+	editionId: string,
+	rows: T[],
+	{ includeHidden = false }: MergeOptions,
+): Promise<(T & { correction: CorrectionMark | null })[]> {
+	const corrections = await loadCorrections(db, editionId, "observation");
+	if (corrections.size === 0)
+		return rows.map((r) => ({ ...r, correction: null }));
+	const groups = new Map<string, T[]>();
+	for (const row of rows) {
+		const key = correctionKey(row.unitLocator, row.nameKey);
+		if (!corrections.has(key)) continue;
+		groups.set(key, [...(groups.get(key) ?? []), row]);
+	}
+	const merged: (T & { correction: CorrectionMark | null })[] = [];
+	const done = new Set<string>();
+	for (const row of rows) {
+		const key = correctionKey(row.unitLocator, row.nameKey);
+		const c = corrections.get(key);
+		if (!c) {
+			merged.push({ ...row, correction: null });
+			continue;
+		}
+		if (done.has(key)) continue;
+		done.add(key);
+		const group = groups.get(key) ?? [row];
+		const correction = markOf(c, observationText(group.map((r) => r.note)));
+		if (c.action === "suppress") {
+			if (includeHidden)
+				merged.push(...group.map((r) => ({ ...r, correction })));
+			continue;
+		}
+		merged.push({
+			...row,
+			note: c.text ?? row.note,
+			citations: c.citation ? [c.citation] : [],
+			correction,
+		});
+	}
+	return merged;
 }
 
 /**
@@ -157,9 +271,10 @@ export async function getMergedSummaries(
 	editionId: string,
 	bound: number | null,
 	anchors: UnitAnchors,
+	options: MergeOptions = {},
 ): Promise<GuideSummary[]> {
 	const rows = place(anchors, await listSummaries(db, editionId, bound));
-	return mergeCorrections(db, editionId, "summary", rows);
+	return mergeSummaryCorrections(db, editionId, rows, options);
 }
 
 /**
@@ -172,26 +287,36 @@ export async function getMergedObservations(
 	bound: number | null,
 	anchors: UnitAnchors,
 	nameKeys?: string[],
+	options: MergeOptions = {},
 ): Promise<GuideObservation[]> {
 	const rows = place(
 		anchors,
 		await listObservations(db, editionId, bound, nameKeys),
 	);
-	return mergeCorrections(db, editionId, "observation", rows);
+	return mergeObservationCorrections(db, editionId, rows, options);
 }
 
 /**
  * Observed names per unit at a bound, merged like observations: a name
- * whose observations in a unit are suppressed is not observed there.
+ * whose observations in a unit are suppressed is not observed there, or is
+ * marked hidden with `includeHidden`.
  */
 async function getMergedObservedNames(
 	db: Executor,
 	editionId: string,
 	bound: number | null,
 	anchors: UnitAnchors,
+	{ includeHidden = false }: MergeOptions = {},
 ): Promise<GuideObservedName[]> {
-	const rows = place(anchors, await listObservedNames(db, editionId, bound));
-	return mergeCorrections(db, editionId, "observation", rows);
+	const [rows, corrections] = await Promise.all([
+		listObservedNames(db, editionId, bound),
+		loadCorrections(db, editionId, "observation"),
+	]);
+	return place(anchors, rows).flatMap((row) => {
+		const c = corrections.get(correctionKey(row.unitLocator, row.nameKey));
+		const hidden = c?.action === "suppress";
+		return hidden && !includeHidden ? [] : [{ ...row, hidden }];
+	});
 }
 
 /** The edition's confirmed subjects and their alias links. */
@@ -243,13 +368,17 @@ async function subjectsAt(
 	bound: number | null,
 	anchors: UnitAnchors,
 ) {
-	const [rows, { subjects, links }] = await Promise.all([
-		getMergedObservedNames(db, editionId, bound, anchors),
+	const [withHidden, { subjects, links }] = await Promise.all([
+		getMergedObservedNames(db, editionId, bound, anchors, {
+			includeHidden: true,
+		}),
 		loadSubjectLinks(db, editionId),
 	]);
+	// Names appear, and subjects are named, through visible rows only.
+	const rows = withHidden.filter((r) => !r.hidden);
 	const appearances = firstAppearances(rows);
 	const resolution = buildResolution({ subjects, links, appearances, bound });
-	return { rows, links, appearances, resolution };
+	return { rows, withHidden, links, appearances, resolution };
 }
 
 /**
@@ -338,27 +467,44 @@ export interface GuideSubjectEntry {
 	/** Where it is first observed within the bound. */
 	firstPosition: number;
 	firstUnitLabel: string;
+	/**
+	 * Every observation of it within the bound is suppressed by the reader:
+	 * listed only when hidden rows are asked for.
+	 */
+	hidden: boolean;
 }
 
 /**
  * The Index at a bound: every subject with at least one observation ending
  * at or before it, with its name, kind, unit count and first appearance,
- * sorted by name.
+ * sorted by name. With `includeHidden`, subjects whose observations are all
+ * suppressed are listed too, marked hidden.
  */
 export async function listSubjects(
 	db: Executor,
 	editionId: string,
 	bound: number | null,
 	anchors: UnitAnchors,
+	{ includeHidden = false }: MergeOptions = {},
 ): Promise<GuideSubjectEntry[]> {
-	const { rows, resolution } = await subjectsAt(db, editionId, bound, anchors);
+	const { rows, withHidden, resolution } = await subjectsAt(
+		db,
+		editionId,
+		bound,
+		anchors,
+	);
 	const subjects = new Map<
 		string,
 		{ first: GuideObservedName; units: Set<number>; kinds: ObservationKind[] }
 	>();
-	// Rows are in reading order, so a subject's first row is its first appearance.
-	for (const row of rows) {
+	// Rows are in reading order, so a subject's first row is its first
+	// appearance. Visible rows come first, so a subject with any visible
+	// observation is described by those alone.
+	const hiddenRows = includeHidden ? withHidden.filter((r) => r.hidden) : [];
+	const visible = new Set(rows.map((r) => resolution.refOf(r.nameKey)));
+	for (const row of [...rows, ...hiddenRows]) {
 		const ref = resolution.refOf(row.nameKey);
+		if (row.hidden && visible.has(ref)) continue;
 		const subject = subjects.get(ref);
 		if (subject) {
 			subject.units.add(row.unitOrdinal);
@@ -381,6 +527,7 @@ export async function listSubjects(
 			unitCount: units.size,
 			firstPosition: first.endPosition,
 			firstUnitLabel: first.unitLabel,
+			hidden: !visible.has(ref),
 		}))
 		.sort(
 			(a, b) =>
@@ -398,8 +545,12 @@ export interface TimelineEntry {
 	/** The name it was observed under, when that differs from the subject's name. */
 	observedAs: string | null;
 	kind: ObservationKind;
+	/** The name key it was observed under: with its unit, what a correction names. */
+	nameKey: string;
 	note: string;
 	citations: DerivedCitation[];
+	/** The reader's correction applied to it, or null. */
+	correction: CorrectionMark | null;
 }
 
 export interface SubjectTimeline {
@@ -416,6 +567,7 @@ export interface SubjectTimeline {
  * A subject's timeline at a bound: the observations of every name grouped
  * into the subject at the bound (resolveSubjects), in reading order. Null when the subject has no
  * observation within the bound, so a later subject is not disclosed.
+ * With `includeHidden`, suppressed observations are kept, marked.
  * Assembled on each call, never stored.
  */
 export async function getSubjectTimeline(
@@ -424,18 +576,29 @@ export async function getSubjectTimeline(
 	ref: string,
 	bound: number | null,
 	anchors: UnitAnchors,
+	options: MergeOptions = {},
 ): Promise<SubjectTimeline | null> {
 	const resolution = await resolveSubjects(db, editionId, bound, anchors);
 	const keys = resolution.keysOf(ref);
 	if (!keys) return null;
-	const rows = await getMergedObservations(db, editionId, bound, anchors, keys);
+	const rows = await getMergedObservations(
+		db,
+		editionId,
+		bound,
+		anchors,
+		keys,
+		options,
+	);
 	const [first] = rows;
 	if (!first) return null;
 	const name = resolution.nameOf(ref) ?? first.name;
+	const shown = rows.filter((r) => r.correction?.action !== "suppress");
 	return {
 		ref,
 		name,
-		kind: resolution.kindOf(ref) ?? dominantKind(rows.map((r) => r.kind)),
+		kind:
+			resolution.kindOf(ref) ??
+			dominantKind((shown.length > 0 ? shown : rows).map((r) => r.kind)),
 		readerKind: resolution.kindOf(ref),
 		names: resolution.namesOf(ref),
 		entries: rows.map((r) => ({
@@ -445,8 +608,10 @@ export async function getSubjectTimeline(
 			endPosition: r.endPosition,
 			observedAs: r.name === name ? null : r.name,
 			kind: r.kind,
+			nameKey: r.nameKey,
 			note: r.note,
 			citations: r.citations,
+			correction: r.correction,
 		})),
 	};
 }

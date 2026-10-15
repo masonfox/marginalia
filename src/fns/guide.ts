@@ -4,15 +4,21 @@ import { OBSERVATION_KINDS } from "#/modules/analysis";
 import {
 	clearReadingPosition,
 	dismissProposal,
+	getCorrectionReview,
 	getGuideChapters,
 	getGuideOverview,
 	getGuideProvenance,
 	getGuideSubject,
 	getReadingPosition,
+	keepCorrection,
 	listGuideProposals,
 	listGuideSubjects,
+	MAX_CITATION_QUOTE,
+	MAX_CORRECTION_TEXT,
 	mergeSubjects,
+	removeCorrection,
 	renameSubject,
+	saveCorrection,
 	setReadingPosition,
 	setSubjectKind,
 	splitSubject,
@@ -73,11 +79,13 @@ export const getGuideChaptersFn = createServerFn({ method: "GET" })
 		getGuideChapters(appContext().db, data.editionId, data.bound),
 	);
 
-/** The subjects observed within the bound. */
+/** The subjects observed within the bound; with `includeHidden`, those the reader suppressed too. */
 export const listGuideSubjectsFn = createServerFn({ method: "GET" })
-	.validator(boundedSchema)
+	.validator(boundedSchema.extend({ includeHidden: z.boolean().optional() }))
 	.handler(({ data }) =>
-		listGuideSubjects(appContext().db, data.editionId, data.bound),
+		listGuideSubjects(appContext().db, data.editionId, data.bound, {
+			includeHidden: data.includeHidden,
+		}),
 	);
 
 /** One subject's timeline within the bound. */
@@ -176,3 +184,69 @@ export const dismissProposalFn = createServerFn({ method: "POST" })
 			data.keys,
 		),
 	}));
+
+// Corrections name the unit by its anchor (the locator of its first passage)
+// and, for an observation, the observed name key: never a machine row id.
+const correctionSchema = z
+	.object({
+		editionId: z.uuid(),
+		unitLocator: z.string().min(1).max(200),
+	})
+	.and(
+		z.discriminatedUnion("target", [
+			z.object({ target: z.literal("summary") }),
+			z.object({ target: z.literal("observation"), nameKey: nameKeySchema }),
+		]),
+	)
+	.and(
+		z.discriminatedUnion("action", [
+			z.object({
+				action: z.literal("replace"),
+				text: z.string().min(1).max(MAX_CORRECTION_TEXT),
+				citation: z
+					.object({
+						locator: z.string().min(1).max(200),
+						quote: z.string().min(1).max(MAX_CITATION_QUOTE),
+					})
+					.nullish(),
+			}),
+			z.object({ action: z.literal("suppress") }),
+		]),
+	);
+
+/**
+ * Replaces a unit's summary, or its observations of a name, with the
+ * reader's text and at most one citation from that unit, or suppresses it.
+ * A citation from another unit is refused with `citation_outside_unit`.
+ */
+export const saveCorrectionFn = createServerFn({ method: "POST" })
+	.validator(correctionSchema)
+	.handler(({ data: { editionId, ...input } }) =>
+		saveCorrection(appContext().db, editionId, input),
+	);
+
+const correctionIdSchema = z.object({
+	editionId: z.uuid(),
+	id: z.number().int().positive(),
+});
+
+/** Keeps a correction whose row was regenerated since, clearing the flag. */
+export const keepCorrectionFn = createServerFn({ method: "POST" })
+	.validator(correctionIdSchema)
+	.handler(({ data }) =>
+		keepCorrection(appContext().db, data.editionId, data.id),
+	);
+
+/** Removes a correction, restoring the generated row. */
+export const removeCorrectionFn = createServerFn({ method: "POST" })
+	.validator(correctionIdSchema)
+	.handler(async ({ data }) => ({
+		removed: await removeCorrection(appContext().db, data.editionId, data.id),
+	}));
+
+/** The reader's corrections to review within the bound: regenerated since, or detached. */
+export const getCorrectionReviewFn = createServerFn({ method: "GET" })
+	.validator(boundedSchema)
+	.handler(({ data }) =>
+		getCorrectionReview(appContext().db, data.editionId, data.bound),
+	);
