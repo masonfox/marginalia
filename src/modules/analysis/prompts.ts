@@ -38,6 +38,18 @@ export interface PromptPassage {
 	text: string;
 }
 
+/** Characters of the previous unit's summary sent as continuity; stored summaries are not cut. */
+export const PREVIOUS_SUMMARY_CHARS = 2_000;
+
+/** Keeps the end of a long previous summary, nearest this section, never cutting a surrogate pair. */
+function continuity(summary: string): string {
+	if (summary.length <= PREVIOUS_SUMMARY_CHARS) return summary;
+	let tail = summary.slice(-PREVIOUS_SUMMARY_CHARS);
+	const first = tail.charCodeAt(0);
+	if (first >= 0xdc00 && first <= 0xdfff) tail = tail.slice(1);
+	return `…${tail}`;
+}
+
 export function buildUnitPrompt(input: {
 	unitLabel: string;
 	previousSummary: string | null;
@@ -48,7 +60,7 @@ export function buildUnitPrompt(input: {
 		? `Section: ${input.unitLabel} (part ${input.part.index + 1} of ${input.part.of})`
 		: `Section: ${input.unitLabel}`;
 	const prev = input.previousSummary
-		? `Summary of the previous section (context only):\n${input.previousSummary}\n\n`
+		? `Summary of the previous section (context only):\n${continuity(input.previousSummary)}\n\n`
 		: "";
 	const body = input.passages
 		.map((p) => `[${p.locator}] ${p.text}`)
