@@ -432,10 +432,10 @@ export async function getPreprocessStatus(
 		(run?.status === "queued" || run?.status === "running")
 	) {
 		status = run.status;
-	} else if (outdated > 0) {
-		status = "stale";
 	} else if (run?.status === "cancelled") {
 		status = "cancelled";
+	} else if (outdated > 0) {
+		status = "stale";
 	} else if (run?.status === "failed" || orphaned) {
 		status = "partial";
 	} else {

@@ -609,6 +609,32 @@ describe("preprocessing run lifecycle", () => {
 		});
 	});
 
+	it("a regeneration cancelled with stale units left reads as cancelled", async () => {
+		const id = await newEdition("CancelStale");
+		await preprocessEdition(deps(model()), id);
+		await t.db.transaction((tx) => markDerivedStale(tx, id));
+		const inner = model();
+		let calls = 0;
+		const m = new MockLanguageModelV4({
+			doGenerate: async (options) => {
+				if (++calls === 1) await cancelRun(t.db, id);
+				return inner.doGenerate(options);
+			},
+		});
+		await expect(preprocessEdition(deps(m), id)).rejects.toThrow(
+			NonRetryableError,
+		);
+		expect(await getPreprocessStatus(t.db, id, null)).toMatchObject({
+			status: "cancelled",
+			doneUnits: 1,
+			totalUnits: chapters.length,
+		});
+		// A live job still outranks the cancelled row.
+		expect((await getPreprocessStatus(t.db, id, "queued")).status).toBe(
+			"queued",
+		);
+	});
+
 	it("cancelling leaves a complete run alone", async () => {
 		const id = await newEdition("CancelDone");
 		await preprocessEdition(deps(model()), id);
