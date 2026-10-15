@@ -6,6 +6,8 @@ import { type ProcessDeps, processUnit } from "./process";
 import {
 	getBookMap,
 	getCurrentUnits,
+	lockStructureGeneration,
+	StructureChangedError,
 	saveUnitResult,
 	updateRun,
 } from "./queries";
@@ -25,7 +27,10 @@ export interface PreprocessDeps {
 /**
  * The `analysis.preprocess` handler. Skips units that are already current,
  * processes the rest in order, and throws after the loop if any failed so a
- * retry only repeats the unfinished ones.
+ * retry only repeats the unfinished ones. Units, passages, and saves are all
+ * fenced on the edition's structure generation: if a reparse replaces the
+ * structure mid-run, nothing more is saved and the run fails retryably, so
+ * the retry starts over from the new structure.
  */
 export async function preprocessEdition(
 	deps: PreprocessDeps,
@@ -36,16 +41,26 @@ export async function preprocessEdition(
 	if (!deps.model) {
 		throw new NonRetryableError("AI is not configured; cannot preprocess");
 	}
-	const units = await getReadingUnits(db, editionId);
-	const current = await getCurrentUnits(db, editionId);
+	// One snapshot of units and current results, all from the same structure.
+	const snapshot = await db.transaction(async (tx) => {
+		const generation = await lockStructureGeneration(tx, editionId);
+		if (generation === null) return null;
+		return {
+			generation,
+			units: await getReadingUnits(tx, editionId),
+			current: await getCurrentUnits(tx, editionId),
+			map: await getBookMap(tx, editionId, null),
+		};
+	});
+	if (!snapshot) {
+		throw new NonRetryableError("The book no longer exists");
+	}
+	const { generation, units } = snapshot;
 	const currentEnd = new Map(
-		current.map((c) => [c.unitOrdinal, c.endPosition]),
+		snapshot.current.map((c) => [c.unitOrdinal, c.endPosition]),
 	);
 	const summaries = new Map(
-		(await getBookMap(db, editionId, null)).map((s) => [
-			s.unitOrdinal,
-			s.summary,
-		]),
+		snapshot.map.map((s) => [s.unitOrdinal, s.summary]),
 	);
 	const isCurrent = (u: { ordinal: number; endPosition: number }) =>
 		currentEnd.get(u.ordinal) === u.endPosition;
@@ -66,6 +81,7 @@ export async function preprocessEdition(
 		modelName: deps.modelName,
 		provider: deps.provider,
 		editionId,
+		structureGeneration: generation,
 		chunkChars: deps.chunkChars,
 		signal: ctx.signal,
 		reasoning: deps.reasoning,
@@ -82,11 +98,25 @@ export async function preprocessEdition(
 		ctx.signal?.throwIfAborted();
 		try {
 			const result = await processUnit(processDeps, unit, previous);
-			await db.transaction((tx) => saveUnitResult(tx, editionId, result));
+			await db.transaction((tx) =>
+				saveUnitResult(tx, editionId, result, generation),
+			);
 			previous = result.summary;
 			done += 1;
 		} catch (err) {
 			if (ctx.signal?.aborted) throw err;
+			if (err instanceof StructureChangedError) {
+				// Everything this run loaded describes the old structure.
+				await updateRun(db, editionId, {
+					status: "failed",
+					doneUnits: done,
+					failedUnits: failed,
+					lastError: err.message,
+					finishedAt: new Date(),
+				});
+				log.info({ editionId }, "edition structure changed; run abandoned");
+				throw err;
+			}
 			failed += 1;
 			lastError = err instanceof Error ? err.message : String(err);
 			log.warn(

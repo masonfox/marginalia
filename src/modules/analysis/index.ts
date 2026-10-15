@@ -22,6 +22,7 @@ export {
 	type PreprocessState,
 	type PreprocessStatus,
 	type RunProgress,
+	StructureChangedError,
 	saveUnitResult,
 	type UnitResult,
 	type UnitSummaryView,

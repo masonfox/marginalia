@@ -9,7 +9,7 @@ import {
 	recordUsage,
 	type TokenUsage,
 } from "#/modules/usage";
-import type { Executor } from "#/server/db";
+import type { Database, Executor } from "#/server/db";
 import {
 	buildUnitPrompt,
 	type PromptPassage,
@@ -17,7 +17,11 @@ import {
 	UNIT_SYSTEM_PROMPT,
 	type UnitOutput,
 } from "./prompts";
-import { normalizeNameKey, type UnitResult } from "./queries";
+import {
+	assertStructureGeneration,
+	normalizeNameKey,
+	type UnitResult,
+} from "./queries";
 import type { DerivedCitation, ObservationKind } from "./schema";
 
 /** Characters of passage text per model call; longer units are split. */
@@ -25,11 +29,13 @@ export const CHUNK_CHARS = 24_000;
 const MAX_CITATIONS = 3;
 
 export interface ProcessDeps {
-	db: Executor;
+	db: Database;
 	model: LanguageModel;
 	modelName: string;
 	provider: string;
 	editionId: string;
+	/** The structure generation the run loaded its units from; passage loads are fenced on it. */
+	structureGeneration: number;
 	chunkChars?: number;
 	signal?: AbortSignal;
 	/** Configured reasoning effort; undefined leaves the provider default. */
@@ -171,7 +177,15 @@ export async function processUnit(
 	unit: ReadingUnit,
 	previousSummary: string | null,
 ): Promise<UnitResult> {
-	const unitPassages = await loadUnitPassages(deps.db, deps.editionId, unit);
+	// The unit's range must never read passages of a replaced structure.
+	const unitPassages = await deps.db.transaction(async (tx) => {
+		await assertStructureGeneration(
+			tx,
+			deps.editionId,
+			deps.structureGeneration,
+		);
+		return loadUnitPassages(tx, deps.editionId, unit);
+	});
 	if (unitPassages.length === 0) {
 		throw new Error(`Unit ${unit.label} has no text`);
 	}

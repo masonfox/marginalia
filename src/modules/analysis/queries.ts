@@ -1,4 +1,5 @@
 import { and, asc, count, eq, lte, sql } from "drizzle-orm";
+import { editions } from "#/modules/library";
 import type { Executor } from "#/server/db";
 import {
 	type DerivedCitation,
@@ -135,12 +136,56 @@ export interface UnitResult {
 	model: string;
 }
 
-/** Replaces one unit's summary and observations. Run inside a transaction. */
+/** The edition's structure was replaced after a preprocessing run loaded it. */
+export class StructureChangedError extends Error {
+	constructor() {
+		super("The book's structure changed during preprocessing");
+		this.name = "StructureChangedError";
+	}
+}
+
+/**
+ * Returns the edition's structure generation, or null when it was deleted.
+ * Inside a transaction, the row lock conflicts with the one
+ * replaceEditionStructure takes, so the structure cannot change until commit.
+ */
+export async function lockStructureGeneration(
+	tx: Executor,
+	editionId: string,
+): Promise<number | null> {
+	const [row] = await tx
+		.select({ generation: editions.structureGeneration })
+		.from(editions)
+		.where(eq(editions.id, editionId))
+		.for("share");
+	return row?.generation ?? null;
+}
+
+/** Locks the structure and throws StructureChangedError unless it is still `generation`. */
+export async function assertStructureGeneration(
+	tx: Executor,
+	editionId: string,
+	generation: number,
+): Promise<void> {
+	if ((await lockStructureGeneration(tx, editionId)) !== generation) {
+		throw new StructureChangedError();
+	}
+}
+
+/**
+ * Replaces one unit's summary and observations. Run inside a transaction.
+ * With `generation`, first checks that the result was computed from the
+ * edition's current structure, throwing StructureChangedError otherwise.
+ */
 export async function saveUnitResult(
 	tx: Executor,
 	editionId: string,
 	result: UnitResult,
+	generation?: number,
 ): Promise<void> {
+	if (generation !== undefined) {
+		await assertStructureGeneration(tx, editionId, generation);
+	}
 	const provenance = {
 		editionId,
 		unitOrdinal: result.unitOrdinal,
