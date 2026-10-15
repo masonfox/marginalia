@@ -309,7 +309,9 @@ export async function updateRun(
 /**
  * Makes `attempt` of queue job `jobId` the run row's owner and writes
  * `progress`, unless cancelRun already fenced out that job. One statement, so
- * a cancellation that lands first always wins. Returns whether it claimed.
+ * a cancellation that lands first always wins. The fence outlives other jobs'
+ * claims, so the cancelled job cannot take the run back from a newer one.
+ * Returns whether it claimed.
  */
 export async function claimRun(
 	db: Executor,
@@ -318,7 +320,7 @@ export async function claimRun(
 	attempt: string,
 	progress: RunProgress,
 ): Promise<boolean> {
-	const set = { ...progress, attemptId: attempt, cancelledJobId: null };
+	const set = { ...progress, attemptId: attempt };
 	const claimed = await db
 		.insert(preprocessRuns)
 		.values({ editionId, status: "queued", ...set })
@@ -335,8 +337,9 @@ export async function claimRun(
  * Marks an unfinished run cancelled and releases it from its attempt, so a
  * still-running attempt stops at its next progress write and cannot
  * overwrite the cancellation. Units already saved are kept. With
- * `cancelledJobId`, also fences that job out of claimRun, recording a
- * cancelled row when the job was cancelled before it wrote one.
+ * `cancelledJobId`, also fences that job out of claimRun for good (it only
+ * ever matches that job), recording a cancelled row when the job was
+ * cancelled before it wrote one.
  */
 export async function cancelRun(
 	db: Executor,

@@ -685,6 +685,39 @@ describe("preprocessing run lifecycle", () => {
 		});
 	});
 
+	it("a cancelled job cannot take the run back from a newer job", async () => {
+		const id = await newEdition("CancelThenNewer");
+		const cancelled = randomUUID();
+		await cancelRun(t.db, id, cancelled);
+		let staleCalls = 0;
+		const stale = new MockLanguageModelV4({
+			doGenerate: async () => {
+				staleCalls++;
+				throw new Error("the cancelled job called the model");
+			},
+		});
+		const inner = model();
+		let calls = 0;
+		const newer = new MockLanguageModelV4({
+			doGenerate: async (options) => {
+				// The cancelled job's worker claims after the newer job did.
+				if (++calls === 1) {
+					await expect(
+						preprocessEdition(deps(stale), id, { id: cancelled }),
+					).rejects.toThrow(NonRetryableError);
+				}
+				return inner.doGenerate(options);
+			},
+		});
+		await preprocessEdition(deps(newer), id, { id: randomUUID() });
+		expect(staleCalls).toBe(0);
+		expect(calls).toBe(chapters.length);
+		expect(await getPreprocessStatus(t.db, id, null)).toMatchObject({
+			status: "complete",
+			doneUnits: chapters.length,
+		});
+	});
+
 	it("cancelling a first queued job reads as cancelled, not not started", async () => {
 		const id = await newEdition("CancelQueuedFirst");
 		await cancelRun(t.db, id, randomUUID());
