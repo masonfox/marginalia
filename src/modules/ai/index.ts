@@ -10,7 +10,16 @@ import type {
 	ReasoningEffort,
 } from "#/server/config";
 
-export { describeError, MAX_ERROR_LENGTH, redactSecrets } from "./errors";
+import { registerSecret } from "./errors";
+
+export {
+	clearSecrets,
+	describeError,
+	MAX_ERROR_LENGTH,
+	maskSecrets,
+	redactSecrets,
+	registerSecret,
+} from "./errors";
 
 /** What the UI may know about the AI setup. Never contains the API key. */
 export interface AiStatus {
@@ -51,6 +60,8 @@ export function createAi(config: AiConfig | undefined): AiRuntime {
 			providerOptions: {},
 		};
 	}
+	// Providers may echo the key in errors, whatever its shape.
+	registerSecret(config.apiKey);
 	return {
 		model: buildModel(config),
 		preprocessModel: buildModel(config, config.preprocessModel),

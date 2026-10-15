@@ -1,4 +1,5 @@
 import { type Job, PgBoss } from "pg-boss";
+import { maskSecrets, redactSecrets } from "#/modules/ai";
 import type { Logger } from "../logger";
 import {
 	type CancelJob,
@@ -48,6 +49,16 @@ const FIND_ATTEMPTS = 3;
 /** Every `minutes` minutes, or null when 0 disables the schedule. */
 export function everyMinutes(minutes: number): string | null {
 	return minutes > 0 ? `FREQ=MINUTELY;INTERVAL=${minutes}` : null;
+}
+
+/** What is logged of a failed job's error: no cause or provider fields, secrets masked. */
+function maskedError(err: unknown) {
+	if (!(err instanceof Error)) return { message: maskSecrets(String(err)) };
+	return {
+		type: err.name,
+		message: maskSecrets(err.message),
+		stack: err.stack && maskSecrets(err.stack),
+	};
 }
 
 export class JobRuntime {
@@ -164,9 +175,11 @@ export class JobRuntime {
 			log.debug("job completed");
 			return { id: job.id, status: "completed" as const };
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+			const message = redactSecrets(
+				err instanceof Error ? err.message : String(err),
+			);
 			const nonRetryable = err instanceof NonRetryableError;
-			log.warn({ err, nonRetryable }, "job failed");
+			log.warn({ err: maskedError(err), nonRetryable }, "job failed");
 			return {
 				id: job.id,
 				status: nonRetryable ? ("deadletter" as const) : ("failed" as const),

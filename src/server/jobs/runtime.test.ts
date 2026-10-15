@@ -1,5 +1,6 @@
 import { pino } from "pino";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { clearSecrets, registerSecret } from "#/modules/ai";
 import { JobRuntime } from "./runtime";
 
 const editionId = "00000000-0000-4000-8000-000000000000";
@@ -44,6 +45,55 @@ function runtime(boss: ReturnType<typeof fakeBoss>) {
 }
 
 const history = (n: number) => Array.from({ length: n }, () => "completed");
+
+describe("JobRuntime failed jobs", () => {
+	afterEach(() => clearSecrets());
+
+	it("masks secrets in the job output and the logged error", async () => {
+		const secret = `gsk_${"Zp4".repeat(14)}`;
+		registerSecret(secret);
+		const logged: object[] = [];
+		const log = {
+			child: () => log,
+			debug() {},
+			warn(o: object) {
+				logged.push(o);
+			},
+		};
+		const Ctor = JobRuntime as unknown as new (
+			boss: unknown,
+			log: unknown,
+		) => JobRuntime;
+		const rt = new Ctor(fakeBoss([]), log) as unknown as {
+			run(
+				kind: string,
+				handler: () => Promise<void>,
+				job: object,
+			): Promise<{ status: string; output?: { message: string } }>;
+		};
+		const result = await rt.run(
+			"analysis.preprocess",
+			async () => {
+				throw Object.assign(new Error(`bad token ${secret}`), {
+					requestBodyValues: { apiKey: secret },
+					cause: new Error(secret),
+				});
+			},
+			{
+				id: "job-1",
+				data: { editionId },
+				retryCount: 0,
+				retryLimit: 2,
+				signal: new AbortController().signal,
+			},
+		);
+		expect(result.status).toBe("failed");
+		expect(result.output?.message).toBe("bad token [redacted]");
+		expect(logged).toHaveLength(1);
+		expect(JSON.stringify(logged)).not.toContain(secret);
+		expect(JSON.stringify(logged)).toContain("[redacted]");
+	});
+});
 
 describe("JobRuntime live job lookup", () => {
 	it("finds a live job behind more than a page of retained jobs", async () => {

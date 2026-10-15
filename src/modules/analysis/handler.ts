@@ -167,7 +167,7 @@ export async function preprocessEdition(
 			},
 			attempt,
 		).catch(() => {});
-		throw err;
+		throw maskError(err);
 	}
 	await updateRun(
 		db,
@@ -185,4 +185,18 @@ export async function preprocessEdition(
 		throw new Error(`${failed} of ${units.length} units failed: ${lastError}`);
 	}
 	log.info({ editionId, units: units.length }, "edition preprocessed");
+}
+
+/**
+ * The error a failed run throws. A provider error is rebuilt from its masked
+ * message alone, so no cause or provider field (request body, response body,
+ * URL) reaches the job log or output.
+ */
+function maskError(err: unknown): Error {
+	// Fixed message and no provider fields.
+	if (err instanceof StructureChangedError) return err;
+	const message = describeError(err);
+	return err instanceof NonRetryableError
+		? new NonRetryableError(message)
+		: new Error(message);
 }

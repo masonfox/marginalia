@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { MockLanguageModelV4 } from "ai/test";
 import { and, eq, like } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
+import { clearSecrets, registerSecret } from "#/modules/ai";
 import {
 	getReadingUnits,
 	passages,
@@ -502,6 +503,40 @@ describe("preprocessing run lifecycle", () => {
 			status: "complete",
 			doneUnits: chapters.length,
 		});
+	});
+
+	it("masks the configured key when a provider error coincides with an abort", async () => {
+		const id = await newEdition("AbortLeak");
+		const secret = `gsk_${"Q7z".repeat(14)}`;
+		registerSecret(secret);
+		try {
+			const controller = new AbortController();
+			const m = new MockLanguageModelV4({
+				doGenerate: async () => {
+					controller.abort();
+					throw Object.assign(new Error(`Invalid API token: ${secret}`), {
+						responseBody: `{"error":"bad key ${secret}"}`,
+						requestBodyValues: { apiKey: secret },
+						url: `https://example.test/?key=${secret}`,
+					});
+				},
+			});
+			const thrown = await preprocessEdition(deps(m), id, {
+				signal: controller.signal,
+			}).catch((e) => e);
+			expect(thrown).toBeInstanceOf(Error);
+			expect(thrown.message).toBe("Invalid API token: [redacted]");
+			expect(thrown.cause).toBeUndefined();
+			for (const name of Object.getOwnPropertyNames(thrown)) {
+				expect(JSON.stringify(thrown[name]) ?? "").not.toContain(secret);
+			}
+			expect(await getPreprocessStatus(t.db, id, null)).toMatchObject({
+				status: "partial",
+				lastError: "Preprocessing was interrupted.",
+			});
+		} finally {
+			clearSecrets();
+		}
 	});
 
 	it("an abort before any unit also ends the run inactive", async () => {
