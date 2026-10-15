@@ -52,11 +52,12 @@ export function PreprocessCardView({
 	if (!view.aiEnabled) return null;
 	const active = isActive(view.status);
 	const failed = view.failedUnits > 0 || view.lastError !== null;
+	// A complete book has nothing to regenerate: the job skips current units.
 	const action =
 		view.status === "not_started"
 			? "Start preprocessing"
 			: view.status === "complete"
-				? "Regenerate"
+				? null
 				: view.status === "stale"
 					? "Regenerate"
 					: "Retry";
@@ -94,23 +95,27 @@ export function PreprocessCardView({
 				{view.lastError && (
 					<p className="text-destructive-foreground">{view.lastError}</p>
 				)}
-				<p className="text-muted-foreground">
-					Preprocessing sends the whole book text to your AI provider, and it
-					can cost real money on long books.
-				</p>
-				{error && (
-					<p role="alert" className="text-destructive-foreground">
-						{error}
-					</p>
+				{action && (
+					<>
+						<p className="text-muted-foreground">
+							Preprocessing sends the whole book text to your AI provider, and
+							it can cost real money on long books.
+						</p>
+						{error && (
+							<p role="alert" className="text-destructive-foreground">
+								{error}
+							</p>
+						)}
+						<Button
+							type="button"
+							size="sm"
+							disabled={active || busy}
+							onClick={onStart}
+						>
+							{action}
+						</Button>
+					</>
 				)}
-				<Button
-					type="button"
-					size="sm"
-					disabled={active || busy}
-					onClick={onStart}
-				>
-					{action}
-				</Button>
 			</div>
 		</section>
 	);

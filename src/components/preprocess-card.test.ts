@@ -38,7 +38,7 @@ describe("PreprocessCardView", () => {
 		expect(h).toContain("Model: m1");
 		expect(h).toMatch(/<button[^>]*disabled/);
 	});
-	it("complete shows estimated spend and regenerate", () => {
+	it("complete shows estimated spend and offers no action", () => {
 		const h = render({
 			status: "complete",
 			totalUnits: 3,
@@ -48,7 +48,8 @@ describe("PreprocessCardView", () => {
 		});
 		expect(h).toContain("$0.1234");
 		expect(h).toContain("(estimate)");
-		expect(h).toContain("Regenerate");
+		expect(h).not.toContain("Regenerate");
+		expect(h).not.toContain("<button");
 	});
 	it("stale offers regenerate", () => {
 		const h = render({ status: "stale", totalUnits: 3, doneUnits: 0 });
