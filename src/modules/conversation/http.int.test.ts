@@ -12,7 +12,12 @@ import { createTestDb, type TestDb } from "../../../test/db";
 import { buildEpub } from "../../../test/epub-builder";
 import { ingestBook, silentLog, tempDataDir } from "../../../test/library";
 import { waitFor } from "../../../test/wait";
-import { createConversation, getConversation, handleChatRequest } from ".";
+import {
+	appendMessage,
+	createConversation,
+	getConversation,
+	handleChatRequest,
+} from ".";
 
 let t: TestDb;
 let editionId: string;
@@ -277,5 +282,228 @@ describe("chat endpoint access control", () => {
 		);
 		expect(res.status).toBe(403);
 		expect(model.doStreamCalls).toHaveLength(0);
+	});
+});
+
+describe("assistant-response context", () => {
+	it("rejects malformed contexts without writes or provider calls", async () => {
+		const id = await newConversation();
+		const model = modelWith(() => [
+			{ type: "text-delta", id: "t1", delta: "Answer" },
+		]);
+		const source = await appendMessage(t.db, {
+			conversationId: id,
+			role: "assistant",
+			parts: [{ type: "text", text: "saved" }],
+		});
+		for (const replyContext of [
+			{ messageId: "bad", text: "x" },
+			{ messageId: source.id, text: " " },
+			{ messageId: source.id, text: "x".repeat(2001) },
+		]) {
+			expect(
+				(
+					await chat(
+						enabled(model),
+						post({ conversationId: id, message: "why", replyContext }),
+					)
+				).status,
+			).toBe(400);
+		}
+		expect(
+			(
+				await chat(
+					enabled(model),
+					post({
+						conversationId: id,
+						replyContext: { messageId: source.id, text: "quote" },
+					}),
+				)
+			).status,
+		).toBe(400);
+		expect(model.doStreamCalls).toHaveLength(0);
+		expect(
+			(await getConversation(t.db, id))?.messages.map((m) => m.id),
+		).toEqual([source.id]);
+
+		const res = await chat(
+			enabled(model),
+			post({
+				conversationId: id,
+				message: "why",
+				replyContext: { messageId: source.id, text: "x".repeat(2000) },
+			}),
+		);
+		expect(res.status).toBe(200);
+		await res.text();
+		expect(model.doStreamCalls).toHaveLength(1);
+	});
+	it("validates source membership and accepts saved incomplete responses", async () => {
+		const id = await newConversation();
+		const foreign = await newConversation();
+		const model = modelWith(() => [
+			{ type: "text-delta", id: "t1", delta: "Answer" },
+		]);
+		const user = await appendMessage(t.db, {
+			conversationId: id,
+			role: "user",
+			parts: [{ type: "text", text: "first" }],
+		});
+		const other = await appendMessage(t.db, {
+			conversationId: foreign,
+			role: "assistant",
+			parts: [{ type: "text", text: "foreign" }],
+		});
+		for (const messageId of [
+			user.id,
+			other.id,
+			"11111111-1111-4111-8111-111111111111",
+		])
+			expect(
+				(
+					await chat(
+						enabled(model),
+						post({
+							conversationId: id,
+							message: "why",
+							replyContext: { messageId, text: "quote" },
+						}),
+					)
+				).status,
+			).toBe(400);
+		expect(model.doStreamCalls).toHaveLength(0);
+		expect((await getConversation(t.db, id))?.messages).toHaveLength(1);
+		const source = await appendMessage(t.db, {
+			conversationId: id,
+			role: "assistant",
+			parts: [{ type: "text", text: "partial" }],
+			finishReason: "aborted",
+		});
+		const res = await chat(
+			enabled(model),
+			post({
+				conversationId: id,
+				message: "why",
+				replyContext: { messageId: source.id, text: " partial " },
+			}),
+		);
+		expect(res.status).toBe(200);
+		await res.text();
+		const stored = await waitFor(
+			async () => {
+				const c = await getConversation(t.db, id);
+				return c?.messages.length === 4 ? c : null;
+			},
+			{ what: "quoted response" },
+		);
+		expect(stored.messages[2]?.parts).toEqual([
+			{
+				type: "data-reply-context",
+				data: { version: 1, messageId: source.id, text: "partial" },
+			},
+			{ type: "text", text: "why" },
+		]);
+		expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain(
+			"not verified book evidence",
+		);
+	});
+});
+
+describe("passage references", () => {
+	const firstLocator = async () => {
+		const id = await newConversation();
+		return `${(await getConversation(t.db, id))?.books[0]?.shortId}:v1:0.0`;
+	};
+
+	it("rejects invalid and out-of-scope references without writes or provider calls", async () => {
+		const locator = await firstLocator();
+		const model = modelWith(() => [
+			{ type: "text-delta", id: "t1", delta: "Answer" },
+		]);
+		const id = await newConversation();
+		const bounded = (
+			await createConversation(t.db, {
+				editionIds: [editionId],
+				scopes: { [editionId]: { maxPosition: 0, scopeLabel: "Nothing" } },
+			})
+		).id;
+		const cases: [string, Record<string, unknown>, number][] = [
+			[id, { message: "why", passageRef: { locator: "nonsense" } }, 400],
+			[id, { passageRef: { locator } }, 400],
+			[
+				id,
+				{
+					message: "why",
+					passageRef: { locator },
+					replyContext: {
+						messageId: "11111111-1111-4111-8111-111111111111",
+						text: "q",
+					},
+				},
+				400,
+			],
+			[id, { message: "why", passageRef: { locator: `${locator}9` } }, 400],
+			[
+				id,
+				{
+					message: "why",
+					passageRef: { locator, range: { start: 0, end: 999 } },
+				},
+				400,
+			],
+			[bounded, { message: "why", passageRef: { locator } }, 409],
+		];
+		for (const [conversationId, body, status] of cases) {
+			const res = await chat(enabled(model), post({ conversationId, ...body }));
+			expect(res.status).toBe(status);
+			if (status === 409)
+				expect(await res.json()).toMatchObject({
+					error: "The passage is beyond this conversation's scope",
+					unitLabel: expect.any(String),
+				});
+		}
+		expect(model.doStreamCalls).toHaveLength(0);
+		expect((await getConversation(t.db, id))?.messages).toEqual([]);
+		expect((await getConversation(t.db, bounded))?.messages).toEqual([]);
+	});
+
+	it("stores the server's snapshot with the message", async () => {
+		const locator = await firstLocator();
+		const model = modelWith(() => [
+			{ type: "text-delta", id: "t1", delta: "Answer" },
+		]);
+		const id = await newConversation();
+		const res = await chat(
+			enabled(model),
+			post({
+				conversationId: id,
+				message: "why",
+				passageRef: { locator, range: { start: 0, end: 4 } },
+			}),
+		);
+		expect(res.status).toBe(200);
+		await res.text();
+		const stored = await waitFor(
+			async () => {
+				const c = await getConversation(t.db, id);
+				return c?.messages.length === 2 ? c : null;
+			},
+			{ what: "referenced message" },
+		);
+		expect(stored.messages[0]?.parts).toEqual([
+			{
+				type: "data-passage-context",
+				data: {
+					version: 1,
+					locator,
+					range: { start: 0, end: 4 },
+					editionId,
+					bookTitle: "Route Book",
+					sectionTitle: null,
+					text: "Some",
+				},
+			},
+			{ type: "text", text: "why" },
+		]);
 	});
 });

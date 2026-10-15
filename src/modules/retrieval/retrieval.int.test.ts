@@ -12,7 +12,7 @@ import {
 	silentLog,
 	tempDataDir,
 } from "../../../test/library";
-import { createRetrieval, type Retrieval } from ".";
+import { createRetrieval, getSectionView, type Retrieval } from ".";
 
 let t: TestDb;
 let dataDir: string;
@@ -322,6 +322,24 @@ describe("resolve", () => {
 				requestedLocator: bogus,
 			});
 		}
+	});
+});
+
+describe("section view", () => {
+	it("gives every passage its reveal position", async () => {
+		const view = await getSectionView(t.db, `${big.shortId}:v1:1.9`);
+		if (view.status !== "found") throw new Error("expected found");
+		expect(view.passages).toHaveLength(100);
+		expect(view.passages[9]).toMatchObject({
+			position: 110,
+			revealPosition: 110,
+		});
+		const notes = await getSectionView(t.db, `${big.shortId}:v1:10.0`);
+		if (notes.status !== "found") throw new Error("expected found");
+		expect(notes.passages[0]).toMatchObject({
+			position: null,
+			revealPosition: 120,
+		});
 	});
 });
 

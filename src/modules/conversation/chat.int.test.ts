@@ -15,9 +15,11 @@ import { buildEpub } from "../../../test/epub-builder";
 import { ingestBook, tempDataDir } from "../../../test/library";
 import { waitFor } from "../../../test/wait";
 import {
+	appendMessage,
 	type ChatDeps,
 	createConversation,
 	getConversation,
+	messages,
 	PROMPT_VERSION,
 	startChat,
 	widenConversationScope,
@@ -956,5 +958,188 @@ describe("scope during chat", () => {
 		expect(systemOf(next.doStreamCalls[0] as never)).not.toContain(
 			"read through",
 		);
+	});
+});
+
+describe("quoted replay", () => {
+	it("preserves quote snapshots through source-error removal, retry and later turns", async () => {
+		const id = await newConversation();
+		const source = await appendMessage(t.db, {
+			conversationId: id,
+			role: "assistant",
+			parts: [{ type: "text", text: "Original partial response" }],
+			finishReason: "error",
+			error: "old failure",
+		});
+		const model = scripted(
+			[
+				{ type: "stream-start", warnings: [] },
+				{ type: "error", error: new Error("temporary failure") },
+			],
+			textReply("Recovered"),
+			textReply("Later"),
+		);
+		const ai = runtime(model);
+		const first = await startChat(deps(ai), {
+			conversationId: id,
+			message: "Explain this claim",
+			replyContext: {
+				messageId: source.id,
+				text: "Original partial response [[cite sample]]",
+			},
+		});
+		if (first.status !== "ok") throw new Error(first.status);
+		await first.response.text();
+		const failed = await saved(id, 3);
+		const snapshot = failed.messages[1]?.parts;
+		const retry = await startChat(deps(ai), { conversationId: id });
+		if (retry.status !== "ok") throw new Error(retry.status);
+		await retry.response.text();
+		await saved(id, 3);
+		await t.db.delete(messages).where(eq(messages.id, source.id));
+		const later = await startChat(deps(ai), {
+			conversationId: id,
+			message: "And then?",
+		});
+		if (later.status !== "ok") throw new Error(later.status);
+		await later.response.text();
+		const history = await saved(id, 4);
+		expect(history.messages.filter((m) => m.role === "user")).toHaveLength(2);
+		expect(history.messages[0]?.parts).toEqual(snapshot);
+		const firstPrompt = model.doStreamCalls[0]?.prompt;
+		const retryPrompt = model.doStreamCalls[1]?.prompt;
+		expect(retryPrompt).toEqual(firstPrompt);
+		const projected = JSON.stringify(firstPrompt);
+		expect(
+			projected.split("Original partial response [[cite sample]]").slice(1),
+		).toHaveLength(1);
+		expect(projected.match(/Explain this claim/g)).toHaveLength(1);
+		expect(
+			model.doStreamCalls[2]?.prompt.slice(0, (firstPrompt?.length ?? 1) - 1),
+		).toEqual(firstPrompt?.filter((_, index) => index !== 1));
+		expect(model.doStreamCalls[1]?.tools).toEqual(
+			model.doStreamCalls[0]?.tools,
+		);
+	});
+});
+
+describe("passage references", () => {
+	const bounded = () =>
+		createConversation(t.db, {
+			editionIds: [editionId],
+			scopes: { [editionId]: { maxPosition: 1, scopeLabel: "One" } },
+		}).then((c) => c.id);
+
+	it("rejects invalid and out-of-scope references before storing or calling the provider", async () => {
+		const id = await bounded();
+		const model = scripted(textReply("Never."));
+		const ai = runtime(model);
+		const locator = `${shortId}:v1:0.0`;
+		const results = [
+			await startChat(deps(ai), {
+				conversationId: id,
+				message: "Why?",
+				passageRef: { locator: `${shortId}:v1:0.1` },
+			}),
+			await startChat(deps(ai), {
+				conversationId: id,
+				message: "Why?",
+				passageRef: { locator: `${shortId}:v1:0.9` },
+			}),
+			await startChat(deps(ai), {
+				conversationId: id,
+				message: "Why?",
+				passageRef: { locator, range: { start: 40, end: 400 } },
+			}),
+			await startChat(deps(ai), {
+				conversationId: id,
+				message: " ",
+				passageRef: { locator },
+			}),
+		];
+		expect(results).toEqual([
+			{ status: "passage_out_of_scope", unitLabel: "One" },
+			{ status: "invalid_passage", reason: "not_found" },
+			{ status: "invalid_passage", reason: "bad_range" },
+			{ status: "invalid_passage", reason: "no_message" },
+		]);
+		expect(model.doStreamCalls).toHaveLength(0);
+		expect((await getConversation(t.db, id))?.messages).toEqual([]);
+	});
+
+	it("replays the snapshot with an unchanged prefix, once on retry, and verifies citations to it", async () => {
+		const id = await bounded();
+		const plain = await bounded();
+		const locator = `${shortId}:v1:0.0`;
+		const cite = `[[cite locator="${locator}" quote="green light"]]`;
+		const model = scripted(
+			textReply("Plain."),
+			[
+				{ type: "stream-start", warnings: [] },
+				{ type: "error", error: new Error("temporary failure") },
+			],
+			textReply(`It is hope. ${cite}`),
+		);
+		const ai = runtime(model);
+		await (await run(ai, plain, "Hello")).text();
+		await saved(plain, 2);
+
+		const first = await startChat(deps(ai), {
+			conversationId: id,
+			message: "What does it mean?",
+			passageRef: { locator, range: { start: 4, end: 15 } },
+		});
+		if (first.status !== "ok") throw new Error(first.status);
+		await first.response.text();
+		const failed = await saved(id, 2);
+		expect(failed.messages[0]?.parts).toEqual([
+			{
+				type: "data-passage-context",
+				data: {
+					version: 1,
+					locator,
+					range: { start: 4, end: 15 },
+					editionId,
+					bookTitle: "Chat Book",
+					sectionTitle: "One",
+					text: "green light",
+				},
+			},
+			{ type: "text", text: "What does it mean?" },
+		]);
+
+		const retry = await startChat(deps(ai), { conversationId: id });
+		if (retry.status !== "ok") throw new Error(retry.status);
+		await retry.response.text();
+		const done = await waitFor(
+			async () => {
+				const c = await getConversation(t.db, id);
+				return c?.messages.at(-1)?.finishReason === "stop" ? c : null;
+			},
+			{ what: "retried reply" },
+		);
+		expect(done.messages.filter((m) => m.role === "user")).toHaveLength(1);
+		expect(done.messages[0]?.parts).toEqual(failed.messages[0]?.parts);
+		expect(done.messages.at(-1)?.citations.map((c) => c.status)).toEqual([
+			"verified",
+		]);
+
+		const [plainCall, firstCall, retryCall] = model.doStreamCalls;
+		const system = (call: typeof plainCall) =>
+			JSON.stringify(call?.prompt.filter((m) => m.role === "system"));
+		expect(system(firstCall)).toBe(system(plainCall));
+		expect(JSON.stringify(firstCall?.tools)).toBe(
+			JSON.stringify(plainCall?.tools),
+		);
+		expect(retryCall?.prompt).toEqual(firstCall?.prompt);
+		const user = JSON.stringify(
+			firstCall?.prompt.filter((m) => m.role === "user"),
+		);
+		expect(user).toContain(
+			`The reader is referring to this passage from Chat Book (One), locator ${locator}. It is quoted from the book.`,
+		);
+		expect(user.match(/<referenced-passage /g)).toHaveLength(1);
+		expect(user.match(/What does it mean\?/g)).toHaveLength(1);
+		expect(user).not.toContain("data-passage-context");
 	});
 });

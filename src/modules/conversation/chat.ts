@@ -8,12 +8,27 @@ import {
 	type UIMessage,
 } from "ai";
 import { and, eq } from "drizzle-orm";
+import {
+	type PassageRef,
+	type PassageSnapshot,
+	passageContextPart,
+	projectPassageContext,
+	type StoredPassageContext,
+} from "#/lib/passage-ref";
+import {
+	projectReplyContext,
+	type ReplyContext,
+	replyContextPart,
+	replyContextSchema,
+	type StoredReplyContext,
+} from "#/lib/reply-context";
 import { type AiRuntime, describeError } from "#/modules/ai";
 import { getBookMap } from "#/modules/analysis";
 import { createRetrieval } from "#/modules/retrieval";
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
 import type { Database } from "#/server/db";
 import type { Logger } from "#/server/logger";
+import { checkPassageRef, type PassageRefInvalid } from "./passage-ref";
 import {
 	buildBookMapMessage,
 	buildSystemPrompt,
@@ -31,7 +46,14 @@ import { bookHandle, createConversationTools } from "./tools";
 import { verifyCitations } from "./verify";
 
 /** The UI message shape: text and tool parts plus a data part carrying verified citations. */
-export type ChatUIMessage = UIMessage<unknown, { citations: CitationRecord[] }>;
+export type ChatUIMessage = UIMessage<
+	unknown,
+	{
+		citations: CitationRecord[];
+		"reply-context": StoredReplyContext;
+		"passage-context": StoredPassageContext;
+	}
+>;
 
 export interface ChatDeps {
 	db: Database;
@@ -43,10 +65,16 @@ export type ChatInput = {
 	conversationId: string;
 	/** The reader's new message. Omit to retry after a failed generation. */
 	message?: string;
+	replyContext?: ReplyContext;
+	/** A passage the message refers to; never together with `replyContext`. */
+	passageRef?: PassageRef;
 	abortSignal?: AbortSignal;
 };
 
 export type ChatStart =
+	| { status: "invalid_context" }
+	| { status: "invalid_passage"; reason: PassageRefInvalid | "no_message" }
+	| { status: "passage_out_of_scope"; unitLabel: string | null }
 	| { status: "disabled" }
 	| { status: "not_found" }
 	| { status: "busy" }
@@ -69,10 +97,39 @@ export async function startChat(
 	if (!ai.model) return { status: "disabled" };
 	const conversation = await getConversation(db, input.conversationId);
 	if (!conversation) return { status: "not_found" };
+	if (input.replyContext && input.passageRef)
+		return { status: "invalid_context" };
+	// Re-checked here whatever the composer saw: the snapshot is replayed as book evidence.
+	let passage: PassageSnapshot | undefined;
+	if (input.passageRef) {
+		if (!input.message?.trim())
+			return { status: "invalid_passage", reason: "no_message" };
+		const check = await checkPassageRef(db, conversation, input.passageRef);
+		if (check.status === "invalid")
+			return { status: "invalid_passage", reason: check.reason };
+		if (check.status === "out_of_scope")
+			return { status: "passage_out_of_scope", unitLabel: check.unitLabel };
+		passage = check.snapshot;
+	}
 	if (inFlight.has(conversation.id)) return { status: "busy" };
+	if (input.replyContext) {
+		const context = replyContextSchema.safeParse(input.replyContext);
+		if (
+			!input.message?.trim() ||
+			!context.success ||
+			!conversation.messages.some(
+				(m) => m.id === context.data.messageId && m.role === "assistant",
+			)
+		)
+			return { status: "invalid_context" };
+		input = { ...input, replyContext: context.data };
+	}
 	inFlight.add(conversation.id);
 	try {
-		const history = await prepareHistory(db, conversation, input.message);
+		const history = await prepareHistory(db, conversation, input.message, {
+			replyContext: input.replyContext,
+			passage,
+		});
 		if (!history) {
 			inFlight.delete(conversation.id);
 			return { status: "nothing_to_retry" };
@@ -90,6 +147,10 @@ async function prepareHistory(
 	db: Database,
 	conversation: ConversationDetail,
 	text: string | undefined,
+	{
+		replyContext,
+		passage,
+	}: { replyContext?: ReplyContext; passage?: PassageSnapshot } = {},
 ): Promise<StoredMessage[] | null> {
 	const stored = [...conversation.messages];
 	if (text === undefined) {
@@ -107,7 +168,11 @@ async function prepareHistory(
 		}
 		return stored.at(-1)?.role === "user" ? stored : null;
 	}
-	const parts: Json[] = [{ type: "text", text }];
+	const parts: Json[] = [
+		...(replyContext ? [replyContextPart(replyContext)] : []),
+		...(passage ? [passageContextPart(passage)] : []),
+		{ type: "text", text },
+	];
 	const saved = await appendMessage(db, {
 		conversationId: conversation.id,
 		role: "user",
@@ -287,7 +352,14 @@ function generate(
 }
 
 function toUIMessage(m: StoredMessage): Omit<ChatUIMessage, "id"> {
-	return { role: m.role, parts: replayableParts(m.parts) };
+	return {
+		role: m.role,
+		parts: replayableParts(
+			m.role === "user"
+				? projectReplyContext(projectPassageContext(m.parts))
+				: m.parts,
+		),
+	};
 }
 
 /** Parts that can be replayed to a model: text and finished tool calls. */

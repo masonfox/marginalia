@@ -2,10 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getReadingUnits } from "#/modules/catalog";
 import {
+	checkPassageRef,
 	createConversationForEdition,
 	deleteConversation,
+	getConversation,
 	getConversationWithUsage,
 	listConversationsForEdition,
+	type PassageCheck,
+	passageRefSchema,
 	renameConversation,
 	widenConversationScope,
 } from "#/modules/conversation";
@@ -56,6 +60,22 @@ export const widenScopeFn = createServerFn({ method: "POST" })
 		}),
 	)
 	.handler(({ data }) => widenConversationScope(appContext().db, data));
+
+/**
+ * Checks a passage reference against a conversation before it is attached:
+ * `ok` with the server's snapshot, `out_of_scope` with the containing unit,
+ * or `invalid`. Sending re-checks, so this result is only for the composer.
+ */
+export const checkPassageRefFn = createServerFn({ method: "GET" })
+	.validator(z.object({ conversationId: z.uuid(), ref: passageRefSchema }))
+	.handler(
+		async ({ data }): Promise<PassageCheck | { status: "no_conversation" }> => {
+			const { db } = appContext();
+			const conversation = await getConversation(db, data.conversationId);
+			if (!conversation) return { status: "no_conversation" };
+			return checkPassageRef(db, conversation, data.ref);
+		},
+	);
 
 /** A conversation with per-reply usage and the running total. Costs are estimates. */
 export const getConversationFn = createServerFn({ method: "GET" })

@@ -23,7 +23,7 @@ docker compose up -d
 
 Open <http://localhost:3000>. The port is bound to `127.0.0.1` only. To reach Marginalia from other devices, put a reverse proxy with HTTPS in front of it (see below), or change the `ports` line if your network is trusted.
 
-Images are published for `linux/amd64` and `linux/arm64` as `ghcr.io/OWNER/marginalia:<tag>`. Tags are the full version (`0.1.0`, which never changes), the minor line (`0.1`), and `latest`. Set `MARGINALIA_IMAGE` in `.env` to pin a version.
+Images are published for `linux/amd64` and `linux/arm64` as `ghcr.io/OWNER/marginalia:<tag>`. Every push to `main` publishes `latest`, `main` and `sha-<commit>`, so `latest` follows the newest code on `main`. Version tags (`v0.1.0`) publish the full version (`0.1.0`, which never changes) and the minor line (`0.1`). Set `MARGINALIA_IMAGE` in `.env` to pin a version.
 
 ## Configuration
 
