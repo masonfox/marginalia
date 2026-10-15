@@ -93,13 +93,15 @@ export function captureReplySelection(
 
 export function ReplySelection({
 	onAttach,
+	onTooLong,
 }: {
 	onAttach: (quote: ReplyContext) => void;
+	/** The selection is over the quote limit, so nothing was attached. */
+	onTooLong: () => void;
 }) {
 	const [snapshot, setSnapshot] = useState<
 		(ReplyContext & { left: number; top: number }) | null
 	>(null);
-	const [feedback, setFeedback] = useState("");
 	const button = useRef<HTMLButtonElement>(null);
 	useEffect(() => {
 		const update = (event?: Event) => {
@@ -126,10 +128,7 @@ export function ReplySelection({
 			});
 		};
 		const key = (event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				setSnapshot(null);
-				setFeedback("");
-			}
+			if (event.key === "Escape") setSnapshot(null);
 			// Native tab order can place the action after a distant composer. Move focus directly.
 			if (
 				event.key === "Tab" &&
@@ -156,38 +155,29 @@ export function ReplySelection({
 			window.removeEventListener("resize", update);
 		};
 	}, []);
+	if (!snapshot) return null;
 	return (
-		<>
-			{snapshot && (
-				<button
-					ref={button}
-					type="button"
-					className="fixed z-50 inline-flex cursor-pointer items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg ring-2 ring-background hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-					style={{ left: snapshot.left, top: snapshot.top }}
-					onPointerDown={(event) => {
-						if (event.pointerType !== "touch") event.preventDefault();
-					}}
-					onClick={() => {
-						if (snapshot.text.length > REPLY_CONTEXT_LIMIT) {
-							setFeedback(
-								"Select at most 2,000 characters to reply. Your existing quote is unchanged.",
-							);
-							return;
-						}
-						onAttach({ messageId: snapshot.messageId, text: snapshot.text });
-						setSnapshot(null);
-						setFeedback("");
-						window.getSelection()?.removeAllRanges();
-					}}
-				>
-					<Reply className="size-4" aria-hidden />
-					Reply to selection
-				</button>
-			)}
-			<output aria-live="polite" className="text-sm text-muted-foreground">
-				{feedback}
-			</output>
-		</>
+		<button
+			ref={button}
+			type="button"
+			className="fixed z-50 inline-flex cursor-pointer items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg ring-2 ring-background hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+			style={{ left: snapshot.left, top: snapshot.top }}
+			onPointerDown={(event) => {
+				if (event.pointerType !== "touch") event.preventDefault();
+			}}
+			onClick={() => {
+				if (snapshot.text.length > REPLY_CONTEXT_LIMIT) {
+					onTooLong();
+					return;
+				}
+				onAttach({ messageId: snapshot.messageId, text: snapshot.text });
+				setSnapshot(null);
+				window.getSelection()?.removeAllRanges();
+			}}
+		>
+			<Reply className="size-4" aria-hidden />
+			Reply to selection
+		</button>
 	);
 }
 
