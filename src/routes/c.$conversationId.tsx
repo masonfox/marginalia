@@ -496,7 +496,7 @@ function ConversationPage() {
 							void chat.stop();
 						}}
 						onSend={() => {
-							const text = composer.draft.trim();
+							const text = composer.draft;
 							const attachment = composer.attachment;
 							const parts: Msg["parts"] = [
 								...(attachment?.kind === "quote"
