@@ -27,9 +27,9 @@ import {
 	markDerivedStale,
 	type PreprocessDeps,
 	preprocessEdition,
+	preprocessRuns,
 	processUnit,
 	StructureChangedError,
-	preprocessRuns,
 	unitSummaries,
 	updateRun,
 } from ".";

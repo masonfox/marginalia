@@ -7,9 +7,9 @@ import {
 	type JobHandlers,
 	type JobKind,
 	jobKindNames,
-	type PendingJob,
 	jobKinds,
 	NonRetryableError,
+	type PendingJob,
 } from "./kinds";
 
 export interface RetryPolicy {

@@ -95,8 +95,8 @@ export function PreprocessCardView({
 				)}
 				{view.hasSpend && (
 					<p>
-						Tokens: {tokens(view.inputTokens)} in ·{" "}
-						{tokens(view.outputTokens)} out
+						Tokens: {tokens(view.inputTokens)} in · {tokens(view.outputTokens)}{" "}
+						out
 					</p>
 				)}
 				{view.failedUnits > 0 && (

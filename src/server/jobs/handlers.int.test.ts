@@ -92,9 +92,9 @@ describe("reparse invalidates preprocessing", () => {
 		);
 		expect((await getPreprocessStatus(t.db, editionId)).status).toBe("stale");
 		expect(await getBookMap(t.db, editionId, null)).toEqual([]);
-		expect(
-			await lookupObservations(t.db, editionId, "Anna", null, 10),
-		).toEqual([]);
+		expect(await lookupObservations(t.db, editionId, "Anna", null, 10)).toEqual(
+			[],
+		);
 	});
 
 	it("rolls back invalidation with a failed replacement", async () => {
