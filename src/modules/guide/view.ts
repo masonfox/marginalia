@@ -9,6 +9,14 @@ import { editions } from "#/modules/library";
 import type { Executor } from "#/server/db";
 import { listCorrections } from "./corrections";
 import {
+	defaultNoteAnchor,
+	getNote,
+	listNotes,
+	listSubjectNotes,
+	type NoteAnchorChoice,
+	type ReaderNote,
+} from "./notes";
+import {
 	getReadingPosition,
 	type PositionChoice,
 	type ReadingPosition,
@@ -22,11 +30,12 @@ import {
 	getUnitAnchors,
 	listProposals,
 	listSubjects,
+	resolveSubjects,
 	type SubjectTimeline,
 	type UnitAnchors,
 } from "./queries";
 import type { CorrectionAction, CorrectionTarget } from "./schema";
-import type { MergeProposal } from "./subjects";
+import type { MergeProposal, SubjectResolution } from "./subjects";
 
 /** The bound a Guide visit reads at: a reading unit by its end position, or the whole book. */
 export type GuideBoundChoice = PositionChoice;
@@ -121,12 +130,14 @@ export interface GuideChapter {
 		 */
 		correction: CorrectionMark | null;
 	} | null;
+	/** The reader's notes attached to the unit and visible at the bound. */
+	notes: GuideNote[];
 }
 
 /**
  * Every reading unit ending at or before the bound, in reading order, with
- * its merged summary. Suppressed summaries are included, marked, so the
- * Guide can list them behind "show hidden".
+ * its merged summary and its attached notes. Suppressed summaries are
+ * included, marked, so the Guide can list them behind "show hidden".
  */
 export async function getGuideChapters(
 	db: Executor,
@@ -134,10 +145,27 @@ export async function getGuideChapters(
 	choice: GuideBoundChoice,
 ): Promise<GuideResult<{ chapters: GuideChapter[] }>> {
 	return atBound(db, editionId, choice, async ({ bound, anchors }) => {
-		const summaries = await getMergedSummaries(db, editionId, bound, anchors, {
-			includeHidden: true,
-		});
+		const [summaries, attached] = await Promise.all([
+			getMergedSummaries(db, editionId, bound, anchors, {
+				includeHidden: true,
+			}),
+			listNotes(db, editionId, bound, { kind: "unit" }),
+		]);
 		const byOrdinal = new Map(summaries.map((s) => [s.unitOrdinal, s]));
+		const notesOf = new Map<string, GuideNote[]>();
+		for (const note of await describeNotes(
+			db,
+			editionId,
+			bound,
+			anchors,
+			attached,
+		)) {
+			if (!note.unit) continue;
+			notesOf.set(note.unit.locator, [
+				...(notesOf.get(note.unit.locator) ?? []),
+				note,
+			]);
+		}
 		const chapters = anchors.units
 			.filter((u) => bound === null || u.endPosition <= bound)
 			.map((u) => {
@@ -154,6 +182,7 @@ export async function getGuideChapters(
 								correction: s.correction,
 							}
 						: null,
+					notes: notesOf.get(u.startLocator) ?? [],
 				};
 			});
 		return { chapters };
@@ -186,21 +215,44 @@ export async function listGuideProposals(
 }
 
 /**
- * A subject's timeline at the bound; `subject` is null when it has nothing
- * within the bound. Suppressed observations are included, marked, for
- * "show hidden".
+ * A subject's timeline at the bound, with the notes attached to it there;
+ * `subject` is null when it has nothing within the bound. Suppressed
+ * observations are included, marked, for "show hidden".
  */
 export async function getGuideSubject(
 	db: Executor,
 	editionId: string,
 	choice: GuideBoundChoice,
 	ref: string,
-): Promise<GuideResult<{ subject: SubjectTimeline | null }>> {
-	return atBound(db, editionId, choice, async ({ bound, anchors }) => ({
-		subject: await getSubjectTimeline(db, editionId, ref, bound, anchors, {
-			includeHidden: true,
-		}),
-	}));
+): Promise<
+	GuideResult<{ subject: (SubjectTimeline & { notes: GuideNote[] }) | null }>
+> {
+	return atBound(db, editionId, choice, async ({ bound, anchors }) => {
+		const timeline = await getSubjectTimeline(
+			db,
+			editionId,
+			ref,
+			bound,
+			anchors,
+			{ includeHidden: true },
+		);
+		if (!timeline) return { subject: null };
+		const resolution = await resolveSubjects(db, editionId, bound, anchors);
+		const notes = await listSubjectNotes(db, editionId, ref, bound, resolution);
+		return {
+			subject: {
+				...timeline,
+				notes: await describeNotes(
+					db,
+					editionId,
+					bound,
+					anchors,
+					notes,
+					resolution,
+				),
+			},
+		};
+	});
 }
 
 /**
@@ -362,4 +414,105 @@ export async function getCorrectionReview(
 		});
 		return { review: { regenerated, detached } };
 	});
+}
+
+/** A reader note as the Guide shows it at a bound. */
+export interface GuideNote extends ReaderNote {
+	/**
+	 * The attached subject as it resolves at the bound, or null when the note
+	 * is not attached to one. `name` is null when none of its names has
+	 * appeared within the bound, so it has no timeline there.
+	 */
+	subject: { key: string; ref: string; name: string | null } | null;
+	/** The attached unit, or null when the note is not attached to one. */
+	unit: { locator: string; label: string } | null;
+}
+
+/** Describes notes at a bound: their subject's ref and name there, and their unit's label. */
+async function describeNotes(
+	db: Executor,
+	editionId: string,
+	bound: number | null,
+	anchors: UnitAnchors,
+	notes: ReaderNote[],
+	known?: SubjectResolution,
+): Promise<GuideNote[]> {
+	const resolution =
+		known ??
+		(notes.some((n) => n.subjectKey !== null)
+			? await resolveSubjects(db, editionId, bound, anchors)
+			: null);
+	return notes.map((note) => {
+		const ref =
+			note.subjectKey !== null && resolution
+				? resolution.refOf(note.subjectKey)
+				: null;
+		const unit =
+			note.unitLocator !== null ? anchors.unitAt(note.unitLocator) : null;
+		return {
+			...note,
+			subject:
+				ref !== null && note.subjectKey !== null
+					? {
+							key: note.subjectKey,
+							ref,
+							name: resolution?.nameOf(ref) ?? null,
+						}
+					: null,
+			unit: unit ? { locator: unit.startLocator, label: unit.label } : null,
+		};
+	});
+}
+
+/** The Notes view: every note visible at the bound. */
+export async function listGuideNotes(
+	db: Executor,
+	editionId: string,
+	choice: GuideBoundChoice,
+): Promise<GuideResult<{ notes: GuideNote[] }>> {
+	return atBound(db, editionId, choice, async ({ bound, anchors }) => ({
+		notes: await describeNotes(
+			db,
+			editionId,
+			bound,
+			anchors,
+			await listNotes(db, editionId, bound),
+		),
+	}));
+}
+
+/** One note, or null when it does not exist or is not visible at the bound. */
+export async function getGuideNote(
+	db: Executor,
+	editionId: string,
+	choice: GuideBoundChoice,
+	id: number,
+): Promise<GuideResult<{ note: GuideNote | null }>> {
+	return atBound(db, editionId, choice, async ({ bound, anchors }) => {
+		const note = await getNote(db, editionId, id, bound);
+		if (!note) return { note: null };
+		const [described] = await describeNotes(db, editionId, bound, anchors, [
+			note,
+		]);
+		return { note: described ?? null };
+	});
+}
+
+/**
+ * What a new note starts from: the anchor it defaults to (the reading
+ * position, or the end of the book once finished), or null when the reader
+ * must choose. Null when the edition is missing or not ready.
+ */
+export async function getNoteDefaults(
+	db: Executor,
+	editionId: string,
+): Promise<{
+	anchor: { choice: NoteAnchorChoice; label: string | null } | null;
+} | null> {
+	const [edition] = await db
+		.select({ status: editions.status })
+		.from(editions)
+		.where(eq(editions.id, editionId));
+	if (!edition || edition.status !== "ready") return null;
+	return { anchor: await defaultNoteAnchor(db, editionId) };
 }

@@ -58,7 +58,7 @@ export function positionChoice(
 }
 
 /** Consecutive units sharing a parent path, for grouped display. */
-function groupUnits(units: ReadingUnit[]) {
+export function groupUnits(units: ReadingUnit[]) {
 	const groups: { parent: string; units: ReadingUnit[] }[] = [];
 	for (const unit of units) {
 		const parent = unit.path.slice(0, -1).join(" › ");
@@ -140,6 +140,19 @@ function Option({
 	);
 }
 
+/** What ScopeChoices calls its whole-book choice and its unit list. */
+export interface ChoiceLabels {
+	whole: string;
+	wholeHint: string;
+	partway: string;
+}
+
+const CHOICE_LABELS: ChoiceLabels = {
+	whole: "Whole book",
+	wholeHint: "I've finished it. Later events are fair game.",
+	partway: "I'm partway through",
+};
+
 /**
  * "Whole book", then a collapsed "partway through" section that opens to the
  * units grouped by parent, shown as a grid of numbers when a group is plainly
@@ -152,6 +165,7 @@ export function ScopeChoices({
 	onChange,
 	position = null,
 	legend = "How far you have read",
+	labels = CHOICE_LABELS,
 }: {
 	units: ReadingUnit[];
 	value: Choice | null;
@@ -159,6 +173,8 @@ export function ScopeChoices({
 	/** The choice to mark as the reader's position (see positionChoice). */
 	position?: Choice | null;
 	legend?: string;
+	/** What the two kinds of choice are called, when not "how far you have read". */
+	labels?: ChoiceLabels;
 }) {
 	const name = useId();
 	const listId = `${name}-units`;
@@ -178,13 +194,13 @@ export function ScopeChoices({
 			<Option
 				{...shared}
 				choice="whole"
-				label="Whole book"
+				label={labels.whole}
 				mine={position === "whole"}
 				className="flex flex-col border px-3 py-2"
 			>
-				<span>Whole book</span>
+				<span>{labels.whole}</span>
 				<span className="text-xs font-normal opacity-70">
-					I've finished it. Later events are fair game.
+					{labels.wholeHint}
 				</span>
 				{position === "whole" && <YourPosition />}
 			</Option>
@@ -200,7 +216,7 @@ export function ScopeChoices({
 					)}
 				>
 					<span className="flex flex-1 flex-col">
-						<span>I'm partway through</span>
+						<span>{labels.partway}</span>
 						<span className="text-xs text-muted-foreground">
 							{chosen
 								? `Through ${chosen.label}`

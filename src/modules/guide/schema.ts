@@ -17,6 +17,7 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { type DerivedCitation, OBSERVATION_KINDS } from "#/modules/analysis";
+import { conversations } from "#/modules/conversation";
 import { editions } from "#/modules/library";
 
 /**
@@ -201,6 +202,63 @@ export const guideCorrections = pgTable(
 		check(
 			"guide_corrections_action_check",
 			sql`${t.action} in ('replace','suppress') and (${t.text} is null) = (${t.action} = 'suppress') and (${t.citation} is null or ${t.action} = 'replace')`,
+		),
+	],
+);
+
+export const NOTE_ANCHOR_KINDS = ["unit", "passage", "end"] as const;
+export type NoteAnchorKind = (typeof NOTE_ANCHOR_KINDS)[number];
+
+/**
+ * A reader's own guide page (design D3): a theory, a timeline, a glossary.
+ * Its "as of" anchor is a reveal anchor (design D2), a floor: the note is
+ * visible only at bounds at or after it. A unit is stored as its last
+ * passage; the end of the book has no passage and no position, so it shows
+ * only at the whole-book bound. Attached to at most one subject (by name
+ * key) or one unit (by its anchor), never by machine row id.
+ */
+export const readerNotes = pgTable(
+	"reader_notes",
+	{
+		id: serial("id").primaryKey(),
+		editionId: uuid("edition_id")
+			.notNull()
+			.references(() => editions.id, { onDelete: "cascade" }),
+		title: text("title").notNull(),
+		/** Markdown, rendered without raw HTML. */
+		body: text("body").notNull(),
+		asOfKind: text("as_of_kind", { enum: NOTE_ANCHOR_KINDS }).notNull(),
+		/** The anchor passage (a unit's last passage); null exactly for the end of the book. */
+		asOfLocator: text("as_of_locator"),
+		/** That passage's reveal position, cached; null exactly for the end of the book. */
+		asOfPosition: integer("as_of_position"),
+		/** The anchor unit's label, or the label of the unit holding the passage. */
+		asOfLabel: text("as_of_label"),
+		/** The attached subject's name key, so it survives regeneration. */
+		subjectKey: text("subject_key"),
+		/** The attached unit's anchor: the locator of its first passage. */
+		unitLocator: text("unit_locator"),
+		/** The conversation the note was saved from, if any. */
+		sourceConversationId: uuid("source_conversation_id").references(
+			() => conversations.id,
+			{ onDelete: "set null" },
+		),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [
+		index("reader_notes_edition_idx").on(t.editionId, t.asOfPosition),
+		check(
+			"reader_notes_as_of_check",
+			sql`${t.asOfKind} in ('unit','passage','end') and (${t.asOfLocator} is null) = (${t.asOfKind} = 'end') and (${t.asOfPosition} is null) = (${t.asOfKind} = 'end')`,
+		),
+		check(
+			"reader_notes_attachment_check",
+			sql`${t.subjectKey} is null or ${t.unitLocator} is null`,
 		),
 	],
 );

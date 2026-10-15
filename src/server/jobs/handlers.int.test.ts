@@ -10,14 +10,18 @@ import {
 import { getReadingUnits, ingestEdition, passages } from "#/modules/catalog";
 import { PARSER_VERSION, parseEpub } from "#/modules/epub";
 import {
+	createNote,
 	getCorrectionReview,
 	getMergedObservations,
 	getMergedSummaries,
 	getReadingPosition,
 	getUnitAnchors,
 	guideCorrections,
+	listGuideNotes,
+	listNotes,
 	loadSubjectLinks,
 	mergeSubjects,
+	type NoteInput,
 	saveCorrection,
 	setReadingPosition,
 } from "#/modules/guide";
@@ -540,5 +544,175 @@ describe("reparse invalidates preprocessing", () => {
 		expect(
 			await lookupObservations(t.db, editionId, "Anna", null, 10),
 		).toHaveLength(1);
+	});
+});
+
+describe("reparse re-anchors notes", () => {
+	it("forwards anchors never earlier and clears unit attachments that start no unit", async () => {
+		const bytes = await buildEpub({
+			title: "reparse-notes",
+			chapters: [
+				{
+					href: "ch1.xhtml",
+					title: "Chapter 1",
+					body: "<h2>Chapter 1</h2><p>Alpha.</p>",
+				},
+				{
+					href: "ch2.xhtml",
+					title: "Chapter 2",
+					body: "<h2>Chapter 2</h2><p>Beta.</p><p>Delta.</p>",
+				},
+				{
+					href: "ch3.xhtml",
+					title: "Chapter 3",
+					body: "<h2>Chapter 3</h2><p>Gamma.</p><h2>Chapter 4</h2><p>Epsilon.</p>",
+				},
+			],
+		});
+		const { sha256, edition } = await addUploadedBook(
+			t.db,
+			dataDir,
+			bytes,
+			"reparse-notes.epub",
+		);
+		// The older parser kept a stray paragraph after Beta, which the reparse
+		// removes, and made Chapter 4 a unit of its own, which the current
+		// parser folds into Chapter 3.
+		const old = reshape(await parseEpub(bytes), OLD_VERSION, (ps) =>
+			ps.flatMap((p) =>
+				p.text === "Beta." ? [p, { ...p, text: "A stray paragraph." }] : [p],
+			),
+		);
+		const fourth = old.sections[2]?.passages.find(
+			(x) => x.text === "Chapter 4",
+		);
+		if (!fourth) throw new Error("expected Chapter 4");
+		old.toc = [
+			...old.toc,
+			{
+				label: "Chapter 4",
+				depth: 0,
+				target: { spineIndex: 2, blockIndex: fourth.blockIndex },
+				children: [],
+			},
+		];
+		await ingestEdition(
+			{
+				db: t.db,
+				dataDir,
+				log: silentLog,
+				parse: async () => old,
+				parserVersion: OLD_VERSION,
+			},
+			sha256,
+			{ finalAttempt: true },
+		);
+		const before = await getReadingUnits(t.db, edition.id);
+		expect(before.map((u) => u.label)).toEqual([
+			"Chapter 1",
+			"Chapter 2",
+			"Chapter 3",
+			"Chapter 4",
+		]);
+		const [one, , three, four] = before as [
+			(typeof before)[number],
+			(typeof before)[number],
+			(typeof before)[number],
+			(typeof before)[number],
+		];
+		const passageOf = async (text: string) => {
+			const [row] = await t.db
+				.select({
+					locator: passages.locator,
+					position: passages.revealPosition,
+				})
+				.from(passages)
+				.where(
+					and(eq(passages.editionId, edition.id), eq(passages.text, text)),
+				);
+			if (!row) throw new Error(`no passage "${text}"`);
+			return row;
+		};
+		const stray = await passageOf("A stray paragraph.");
+		const unitAt = (u: { endPosition: number }) =>
+			({ kind: "unit", endPosition: u.endPosition }) as const;
+		const make = async (title: string, input: Partial<NoteInput>) => {
+			const made = await createNote(t.db, edition.id, {
+				title,
+				body: "",
+				...input,
+			});
+			if (!made.ok) throw new Error(made.reason);
+		};
+		await make("Stray", {
+			anchor: { kind: "passage", locator: stray.locator },
+		});
+		await make("One", {
+			anchor: unitAt(one),
+			attachment: { kind: "unit", unitLocator: three.startLocator },
+		});
+		await make("Three", {
+			anchor: unitAt(three),
+			attachment: { kind: "unit", unitLocator: four.startLocator },
+		});
+		await make("Four", { anchor: unitAt(four) });
+		await make("Finished", { anchor: { kind: "end" } });
+
+		await jobHandlers()["catalog.reparse"]?.({ editionId: edition.id }, ctx);
+		expect((await getEdition(t.db, edition.id))?.parserVersion).toBe(
+			PARSER_VERSION,
+		);
+		const after = await getReadingUnits(t.db, edition.id);
+		expect(after.map((u) => u.label)).toEqual([
+			"Chapter 1",
+			"Chapter 2",
+			"Chapter 3",
+		]);
+		const stored = Object.fromEntries(
+			(await listNotes(t.db, edition.id, null)).map((n) => [
+				n.title,
+				{ asOf: n.asOf, unitLocator: n.unitLocator },
+			]),
+		);
+		const alpha = await passageOf("Alpha.");
+		const beta = await passageOf("Beta.");
+		const delta = await passageOf("Delta.");
+		const gamma = await passageOf("Gamma.");
+		const epsilon = await passageOf("Epsilon.");
+		// Removed: the next surviving passage, never an earlier one.
+		expect(stored.Stray?.asOf).toEqual({
+			kind: "passage",
+			...delta,
+			label: "Chapter 2",
+		});
+		expect(delta.position).toBeGreaterThan(beta.position);
+		// A unit still ending at its passage stays that unit; its attachment
+		// follows Chapter 3's first passage to its new position.
+		expect(stored.One).toEqual({
+			asOf: { kind: "unit", ...alpha, label: "Chapter 1" },
+			unitLocator: after[2]?.startLocator,
+		});
+		expect(after[2]?.startPosition).toBe(three.startPosition - 1);
+		// Chapter 3 now ends later, so its old end is a passage within it; the
+		// attachment to Chapter 4, which starts no unit now, is cleared.
+		expect(stored.Three).toEqual({
+			asOf: { kind: "passage", ...gamma, label: "Chapter 3" },
+			unitLocator: null,
+		});
+		// Chapter 4's end is now Chapter 3's.
+		expect(stored.Four?.asOf).toEqual({
+			kind: "unit",
+			...epsilon,
+			label: "Chapter 3",
+		});
+		expect(stored.Finished?.asOf).toEqual({
+			kind: "end",
+			locator: null,
+			position: null,
+			label: null,
+		});
+		// Every note stays listed in the Notes view.
+		const listed = await listGuideNotes(t.db, edition.id, { kind: "whole" });
+		expect(listed.ok && listed.notes).toHaveLength(5);
 	});
 });

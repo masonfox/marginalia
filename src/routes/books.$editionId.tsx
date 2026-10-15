@@ -32,8 +32,10 @@ import {
 import { Badge } from "#/components/ui/badge";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
+import { countReaderContentFn } from "#/fns/guide";
 import { deleteEditionFn, getEditionFn } from "#/fns/library";
 import { searchPassagesFn } from "#/fns/retrieval";
+import { readerContentWarning } from "#/lib/reader-content";
 import type { TocNode } from "#/modules/catalog";
 import type { SnippetPart } from "#/modules/retrieval";
 
@@ -230,8 +232,23 @@ function DeleteBook({
 	const remove = useServerFn(deleteEditionFn);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [open, setOpen] = useState(false);
+	// Fresh on every opening: notes and guide edits may change in another tab.
+	const content = useQuery({
+		queryKey: ["reader-content", editionId],
+		queryFn: () => countReaderContentFn({ data: { editionId } }),
+		enabled: open,
+		staleTime: 0,
+	});
+	const warning = content.data ? readerContentWarning(content.data) : null;
 	return (
-		<AlertDialog onOpenChange={() => setError(null)}>
+		<AlertDialog
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				setError(null);
+			}}
+		>
 			<AlertDialogTrigger asChild>
 				<Button size="sm" variant="outline" className="mt-4">
 					<Trash2 />
@@ -245,6 +262,14 @@ function DeleteBook({
 						This removes the book, its passages, its cover, and every
 						conversation about it from Marginalia. This cannot be undone.
 					</AlertDialogDescription>
+					{warning && (
+						<AlertDialogDescription
+							className="font-medium text-foreground"
+							data-testid="delete-reader-content"
+						>
+							{warning}
+						</AlertDialogDescription>
+					)}
 					{inLibraryFolder && (
 						<AlertDialogDescription>
 							The file in your library folder is not removed. Scans will skip it

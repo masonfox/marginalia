@@ -3,18 +3,26 @@ import { z } from "zod";
 import { OBSERVATION_KINDS } from "#/modules/analysis";
 import {
 	clearReadingPosition,
+	countReaderContent,
+	createNote,
+	deleteNote,
 	dismissProposal,
 	getCorrectionReview,
 	getGuideChapters,
+	getGuideNote,
 	getGuideOverview,
 	getGuideProvenance,
 	getGuideSubject,
+	getNoteDefaults,
 	getReadingPosition,
 	keepCorrection,
+	listGuideNotes,
 	listGuideProposals,
 	listGuideSubjects,
 	MAX_CITATION_QUOTE,
 	MAX_CORRECTION_TEXT,
+	MAX_NOTE_BODY,
+	MAX_NOTE_TITLE,
 	mergeSubjects,
 	removeCorrection,
 	renameSubject,
@@ -22,6 +30,7 @@ import {
 	setReadingPosition,
 	setSubjectKind,
 	splitSubject,
+	updateNote,
 } from "#/modules/guide";
 import { appContext } from "#/server/context";
 
@@ -250,3 +259,79 @@ export const getCorrectionReviewFn = createServerFn({ method: "GET" })
 	.handler(({ data }) =>
 		getCorrectionReview(appContext().db, data.editionId, data.bound),
 	);
+
+// Notes name their anchor (a unit by its end, a passage, or the end of the
+// book) and their attachment (a subject by its ref, or a unit by its anchor).
+const noteAnchorSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("unit"), endPosition: z.number().int() }),
+	z.object({ kind: z.literal("passage"), locator: z.string().min(1).max(200) }),
+	z.object({ kind: z.literal("end") }),
+]);
+
+const noteInputSchema = z.object({
+	editionId: z.uuid(),
+	// The limits are checked by the module, whose refusal states them; these
+	// only cap what is accepted at all.
+	title: z.string().max(MAX_NOTE_TITLE * 5),
+	body: z.string().max(MAX_NOTE_BODY * 5),
+	anchor: noteAnchorSchema.optional(),
+	attachment: z
+		.discriminatedUnion("kind", [
+			z.object({ kind: z.literal("none") }),
+			z.object({ kind: z.literal("subject"), ref: refSchema }),
+			z.object({
+				kind: z.literal("unit"),
+				unitLocator: z.string().min(1).max(200),
+			}),
+		])
+		.optional(),
+	sourceConversationId: z.uuid().nullish(),
+});
+
+/** The notes visible within the bound. */
+export const listGuideNotesFn = createServerFn({ method: "GET" })
+	.validator(boundedSchema)
+	.handler(({ data }) =>
+		listGuideNotes(appContext().db, data.editionId, data.bound),
+	);
+
+/** One note, or null when it is not visible within the bound. */
+export const getGuideNoteFn = createServerFn({ method: "GET" })
+	.validator(boundedSchema.extend({ id: z.number().int().positive() }))
+	.handler(({ data }) =>
+		getGuideNote(appContext().db, data.editionId, data.bound, data.id),
+	);
+
+/** The anchor a new note defaults to: null when the reader must choose. */
+export const getNoteDefaultsFn = createServerFn({ method: "GET" })
+	.validator(z.object({ editionId: z.uuid() }))
+	.handler(({ data }) => getNoteDefaults(appContext().db, data.editionId));
+
+/**
+ * Creates a note, anchored at the reading position unless an anchor is
+ * given. Refused with `too_long` (and the limit) or `anchor_required`.
+ */
+export const createNoteFn = createServerFn({ method: "POST" })
+	.validator(noteInputSchema)
+	.handler(({ data: { editionId, ...input } }) =>
+		createNote(appContext().db, editionId, input),
+	);
+
+/** Edits a note; an omitted anchor or attachment is kept. */
+export const updateNoteFn = createServerFn({ method: "POST" })
+	.validator(noteInputSchema.extend({ id: z.number().int().positive() }))
+	.handler(({ data: { editionId, id, ...input } }) =>
+		updateNote(appContext().db, editionId, id, input),
+	);
+
+/** Deletes a note. */
+export const deleteNoteFn = createServerFn({ method: "POST" })
+	.validator(z.object({ editionId: z.uuid(), id: z.number().int().positive() }))
+	.handler(async ({ data }) => ({
+		deleted: await deleteNote(appContext().db, data.editionId, data.id),
+	}));
+
+/** How many notes, corrections, and confirmed subjects deleting the book would delete. */
+export const countReaderContentFn = createServerFn({ method: "GET" })
+	.validator(z.object({ editionId: z.uuid() }))
+	.handler(({ data }) => countReaderContent(appContext().db, data.editionId));

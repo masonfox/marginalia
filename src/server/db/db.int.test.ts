@@ -41,6 +41,7 @@ describe("database", () => {
 			"note_refs",
 			"passages",
 			"preprocess_runs",
+			"reader_notes",
 			"reading_positions",
 			"sections",
 			"sessions",

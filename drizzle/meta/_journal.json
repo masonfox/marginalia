@@ -99,6 +99,13 @@
       "when": 1792095382744,
       "tag": "0013_guide_corrections",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792101002657,
+      "tag": "0014_reader_notes",
+      "breakpoints": true
     }
   ]
 }

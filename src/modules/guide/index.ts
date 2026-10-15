@@ -1,6 +1,7 @@
 // The reader layer over the machine guide: reader-owned data and the merged,
 // bounded view the Guide, margin glosses and the assistant all read.
 
+export type { ReaderContentCounts } from "#/lib/reader-content";
 export {
 	type CitationInput,
 	type CorrectionInput,
@@ -17,6 +18,25 @@ export {
 	MAX_CORRECTION_TEXT,
 	observationText,
 } from "./corrections";
+export {
+	countReaderContent,
+	createNote,
+	defaultNoteAnchor,
+	deleteNote,
+	getNote,
+	listNotes,
+	listSubjectNotes,
+	MAX_NOTE_BODY,
+	MAX_NOTE_TITLE,
+	type NoteAnchorChoice,
+	type NoteAsOf,
+	type NoteAttachment,
+	type NoteFilter,
+	type NoteInput,
+	type NoteResult,
+	type ReaderNote,
+	updateNote,
+} from "./notes";
 export {
 	clearReadingPosition,
 	getReadingPosition,
@@ -79,14 +99,18 @@ export {
 	type DetachedCorrection,
 	type GuideBoundChoice,
 	type GuideChapter,
+	type GuideNote,
 	type GuideOverview,
 	type GuideProvenance,
 	type GuideResult,
 	getCorrectionReview,
 	getGuideChapters,
+	getGuideNote,
 	getGuideOverview,
 	getGuideProvenance,
 	getGuideSubject,
+	getNoteDefaults,
+	listGuideNotes,
 	listGuideProposals,
 	listGuideSubjects,
 	type RegeneratedCorrection,

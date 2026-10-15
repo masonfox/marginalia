@@ -2,7 +2,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import { type Forward, getReadingUnits } from "#/modules/catalog";
 import type { Executor } from "#/server/db";
 import { correctionKey } from "./corrections";
-import { guideCorrections, guideSubjectAliases } from "./schema";
+import { guideCorrections, guideSubjectAliases, readerNotes } from "./schema";
 
 /**
  * The position of a reveal anchor whose text no longer survives anywhere at
@@ -110,8 +110,94 @@ ${correctionKey(locator, c.nameKey)}`;
 	}
 }
 
+/**
+ * Note "as of" anchors follow their passage's text, or move to the next
+ * surviving passage when it was removed: never earlier, so a reparse never
+ * shows a note sooner. A unit anchor stays one while its forwarded passage
+ * still ends a unit, and otherwise becomes that passage. With nothing after
+ * it surviving, the anchor moves to the end of the book. A unit attachment
+ * follows its unit's first passage, and is cleared when that passage no
+ * longer starts a unit: the note stays, listed in the Notes view.
+ */
+async function reanchorNotes(
+	tx: Executor,
+	editionId: string,
+	forward: Forward,
+): Promise<void> {
+	const notes = await tx
+		.select({
+			id: readerNotes.id,
+			kind: readerNotes.asOfKind,
+			locator: readerNotes.asOfLocator,
+			position: readerNotes.asOfPosition,
+			label: readerNotes.asOfLabel,
+			unitLocator: readerNotes.unitLocator,
+		})
+		.from(readerNotes)
+		.where(eq(readerNotes.editionId, editionId))
+		.orderBy(readerNotes.id);
+	if (notes.length === 0) return;
+	const units = await getReadingUnits(tx, editionId);
+	const starts = new Set(units.map((u) => u.startLocator));
+	for (const note of notes) {
+		let asOf = {
+			asOfKind: note.kind,
+			asOfLocator: note.locator,
+			asOfPosition: note.position,
+			asOfLabel: note.label,
+		};
+		if (note.locator !== null) {
+			const next = forward(note.locator);
+			if (next === null) {
+				asOf = {
+					asOfKind: "end",
+					asOfLocator: null,
+					asOfPosition: null,
+					asOfLabel: null,
+				};
+			} else {
+				const ending =
+					note.kind === "unit"
+						? units.find((u) => u.endPosition === next.position)
+						: undefined;
+				const holding = units.find(
+					(u) =>
+						u.startPosition <= next.position && next.position <= u.endPosition,
+				);
+				asOf = {
+					asOfKind: ending ? "unit" : "passage",
+					asOfLocator: next.locator,
+					asOfPosition: next.position,
+					asOfLabel: (ending ?? holding)?.label ?? null,
+				};
+			}
+		}
+		let unitLocator = note.unitLocator;
+		if (unitLocator !== null) {
+			const next = forward(unitLocator);
+			unitLocator = next && starts.has(next.locator) ? next.locator : null;
+		}
+		if (
+			asOf.asOfKind === note.kind &&
+			asOf.asOfLocator === note.locator &&
+			asOf.asOfPosition === note.position &&
+			asOf.asOfLabel === note.label &&
+			unitLocator === note.unitLocator
+		)
+			continue;
+		await tx
+			.update(readerNotes)
+			.set({ ...asOf, unitLocator })
+			.where(eq(readerNotes.id, note.id));
+	}
+}
+
 /** Every kind of reveal anchor, re-anchored in this order. */
-const REANCHORS: Reanchor[] = [reanchorAliasReveals, reanchorCorrections];
+const REANCHORS: Reanchor[] = [
+	reanchorAliasReveals,
+	reanchorCorrections,
+	reanchorNotes,
+];
 
 /**
  * Re-anchors the edition's reader-authored reveal anchors after a reparse

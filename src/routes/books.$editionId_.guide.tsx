@@ -189,6 +189,7 @@ function GuideLayout() {
 					[
 						["/books/$editionId/guide/chapters", "Chapters"],
 						["/books/$editionId/guide/index", "Index"],
+						["/books/$editionId/guide/notes", "Notes"],
 					] as const
 				).map(([to, label]) => (
 					<Link
@@ -250,7 +251,7 @@ function GuideLayout() {
 						</AlertDialogTitle>
 						<AlertDialogDescription>
 							Your position is {mine ? scopeText(mine.label) : "not set"}. The
-							Guide will show summaries and subjects{" "}
+							Guide will show summaries, subjects and notes{" "}
 							{peekAt?.label ? `through ${peekAt.label}` : "for the whole book"}
 							, which may spoil what you haven't read. Your reading position
 							stays where it is, and the peek ends when you leave the Guide.

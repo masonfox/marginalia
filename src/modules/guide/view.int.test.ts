@@ -293,6 +293,7 @@ describe("Guide reads", () => {
 					],
 					correction: null,
 				},
+				notes: [],
 			},
 			{
 				ordinal: 1,
@@ -300,6 +301,7 @@ describe("Guide reads", () => {
 				locator: anchors.locatorOf(1),
 				endPosition: u(1).endPosition,
 				summary: null,
+				notes: [],
 			},
 		]);
 	});

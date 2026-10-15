@@ -51,12 +51,12 @@ Phases follow the epic's dependency graph and each one can merge on its own: 1 (
 
 ## 6. Reader notes (#25)
 
-- [ ] 6.1 Add the `reader_notes` table (with the attachment check and `source_conversation_id` `SET NULL`) and its migration. Verify that the migration applies.
-- [ ] 6.2 Implement note create, update, and delete with limits (title ≤ 200, body ≤ 20,000), the as-of kinds (unit, passage, end), and default anchor resolution from the position. Verify with integration tests for limits and defaults.
-- [ ] 6.3 Implement bounded `listNotes` (Guide bound, conversation bound, passage bound; end-of-book only for a null bound), plus by-subject (through `resolveSubjects`) and by-unit queries. Verify with integration tests that include "theory written after finishing".
-- [ ] 6.4 Re-anchor note anchors in `guide.reanchor`, never earlier, clearing unit attachments that no longer start a unit. Verify with an integration test.
-- [ ] 6.5 Build the Notes view, the note editor routes (`notes/new`, `notes/$noteId`) with an anchor picker and safe Markdown rendering (no raw HTML), and attached notes in Chapters and timelines. Verify in the app and with a component test that raw HTML is not rendered.
-- [ ] 6.6 Extend the book deletion confirmation to mention notes and guide edits when any exist. Verify in the app and with a test of the count function.
+- [x] 6.1 Add the `reader_notes` table (with the attachment check and `source_conversation_id` `SET NULL`) and its migration. Verify that the migration applies.
+- [x] 6.2 Implement note create, update, and delete with limits (title ≤ 200, body ≤ 20,000), the as-of kinds (unit, passage, end), and default anchor resolution from the position. Verify with integration tests for limits and defaults.
+- [x] 6.3 Implement bounded `listNotes` (Guide bound, conversation bound, passage bound; end-of-book only for a null bound), plus by-subject (through `resolveSubjects`) and by-unit queries. Verify with integration tests that include "theory written after finishing".
+- [x] 6.4 Re-anchor note anchors in `guide.reanchor`, never earlier, clearing unit attachments that no longer start a unit. Verify with an integration test.
+- [x] 6.5 Build the Notes view, the note editor routes (`notes/new`, `notes/$noteId`) with an anchor picker and safe Markdown rendering (no raw HTML), and attached notes in Chapters and timelines. Verify in the app and with a component test that raw HTML is not rendered.
+- [x] 6.6 Extend the book deletion confirmation to mention notes and guide edits when any exist. Verify in the app and with a test of the count function.
 
 ## 7. Margin glosses (#26)
 

@@ -13,6 +13,7 @@ import {
 	CorrectionControls,
 	ShowHiddenToggle,
 } from "#/components/guide-corrections";
+import { AddNoteLink, AttachedNotes } from "#/components/guide-notes";
 import { SubjectEditor } from "#/components/guide-subjects";
 import { scopeText } from "#/components/scope";
 import { Badge } from "#/components/ui/badge";
@@ -171,6 +172,20 @@ function SubjectView() {
 					</li>
 				))}
 			</ol>
+			<section className="mt-8" aria-labelledby="subject-notes">
+				<h3 id="subject-notes" className="text-sm font-medium">
+					Your notes
+				</h3>
+				{timeline.notes.length === 0 && (
+					<p className="mt-1 text-sm text-muted-foreground">
+						No notes about {timeline.name} yet.
+					</p>
+				)}
+				<AttachedNotes notes={timeline.notes} editionId={editionId} />
+				<AddNoteLink editionId={editionId} search={{ subject: timeline.ref }}>
+					{`Add a note about ${timeline.name}`}
+				</AddNoteLink>
+			</section>
 		</section>
 	);
 }

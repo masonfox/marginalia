@@ -13,6 +13,7 @@ import {
 	CorrectionControls,
 	ShowHiddenToggle,
 } from "#/components/guide-corrections";
+import { AddNoteLink, AttachedNotes } from "#/components/guide-notes";
 import { getGuideChaptersFn, getGuideProvenanceFn } from "#/fns/guide";
 
 export const Route = createFileRoute("/books/$editionId_/guide/chapters")({
@@ -117,6 +118,11 @@ function ChaptersView() {
 									Not yet summarized.
 								</p>
 							)}
+							<AttachedNotes notes={chapter.notes} editionId={editionId} />
+							<AddNoteLink
+								editionId={editionId}
+								search={{ unit: chapter.locator }}
+							/>
 						</li>
 					))}
 				</ol>
