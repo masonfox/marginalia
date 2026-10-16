@@ -477,12 +477,16 @@ export async function rebaseGuideContexts(
 	editionId: string,
 	rebase: (oldBound: number) => number,
 ): Promise<void> {
+	// Reparses of different books can share a reply; lock in id order so each
+	// reads the other's committed entries instead of overwriting them.
 	const rows = await tx
 		.select({ id: messages.id, guideContext: messages.guideContext })
 		.from(messages)
 		.where(
 			sql`${messages.guideContext} @> ${JSON.stringify([{ editionId }])}::jsonb`,
-		);
+		)
+		.orderBy(messages.id)
+		.for("update");
 	for (const row of rows) {
 		const entries = row.guideContext ?? [];
 		let moved = false;

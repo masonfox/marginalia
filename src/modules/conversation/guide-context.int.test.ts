@@ -7,12 +7,16 @@ import { createTestDb, type TestDb } from "../../../test/db";
 import { buildEpub } from "../../../test/epub-builder";
 import { ingestBook, silentLog, tempDataDir } from "../../../test/library";
 import {
+	appendMessage,
 	type ConversationBook,
 	createConversation,
+	type GuideContextEntry,
 	getConversationBooks,
 	getGuideStep,
+	getMessages,
 	getTrailObservations,
 	loadBookMaps,
+	rebaseGuideContexts,
 } from ".";
 import { buildBookMapMessage } from "./prompt";
 
@@ -218,6 +222,76 @@ describe("guide step", () => {
 
 		await deleteEdition(t.db, dataDir, b.id, silentLog);
 		expect(await step()).toEqual({ status: "gone" });
+	});
+});
+
+describe("guide context rebase", () => {
+	it("keeps both books' rebased bounds when their reparses overlap on a shared reply", async () => {
+		const [a, b, c] = [
+			await preprocessedBook(1),
+			await preprocessedBook(4),
+			await preprocessedBook(5),
+		];
+		const { id: conversationId } = await createConversation(t.db, {
+			editionIds: [a.id, b.id, c.id],
+		});
+		const entry = (editionId: string): GuideContextEntry => ({
+			editionId,
+			scopeLabel: "Chapter 1",
+			maxPosition: 100,
+			mapFingerprint: "f".repeat(64),
+		});
+		await appendMessage(t.db, {
+			conversationId,
+			role: "assistant",
+			parts: [],
+			guideContext: [entry(a.id), entry(b.id), entry(c.id)],
+		});
+
+		// A's reparse rebases the reply and holds its transaction open; B's
+		// starts meanwhile, and A commits only once B is waiting on the row.
+		let rebasedA!: () => void;
+		const aRebased = new Promise<void>((resolve) => {
+			rebasedA = resolve;
+		});
+		let releaseA!: () => void;
+		const aReleased = new Promise<void>((resolve) => {
+			releaseA = resolve;
+		});
+		const first = t.db.transaction(async (tx) => {
+			await rebaseGuideContexts(tx, a.id, () => 50);
+			rebasedA();
+			await aReleased;
+		});
+		await Promise.race([aRebased, first]);
+		let settled = false;
+		const second = t.db.transaction((tx) =>
+			rebaseGuideContexts(tx, b.id, () => 40),
+		);
+		second.then(
+			() => {
+				settled = true;
+			},
+			() => {
+				settled = true;
+			},
+		);
+		const waitingOnLock = async () => {
+			const { rows } = await t.pool.query<{ n: number }>(
+				"select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'",
+			);
+			return (rows[0]?.n ?? 0) > 0;
+		};
+		while (!settled && !(await waitingOnLock())) {}
+		releaseA();
+		await Promise.all([first, second]);
+
+		const [reply] = await getMessages(t.db, conversationId);
+		expect(reply?.guideContext).toEqual([
+			{ ...entry(a.id), maxPosition: 50 },
+			{ ...entry(b.id), maxPosition: 40 },
+			entry(c.id),
+		]);
 	});
 });
 
