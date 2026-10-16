@@ -34,5 +34,21 @@ describe("margin glosses preference", () => {
 		};
 		expect(readMarginGlosses(bad)).toBe(true);
 		expect(() => writeMarginGlosses(false, bad)).not.toThrow();
+		// The choice still takes effect for this page.
+		expect(readMarginGlosses(bad)).toBe(false);
+		writeMarginGlosses(true, bad);
+		expect(readMarginGlosses(bad)).toBe(true);
+		// Storage keeps it again once a write succeeds.
+		const s = stub();
+		writeMarginGlosses(false, s);
+		expect(readMarginGlosses(s)).toBe(false);
+		writeMarginGlosses(true, s);
+	});
+
+	it("takes effect without storage", () => {
+		writeMarginGlosses(false, undefined);
+		expect(readMarginGlosses(undefined)).toBe(false);
+		writeMarginGlosses(true, undefined);
+		expect(readMarginGlosses(undefined)).toBe(true);
 	});
 });

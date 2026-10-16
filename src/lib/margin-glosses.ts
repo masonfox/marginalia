@@ -2,11 +2,14 @@ import { useSyncExternalStore } from "react";
 
 const KEY = "marginalia:margin-glosses";
 const listeners = new Set<() => void>();
+/** The reader's latest choice, while storage has not kept it. */
+let unsaved: boolean | undefined;
 
 /** Whether margin glosses are on: on unless the reader turned them off. */
 export function readMarginGlosses(
 	storage: Pick<Storage, "getItem"> | undefined = safeStorage(),
 ): boolean {
+	if (unsaved !== undefined) return unsaved;
 	try {
 		return storage?.getItem(KEY) !== "0";
 	} catch {
@@ -18,9 +21,14 @@ export function writeMarginGlosses(
 	on: boolean,
 	storage: Pick<Storage, "setItem" | "removeItem"> | undefined = safeStorage(),
 ) {
+	// Takes effect for this page even when storage can't keep it.
+	unsaved = on;
 	try {
-		if (on) storage?.removeItem(KEY);
-		else storage?.setItem(KEY, "0");
+		if (storage) {
+			if (on) storage.removeItem(KEY);
+			else storage.setItem(KEY, "0");
+			unsaved = undefined;
+		}
 	} catch {
 		// Storage unavailable: the preference just won't persist.
 	}
