@@ -5,7 +5,7 @@ import {
 	LoginRateLimiter,
 	setupPassword,
 } from "#/modules/access";
-import type { AiRuntime } from "#/modules/ai";
+import { type AiRuntime, createAi } from "#/modules/ai";
 import { loadConfig } from "#/server/config";
 import { handleRequest } from "#/server/request";
 import { createTestDb, type TestDb } from "../../../test/db";
@@ -58,24 +58,24 @@ function modelWith(
 	});
 }
 
-const enabled = (model: MockLanguageModelV4): AiRuntime => ({
-	model,
-	status: { enabled: true, provider: "openai", model: "mock" },
-	maxSteps: 4,
-	preprocessModel: null,
-	temperature: undefined,
-	reasoning: undefined,
-	providerOptions: {},
-});
-const disabled: AiRuntime = {
-	model: null,
-	status: { enabled: false },
-	preprocessModel: null,
-	maxSteps: 8,
-	temperature: undefined,
-	reasoning: undefined,
-	providerOptions: {},
+const enabled = (model: MockLanguageModelV4): AiRuntime => {
+	const chat = { provider: "openai", model: "mock" } as const;
+	return {
+		available: () => ["openai"],
+		resolve: (selection) => ({
+			ok: true,
+			model,
+			providerOptions: {},
+			selection,
+		}),
+		envDefaults: { chat },
+		status: { enabled: true, ...chat },
+		maxSteps: 4,
+		temperature: undefined,
+		reasoning: undefined,
+	};
 };
+const disabled = createAi(undefined);
 
 const post = (body: unknown, headers: Record<string, string> = {}) =>
 	new Request("http://books.local/api/chat", {

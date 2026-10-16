@@ -1,14 +1,18 @@
-import { APICallError } from "ai";
-import { afterEach, describe, expect, it } from "vitest";
-import type { AiConfig, AiProviderName } from "#/server/config";
+import { APICallError, generateText } from "ai";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AiConfig, AiProviderName, AiSelection } from "#/server/config";
 import {
+	type AiRuntime,
+	buildProviderOptions,
 	clearSecrets,
 	createAi,
 	describeError,
 	MAX_ERROR_LENGTH,
+	MAX_MODEL_ID_LENGTH,
 	maskSecrets,
 	redactSecrets,
 	registerSecret,
+	selectionSchema,
 } from "./index";
 
 interface Single {
@@ -51,16 +55,62 @@ const cfg = (over: Partial<Single>): AiConfig => {
 	};
 };
 
+/** A config with several providers, as the per-provider variables would give. */
+const multi = (
+	credentials: AiConfig["credentials"],
+	over: Partial<AiConfig> = {},
+): AiConfig => ({
+	credentials,
+	envDefaults: {},
+	maxSteps: 8,
+	temperature: undefined,
+	effort: undefined,
+	promptCache: true,
+	prices: {},
+	...over,
+});
+
+function resolved(ai: AiRuntime, selection: AiSelection) {
+	const r = ai.resolve(selection);
+	if (!r.ok) throw new Error("unavailable");
+	if (typeof r.model === "string") throw new Error("no model object");
+	return { ...r, model: r.model };
+}
+
 function modelOf(over: Partial<Single>) {
-	const { model } = createAi(cfg(over));
-	if (!model || typeof model === "string") throw new Error("no model object");
-	return model;
+	const c = cfg(over);
+	const chat = c.envDefaults.chat as AiSelection;
+	return resolved(createAi(c), chat).model;
+}
+
+/** The headers a resolved model sends, read from the request it makes. */
+async function headersOf(ai: AiRuntime, selection: AiSelection) {
+	let seen: Headers | undefined;
+	const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+		seen = new Headers(init?.headers);
+		return new Response("{}", { status: 401 });
+	});
+	vi.stubGlobal("fetch", fetchMock);
+	try {
+		const { model } = resolved(ai, selection);
+		await generateText({ model, prompt: "hi", maxRetries: 0 }).catch(
+			() => undefined,
+		);
+	} finally {
+		vi.unstubAllGlobals();
+	}
+	if (!seen) throw new Error("no request made");
+	return seen;
 }
 
 describe("createAi", () => {
 	it("is disabled without configuration", () => {
 		const ai = createAi(undefined);
-		expect(ai.model).toBeNull();
+		expect(ai.available()).toEqual([]);
+		expect(ai.resolve({ provider: "openai", model: "m" })).toEqual({
+			ok: false,
+			reason: "unavailable",
+		});
 		expect(ai.status).toEqual({ enabled: false });
 	});
 
@@ -84,8 +134,47 @@ describe("createAi", () => {
 		expect(m.modelId).toBe("llama3");
 	});
 
-	it("reports a status without the key", () => {
-		const ai = createAi(cfg({ provider: "anthropic", model: "claude-x" }));
+	it("lists the providers with credentials", () => {
+		const ai = createAi(
+			multi({
+				"openai-compatible": { apiKey: undefined, baseUrl: "http://x/v1" },
+				anthropic: { apiKey: "sk-ant-a", baseUrl: undefined },
+			}),
+		);
+		expect(ai.available()).toEqual(["anthropic", "openai-compatible"]);
+	});
+
+	it("resolves two providers, each with its own key", async () => {
+		const ai = createAi(
+			multi({
+				anthropic: { apiKey: "ant-key-1", baseUrl: undefined },
+				openai: { apiKey: "oai-key-2", baseUrl: undefined },
+			}),
+		);
+		const claude = { provider: "anthropic", model: "claude-x" } as const;
+		const gpt = { provider: "openai", model: "gpt-x" } as const;
+		expect(resolved(ai, claude).selection).toEqual(claude);
+		expect(resolved(ai, gpt).model.modelId).toBe("gpt-x");
+		expect((await headersOf(ai, claude)).get("x-api-key")).toBe("ant-key-1");
+		expect((await headersOf(ai, gpt)).get("authorization")).toBe(
+			"Bearer oai-key-2",
+		);
+	});
+
+	it("returns unavailable for a provider without credentials", () => {
+		const ai = createAi(
+			multi({ anthropic: { apiKey: "sk-ant-a", baseUrl: undefined } }),
+		);
+		expect(ai.resolve({ provider: "google", model: "gemini-x" })).toEqual({
+			ok: false,
+			reason: "unavailable",
+		});
+	});
+
+	it("keeps the env defaults and reports a status without the key", () => {
+		const c = cfg({ provider: "anthropic", model: "claude-x" });
+		const ai = createAi(c);
+		expect(ai.envDefaults).toEqual(c.envDefaults);
 		expect(ai.status).toEqual({
 			enabled: true,
 			provider: "anthropic",
@@ -101,33 +190,68 @@ describe("createAi", () => {
 		expect(ai.temperature).toBe(0.2);
 	});
 
-	it("requests prompt caching from Anthropic by default", () => {
-		const ai = createAi(cfg({ provider: "anthropic" }));
-		expect(ai.providerOptions).toEqual({
-			anthropic: { cacheControl: { type: "ephemeral" } },
-		});
+	it("requests prompt caching only for Anthropic selections", () => {
+		const ai = createAi(
+			multi({
+				anthropic: { apiKey: "sk-ant-a", baseUrl: undefined },
+				openai: { apiKey: "sk-oai-b", baseUrl: undefined },
+				google: { apiKey: "AIza-c", baseUrl: undefined },
+				"openai-compatible": { apiKey: undefined, baseUrl: "http://x/v1" },
+			}),
+		);
+		expect(
+			resolved(ai, { provider: "anthropic", model: "c" }).providerOptions,
+		).toEqual({ anthropic: { cacheControl: { type: "ephemeral" } } });
+		for (const provider of ["openai", "google", "openai-compatible"] as const) {
+			expect(resolved(ai, { provider, model: "m" }).providerOptions).toEqual(
+				{},
+			);
+		}
 	});
 
 	it("sends no cache instruction when caching is off", () => {
 		const ai = createAi(cfg({ provider: "anthropic", promptCache: false }));
-		expect(ai.providerOptions).toEqual({});
-	});
-
-	it.each([
-		"openai",
-		"google",
-		"openai-compatible",
-	] as const)("needs no provider options for %s", (provider) => {
-		const ai = createAi(
-			cfg({ provider, baseUrl: "http://localhost:11434/v1" }),
-		);
-		expect(ai.providerOptions).toEqual({});
+		expect(
+			resolved(ai, { provider: "anthropic", model: "c" }).providerOptions,
+		).toEqual({});
+		expect(buildProviderOptions("anthropic", false)).toEqual({});
 	});
 
 	it("passes effort through and leaves it unset by default", () => {
 		expect(createAi(cfg({ effort: "low" })).reasoning).toBe("low");
 		expect(createAi(cfg({})).reasoning).toBeUndefined();
 		expect(createAi(undefined).reasoning).toBeUndefined();
+	});
+});
+
+describe("selectionSchema", () => {
+	it("trims and accepts an unlisted model id", () => {
+		expect(
+			selectionSchema.parse({ provider: "openai", model: "  my-model  " }),
+		).toEqual({ provider: "openai", model: "my-model" });
+	});
+
+	it.each([
+		["blank", ""],
+		["whitespace only", "   "],
+		["too long", "m".repeat(MAX_MODEL_ID_LENGTH + 1)],
+		["a control character", "gpt\u0007x"],
+		["a newline", "gpt\nx"],
+		["a delete character", "gpt\u007fx"],
+	])("rejects a model id that is %s", (_, model) => {
+		expect(
+			selectionSchema.safeParse({ provider: "openai", model }).success,
+		).toBe(false);
+	});
+
+	it("accepts the longest allowed id and rejects an unknown provider", () => {
+		const longest = "m".repeat(MAX_MODEL_ID_LENGTH);
+		expect(
+			selectionSchema.safeParse({ provider: "openai", model: longest }).success,
+		).toBe(true);
+		expect(
+			selectionSchema.safeParse({ provider: "mistral", model: "m" }).success,
+		).toBe(false);
 	});
 });
 

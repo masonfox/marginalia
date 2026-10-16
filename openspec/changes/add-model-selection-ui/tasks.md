@@ -6,9 +6,9 @@
 
 ## 2. AI runtime
 
-- [ ] 2.1 Add the shared zod `selectionSchema` (trimmed, 1–200 chars, no control characters) to `src/modules/ai`. Verify with unit tests for blank, too-long, and control-character ids.
-- [ ] 2.2 Replace the fixed models in `createAi` with `available()`, `resolve(selection)` (memoized provider factories, per-provider credentials), and a per-provider `buildProviderOptions`. Register every key with `registerSecret`. Verify in `ai.test.ts` that two providers resolve with their own keys, that an unavailable provider returns `unavailable`, and that only Anthropic selections get `cacheControl` (and none when caching is off).
-- [ ] 2.3 Implement `listModels` in `src/modules/ai/models.ts` for OpenAI, Anthropic (paginated), Google (filtered to `generateContent`), and OpenAI-compatible, with a timeout, a 10-minute per-provider cache, `refresh`, masked errors returned as `{ models: [], error }`, and per-model prices from `priceTable`. Verify with unit tests over a mocked `fetch`, including an error body that echoes the key and comes back masked.
+- [x] 2.1 Add the shared zod `selectionSchema` (trimmed, 1–200 chars, no control characters) to `src/modules/ai`. Verify with unit tests for blank, too-long, and control-character ids.
+- [x] 2.2 Replace the fixed models in `createAi` with `available()`, `resolve(selection)` (memoized provider factories, per-provider credentials), and a per-provider `buildProviderOptions`. Register every key with `registerSecret`. Verify in `ai.test.ts` that two providers resolve with their own keys, that an unavailable provider returns `unavailable`, and that only Anthropic selections get `cacheControl` (and none when caching is off).
+- [x] 2.3 Implement `listModels` in `src/modules/ai/models.ts` for OpenAI, Anthropic (paginated), Google (filtered to `generateContent`), and OpenAI-compatible, with a timeout, a 10-minute per-provider cache, `refresh`, masked errors returned as `{ models: [], error }`, and per-model prices from `priceTable`. Verify with unit tests over a mocked `fetch`, including an error body that echoes the key and comes back masked.
 
 ## 3. Settings storage
 

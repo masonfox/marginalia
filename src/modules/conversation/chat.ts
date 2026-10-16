@@ -22,7 +22,11 @@ import {
 	replyContextSchema,
 	type StoredReplyContext,
 } from "#/lib/reply-context";
-import { type AiRuntime, describeError } from "#/modules/ai";
+import {
+	type AiRuntime,
+	describeError,
+	type ResolvedModel,
+} from "#/modules/ai";
 import { createRetrieval } from "#/modules/retrieval";
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
 import type { Database } from "#/server/db";
@@ -99,7 +103,9 @@ export async function startChat(
 	input: ChatInput,
 ): Promise<ChatStart> {
 	const { db, ai } = deps;
-	if (!ai.model) return { status: "disabled" };
+	// The env chat default until per-conversation models and Settings exist.
+	const resolved = ai.envDefaults.chat && ai.resolve(ai.envDefaults.chat);
+	if (!resolved || !resolved.ok) return { status: "disabled" };
 	const conversation = await getConversation(db, input.conversationId);
 	if (!conversation) return { status: "not_found" };
 	if (input.replyContext && input.passageRef)
@@ -139,7 +145,13 @@ export async function startChat(
 			inFlight.delete(conversation.id);
 			return { status: "nothing_to_retry" };
 		}
-		const response = generate(deps, conversation, history, input.abortSignal);
+		const response = generate(
+			deps,
+			resolved,
+			conversation,
+			history,
+			input.abortSignal,
+		);
 		return { status: "ok", response };
 	} catch (err) {
 		inFlight.delete(conversation.id);
@@ -202,6 +214,7 @@ async function prepareHistory(
 
 function generate(
 	deps: ChatDeps,
+	{ model, providerOptions, selection }: Extract<ResolvedModel, { ok: true }>,
 	conversation: ConversationDetail,
 	history: StoredMessage[],
 	abortSignal: AbortSignal | undefined,
@@ -214,7 +227,7 @@ function generate(
 		retrieval,
 		books: conversation.books,
 	});
-	const modelName = ai.status.model ?? null;
+	const modelName = selection.model;
 	// The reply's id from the start, so the client's message and the stored one match.
 	const replyId = randomUUID();
 
@@ -238,8 +251,7 @@ function generate(
 			// Untrusted derived data goes in a message after the instructions, never in them.
 			const map = buildBookMapMessage(conversation.books, bookMaps.maps);
 			const result = streamText({
-				// `model` is non-null: startChat checked.
-				model: ai.model as NonNullable<AiRuntime["model"]>,
+				model,
 				system: buildSystemPrompt(conversation.books, {
 					maxSteps: ai.maxSteps,
 				}),
@@ -256,7 +268,7 @@ function generate(
 					stepNumber === ai.maxSteps - 1 ? { toolChoice: "none" } : undefined,
 				temperature: ai.temperature,
 				reasoning: ai.reasoning,
-				providerOptions: ai.providerOptions,
+				providerOptions,
 				abortSignal,
 				onStepEnd: (step) => {
 					usage = addUsage(usage, step.usage);
@@ -330,8 +342,8 @@ function generate(
 						purpose: "conversation",
 						conversationId: conversation.id,
 						messageId: saved.id,
-						provider: ai.status.provider ?? "unknown",
-						model: modelName ?? "unknown",
+						provider: selection.provider,
+						model: modelName,
 						steps,
 						complete: !(aborted || failure !== null),
 					});

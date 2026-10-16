@@ -68,15 +68,19 @@ export function jobHandlers(): JobHandlers {
 		},
 		"analysis.preprocess": async ({ editionId }, ctx) => {
 			const { db, ai, log } = appContext();
+			// The env preprocess default, which otherwise follows the chat default.
+			const selection = ai.envDefaults.preprocess ?? ai.envDefaults.chat;
+			const resolved = selection ? ai.resolve(selection) : undefined;
+			const ok = resolved?.ok ? resolved : undefined;
 			await preprocessEdition(
 				{
 					db,
-					model: ai.preprocessModel,
-					modelName: ai.status.preprocessModel ?? "unknown",
-					provider: ai.status.provider ?? "unknown",
+					model: ok?.model ?? null,
+					modelName: selection?.model ?? "unknown",
+					provider: selection?.provider ?? "unknown",
 					log,
 					reasoning: ai.reasoning,
-					providerOptions: ai.providerOptions,
+					providerOptions: ok?.providerOptions,
 				},
 				editionId,
 				{ id: ctx.id, signal: ctx.signal },

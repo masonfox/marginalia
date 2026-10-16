@@ -2,7 +2,7 @@ import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { asc, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import type { AiRuntime } from "#/modules/ai";
+import { type AiRuntime, createAi, type ProviderOptions } from "#/modules/ai";
 import { preprocessEdition, saveUnitResult } from "#/modules/analysis";
 import { getReadingUnits } from "#/modules/catalog";
 import { saveCorrection } from "#/modules/guide";
@@ -74,15 +74,20 @@ const streamOf = (chunks: Chunk[]) =>
 		},
 	});
 
-function runtime(model: MockLanguageModelV4, maxSteps = 5): AiRuntime {
+function runtime(
+	model: MockLanguageModelV4,
+	maxSteps = 5,
+	providerOptions: ProviderOptions = {},
+): AiRuntime {
+	const chat = { provider: "openai", model: "mock-1" } as const;
 	return {
-		model,
-		status: { enabled: true, provider: "openai", model: "mock-1" },
+		available: () => ["openai"],
+		resolve: (selection) => ({ ok: true, model, providerOptions, selection }),
+		envDefaults: { chat },
+		status: { enabled: true, ...chat },
 		maxSteps,
-		preprocessModel: null,
 		temperature: undefined,
 		reasoning: undefined,
-		providerOptions: {},
 	};
 }
 
@@ -226,16 +231,13 @@ describe("startChat", () => {
 
 	it("replays earlier messages on the next turn", async () => {
 		const id = await newConversation();
-		const ai = runtime(
-			scripted(textReply("First answer."), textReply("Second.")),
-		);
+		const model = scripted(textReply("First answer."), textReply("Second."));
+		const ai = runtime(model);
 		await (await run(ai, id, "one")).text();
 		await saved(id, 2);
 		await (await run(ai, id, "two")).text();
 		await saved(id, 4);
-		const prompt = JSON.stringify(
-			(ai.model as MockLanguageModelV4).doStreamCalls[1]?.prompt,
-		);
+		const prompt = JSON.stringify(model.doStreamCalls[1]?.prompt);
 		expect(prompt).toContain("First answer.");
 		expect(prompt).toContain('"two"');
 	});
@@ -397,15 +399,7 @@ describe("startChat", () => {
 
 	it("reports disabled and not_found without calling a model", async () => {
 		const id = await newConversation();
-		const off: AiRuntime = {
-			model: null,
-			status: { enabled: false },
-			maxSteps: 8,
-			preprocessModel: null,
-			temperature: undefined,
-			reasoning: undefined,
-			providerOptions: {},
-		};
+		const off = createAi(undefined);
 		const disabled = await startChat(deps(off), {
 			conversationId: id,
 			message: "x",
@@ -431,9 +425,10 @@ describe("usage and provider options", () => {
 			textReply("Done."),
 		);
 		const ai: AiRuntime = {
-			...runtime(model),
+			...runtime(model, 5, {
+				anthropic: { cacheControl: { type: "ephemeral" } },
+			}),
 			reasoning: "low",
-			providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
 		};
 		await (await run(ai, id, "Go")).text();
 		expect(model.doStreamCalls).toHaveLength(2);
