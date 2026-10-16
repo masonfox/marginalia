@@ -19,7 +19,7 @@ const RUN_RELEASED = "The preprocessing run was cancelled or replaced.";
 
 export interface PreprocessDeps {
 	db: Database;
-	/** Null when AI is not configured. */
+	/** Null when the provider has no credentials. */
 	model: LanguageModel | null;
 	modelName: string;
 	provider: string;
@@ -39,7 +39,9 @@ export interface PreprocessDeps {
  * more is saved and the run fails retryably, so the retry starts over from
  * the new structure. A run cancelled from outside (see cancelRun) stops after
  * the unit in progress, or sooner when the job's signal aborts; a job
- * cancelled before it claims the run never calls the model.
+ * cancelled before it claims the run never calls the model. Without a model
+ * (its provider lost its credentials) the run fails without retry and no
+ * other model is called.
  */
 export async function preprocessEdition(
 	deps: PreprocessDeps,
@@ -48,7 +50,22 @@ export async function preprocessEdition(
 ): Promise<void> {
 	const { db, log } = deps;
 	if (!deps.model) {
-		throw new NonRetryableError("AI is not configured; cannot preprocess");
+		const reason = `Model ${deps.provider}/${deps.modelName} is unavailable.`;
+		// Through the claim, so a cancelled job leaves its cancellation shown.
+		const claimed = await claimRun(
+			db,
+			editionId,
+			ctx.id ?? randomUUID(),
+			randomUUID(),
+			{
+				status: "failed",
+				provider: deps.provider,
+				model: deps.modelName,
+				lastError: reason,
+				finishedAt: new Date(),
+			},
+		).catch(() => false);
+		throw new NonRetryableError(claimed ? reason : RUN_RELEASED);
 	}
 	// One snapshot of units and current results, all from the same structure.
 	const snapshot = await db.transaction(async (tx) => {
@@ -85,6 +102,7 @@ export async function preprocessEdition(
 		totalUnits: units.length,
 		doneUnits: done,
 		failedUnits: 0,
+		provider: deps.provider,
 		model: deps.modelName,
 		lastError: null,
 		startedAt: new Date(),

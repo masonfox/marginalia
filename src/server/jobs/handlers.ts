@@ -1,5 +1,10 @@
 import { purgeExpiredSessions } from "#/modules/access";
-import { markDerivedStale, preprocessEdition } from "#/modules/analysis";
+import type { AiRuntime } from "#/modules/ai";
+import {
+	choosePreprocessModel,
+	markDerivedStale,
+	preprocessEdition,
+} from "#/modules/analysis";
 import {
 	type IngestDeps,
 	ingestEdition,
@@ -8,24 +13,42 @@ import {
 import { rebaseGuideContexts, rebaseScopes } from "#/modules/conversation";
 import { reanchor, rebaseReadingPositions } from "#/modules/guide";
 import { scanLibraries } from "#/modules/library";
+import { getAiDefaults } from "#/modules/settings";
+import type { Executor } from "#/server/db";
 import { appContext } from "../context";
-import type { JobHandlers } from "./kinds";
+import { type Enqueue, type JobHandlers, NonRetryableError } from "./kinds";
 
-/** Enqueues preprocessing after ingest only when AI is configured and auto mode is on. */
+/**
+ * Enqueues preprocessing after ingest only when AI is configured and auto
+ * mode is on, with the preprocessing default. When that default does not
+ * resolve, nothing is enqueued and a warning is logged.
+ */
 export async function enqueueAutoPreprocess(
 	deps: {
+		db: Executor;
 		config: { preprocessAuto: boolean };
-		ai: { available(): readonly string[] };
-		enqueue: (
-			kind: "analysis.preprocess",
-			p: { editionId: string },
-		) => Promise<unknown>;
+		ai: Pick<AiRuntime, "available" | "envDefaults">;
+		enqueue: Enqueue;
+		log: { warn(o: object, m: string): void };
 	},
 	editionId: string,
 ): Promise<boolean> {
 	if (!deps.config.preprocessAuto || deps.ai.available().length === 0)
 		return false;
-	await deps.enqueue("analysis.preprocess", { editionId });
+	const chosen = await choosePreprocessModel(deps.db, deps.ai);
+	if (chosen.status !== "ok") {
+		// Provider and model ids only; never credentials.
+		deps.log.warn(
+			{
+				editionId,
+				reason: chosen.status,
+				...(chosen.status === "unavailable" ? chosen.selection : {}),
+			},
+			"automatic preprocessing skipped: no usable preprocessing model",
+		);
+		return false;
+	}
+	await deps.enqueue("analysis.preprocess", { editionId, ...chosen.selection });
 	return true;
 }
 
@@ -49,7 +72,10 @@ export function jobHandlers(): JobHandlers {
 			},
 			// Preprocessing starts after a successful ingest or reparse when enabled.
 			onIngested: async (editionId) => {
-				await enqueueAutoPreprocess({ config, ai, enqueue }, editionId);
+				await enqueueAutoPreprocess(
+					{ db, config, ai, enqueue, log },
+					editionId,
+				);
 			},
 		} satisfies IngestDeps;
 	};
@@ -67,18 +93,25 @@ export function jobHandlers(): JobHandlers {
 		"catalog.reparse": async ({ editionId }, ctx) => {
 			await reparseEdition(ingestDeps(), editionId, ctx);
 		},
-		"analysis.preprocess": async ({ editionId }, ctx) => {
+		"analysis.preprocess": async ({ editionId, provider, model }, ctx) => {
 			const { db, ai, log } = appContext();
-			// The env preprocess default, which otherwise follows the chat default.
-			const selection = ai.envDefaults.preprocess ?? ai.envDefaults.chat;
-			const resolved = selection ? ai.resolve(selection) : undefined;
-			const ok = resolved?.ok ? resolved : undefined;
+			// Fixed at enqueue, so every attempt uses it. A job queued before runs
+			// carried a model uses the preprocessing default when it starts.
+			const selection =
+				provider && model
+					? { provider, model }
+					: (await getAiDefaults(db, ai)).preprocess.selection;
+			if (!selection)
+				throw new NonRetryableError("No preprocessing model is set.");
+			// No fallback: an unavailable model fails the run without retry.
+			const resolved = ai.resolve(selection);
+			const ok = resolved.ok ? resolved : undefined;
 			await preprocessEdition(
 				{
 					db,
 					model: ok?.model ?? null,
-					modelName: selection?.model ?? "unknown",
-					provider: selection?.provider ?? "unknown",
+					modelName: selection.model,
+					provider: selection.provider,
 					log,
 					reasoning: ai.reasoning,
 					providerOptions: ok?.providerOptions,

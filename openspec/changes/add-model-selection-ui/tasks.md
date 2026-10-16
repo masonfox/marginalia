@@ -24,9 +24,9 @@
 
 ## 5. Preprocessing
 
-- [ ] 5.1 Change the `analysis.preprocess` payload to `{ editionId, provider, model }`. Resolve the selection in `startPreprocessFn` (explicit choice or default) and in the auto-trigger (skip with a warning when unresolvable), and report the pending run's model when the job is deduplicated. Verify with `handlers.int.test.ts` cases for an explicit choice, the default, the dedupe response, and an auto-trigger with no resolvable default.
-- [ ] 5.2 In the handler, resolve the payload selection (falling back to the current default for legacy payloads), record `provider`/`model` on the run, and fail without retry with an "unavailable" `lastError` when the provider has no credentials. Verify with tests for a retry keeping the original model, a legacy payload, and an unavailable provider.
-- [ ] 5.3 Extend `getPreprocessStatusFn` with the run's provider and model and the default a new run would preselect. Verify with an integration test where the last run's model differs from the default.
+- [x] 5.1 Change the `analysis.preprocess` payload to `{ editionId, provider, model }`. Resolve the selection in `startPreprocessFn` (explicit choice or default) and in the auto-trigger (skip with a warning when unresolvable), and report the pending run's model when the job is deduplicated. Verify with `handlers.int.test.ts` cases for an explicit choice, the default, the dedupe response, and an auto-trigger with no resolvable default.
+- [x] 5.2 In the handler, resolve the payload selection (falling back to the current default for legacy payloads), record `provider`/`model` on the run, and fail without retry with an "unavailable" `lastError` when the provider has no credentials. Verify with tests for a retry keeping the original model, a legacy payload, and an unavailable provider.
+- [x] 5.3 Extend `getPreprocessStatusFn` with the run's provider and model and the default a new run would preselect. Verify with an integration test where the last run's model differs from the default.
 
 ## 6. UI
 

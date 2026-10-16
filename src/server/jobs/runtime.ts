@@ -12,6 +12,7 @@ import {
 	jobKinds,
 	NonRetryableError,
 	type PendingJob,
+	type PendingJobDetail,
 } from "./kinds";
 
 export interface RetryPolicy {
@@ -204,7 +205,7 @@ export class JobRuntime {
 		const def = jobKinds[kind];
 		const key = (def.key as (p: unknown) => string)(def.payload.parse(payload));
 		for (let attempt = 1; ; attempt++) {
-			const live: { id: string; state: string }[] = [];
+			const live: { id: string; state: string; data?: unknown }[] = [];
 			let after: string | undefined;
 			try {
 				for (;;) {
@@ -234,11 +235,18 @@ export class JobRuntime {
 		}
 	}
 
-	pendingJob: PendingJob = async (kind, payload) => {
+	pendingJob: PendingJob = async (kind, payload) =>
+		(await this.pendingJobDetail(kind, payload))?.state ?? null;
+
+	pendingJobDetail: PendingJobDetail = async (kind, payload) => {
 		const jobs = await this.liveJobs(kind, payload);
-		if (jobs.some((j) => j.state === "active")) return "active";
-		if (jobs.length > 0) return "queued";
-		return null;
+		const job = jobs.find((j) => j.state === "active") ?? jobs[0];
+		if (!job) return null;
+		const parsed = jobKinds[kind].payload.safeParse(job.data ?? {});
+		return {
+			state: job.state === "active" ? "active" : "queued",
+			payload: parsed.success ? (parsed.data as never) : null,
+		};
 	};
 
 	cancelJob: CancelJob = async (kind, payload) => {
