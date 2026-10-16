@@ -46,7 +46,7 @@ describe("provider credential controls", () => {
 		const html = renderToStaticMarkup(
 			createElement(ProviderCredentials, {
 				value: { ...value, configured: false, unreadable: true },
-				onSave: async () => ({ status: "ok", credentials: value }),
+				onSave: async () => ({ status: "ok" as const, credentials: value }),
 				onRemove: async () => {},
 			}),
 		);
