@@ -262,8 +262,12 @@ export function buildRebase(
  * sibling of buildRebase, for floors rather than ceilings (guide design D2).
  * An anchor follows its passage's text. A split passage's text runs on into
  * the unclaimed new passages after its target, so its anchor moves to the
- * last of them. A removed passage's anchor moves to where the next surviving
- * old passage's text starts. Both inputs must be in reading (spine, block) order.
+ * last of them. An anchor also never lands before where the next surviving
+ * old passage's text starts: the passage before an exact match, or an
+ * inexact match's own target, since a merge or split may hold the anchored
+ * text's end too. This may hide one passage too many, never too few. A
+ * removed passage's anchor moves to where the next surviving old passage's
+ * text starts. Both inputs must be in reading (spine, block) order.
  */
 export function buildForward(
 	old: { locator: string }[],
@@ -281,6 +285,7 @@ export function buildForward(
 	// passage can take the start of the next survivor's text.
 	const forwarded = new Map<string, number | null>();
 	let nextStart: number | null = null;
+	let nextFloor = -1;
 	for (let i = old.length - 1; i >= 0; i--) {
 		const locator = (old[i] as { locator: string }).locator;
 		const match = matches.get(locator);
@@ -291,8 +296,12 @@ export function buildForward(
 		}
 		let end = start;
 		if (match?.kind === "split") while (isUnclaimed(end + 1)) end++;
-		forwarded.set(locator, end);
+		forwarded.set(
+			locator,
+			Math.min(Math.max(end, nextFloor), newPassages.length - 1),
+		);
 		nextStart = start;
+		nextFloor = match?.kind === "exact" ? start - 1 : start;
 	}
 
 	return (oldLocator) => {

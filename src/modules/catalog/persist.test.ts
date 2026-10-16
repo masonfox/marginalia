@@ -167,4 +167,54 @@ describe("buildForward", () => {
 			}
 		}
 	});
+	it("keeps a merged anchor past text that moved into the next passage", () => {
+		const a = "alpha bravo charlie delta echo foxtrot";
+		const b = "golf hotel india juliet kilo lima";
+		const c = "mike november oscar papa quebec romeo";
+		const old = v(1, [`${a} ${b}`, c]);
+		const now = v(2, [a, `${b} ${c}`]);
+		const matches = matchLocators(old, now);
+		expect(matches.get("abc:v1:0")).toEqual({
+			target: "abc:v2:0",
+			kind: "merged",
+		});
+		const forward = buildForward(old, matches, now);
+		expect(forward("abc:v1:0")).toEqual({ locator: "abc:v2:1", position: 2 });
+		expect(forward("abc:v1:1")).toEqual({ locator: "abc:v2:1", position: 2 });
+	});
+
+	it("never moves an anchor before the end of its text across split/merge repartitions", () => {
+		let seed = 11;
+		const random = () => {
+			seed = (seed * 1103515245 + 12345) % 2 ** 31;
+			return seed / 2 ** 31;
+		};
+		// Consecutive segments grouped into passages of one to three.
+		const partition = (count: number) => {
+			const groups: number[][] = [];
+			for (let i = 0; i < count; ) {
+				const size = Math.min(count - i, 1 + Math.floor(random() * 3));
+				groups.push(Array.from({ length: size }, (_, k) => i + k));
+				i += size;
+			}
+			return groups;
+		};
+		for (let round = 0; round < 60; round++) {
+			const segments = Array.from({ length: 14 }, (_, i) =>
+				distinct(`seg${round}x${i}`),
+			);
+			const join = (group: number[]) => group.map((i) => segments[i]).join(" ");
+			const oldGroups = partition(segments.length);
+			const newGroups = partition(segments.length);
+			const old = v(1, oldGroups.map(join));
+			const now = v(2, newGroups.map(join));
+			const forward = forwardOf(old, now);
+			oldGroups.forEach((group, i) => {
+				const last = group[group.length - 1] as number;
+				const holder = newGroups.findIndex((g) => g.includes(last));
+				const anchor = forward(`abc:v1:${i}`);
+				expect(anchor?.position).toBeGreaterThanOrEqual(holder + 1);
+			});
+		}
+	});
 });

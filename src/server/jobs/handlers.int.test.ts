@@ -939,6 +939,100 @@ describe("reparse re-anchors notes", () => {
 	});
 });
 
+describe("reparse re-anchors across a split/merge repartition", () => {
+	it("keeps an alias and a note on the merged passage hidden until all its text", async () => {
+		const a = "alpha bravo charlie delta echo foxtrot";
+		const b = "golf hotel india juliet kilo lima";
+		const c = "mike november oscar papa quebec romeo";
+		const bytes = await buildEpub({
+			title: "reparse-repartition",
+			chapters: [
+				{
+					href: "ch1.xhtml",
+					body: `<h2>Chapter 1</h2><p>${a}</p><p>${b} ${c}</p>`,
+				},
+			],
+		});
+		const { sha256, edition } = await addUploadedBook(
+			t.db,
+			dataDir,
+			bytes,
+			"reparse-repartition.epub",
+		);
+		// The older parser split the paragraphs after B rather than after A.
+		const old = reshape(await parseEpub(bytes), OLD_VERSION, (ps) =>
+			ps.map((p) =>
+				p.text === a
+					? { ...p, text: `${a} ${b}` }
+					: p.text === `${b} ${c}`
+						? { ...p, text: c }
+						: p,
+			),
+		);
+		await ingestEdition(
+			{
+				db: t.db,
+				dataDir,
+				log: silentLog,
+				parse: async () => old,
+				parserVersion: OLD_VERSION,
+			},
+			sha256,
+			{ finalAttempt: true },
+		);
+		const passageOf = async (text: string) => {
+			const [row] = await t.db
+				.select({
+					locator: passages.locator,
+					position: passages.revealPosition,
+				})
+				.from(passages)
+				.where(
+					and(eq(passages.editionId, edition.id), eq(passages.text, text)),
+				);
+			if (!row) throw new Error(`no passage "${text}"`);
+			return row;
+		};
+		const ab = await passageOf(`${a} ${b}`);
+		const merged = await mergeSubjects(
+			t.db,
+			edition.id,
+			{ kind: "whole" },
+			{
+				targetRef: "k:strider",
+				sourceRef: "k:aragorn",
+				reveal: { kind: "passage", locator: ab.locator },
+			},
+		);
+		expect(merged.ok).toBe(true);
+		const made = await createNote(t.db, edition.id, {
+			title: "After B",
+			body: "",
+			anchor: { kind: "passage", locator: ab.locator },
+		});
+		if (!made.ok) throw new Error(made.reason);
+
+		await jobHandlers()["catalog.reparse"]?.({ editionId: edition.id }, ctx);
+		expect((await getEdition(t.db, edition.id))?.parserVersion).toBe(
+			PARSER_VERSION,
+		);
+		const first = await passageOf(a);
+		const second = await passageOf(`${b} ${c}`);
+		expect(second.position).toBeGreaterThan(first.position);
+		// B now opens the second passage, so both stay hidden at the first.
+		const alias = (await loadSubjectLinks(t.db, edition.id)).links.find(
+			(l) => l.nameKey === "aragorn",
+		);
+		expect(alias).toMatchObject({
+			revealLocator: second.locator,
+			revealPosition: second.position,
+		});
+		expect(await listNotes(t.db, edition.id, first.position)).toEqual([]);
+		const shown = await listNotes(t.db, edition.id, second.position);
+		expect(shown.map((n) => n.title)).toEqual(["After B"]);
+	});
+});
+
 describe("reparse re-anchors past the end of the book", () => {
 	it("shows anchors on a removed final passage only for the whole book and detaches its correction", async () => {
 		const bytes = await buildEpub({
