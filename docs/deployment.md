@@ -51,13 +51,21 @@ All configuration comes from environment variables. They are validated at startu
 | `AI_MODEL` | *(unset)* | The model name, e.g. `claude-sonnet-5-5`, `gpt-5`, `gemini-2.5-pro`, or `llama3.1`. Required when `AI_PROVIDER` is set. See [choosing a model](#choosing-a-model-and-controlling-cost). |
 | `AI_API_KEY` | *(unset)* | The provider API key. Required for every provider except `openai-compatible`, where it is optional. Never logged or shown in the UI. |
 | `AI_BASE_URL` | *(unset)* | The provider endpoint. Required for `openai-compatible` (e.g. `http://ollama:11434/v1`), and an optional override for the others (for example a proxy). |
+| `AI_OPENAI_API_KEY` | *(unset)* | An OpenAI API key, which makes OpenAI available alongside other providers. Do not also set `AI_API_KEY` for OpenAI. |
+| `AI_OPENAI_BASE_URL` | *(unset)* | An optional OpenAI endpoint override. Requires `AI_OPENAI_API_KEY`. |
+| `AI_ANTHROPIC_API_KEY` | *(unset)* | An Anthropic API key, which makes Anthropic available alongside other providers. Do not also set `AI_API_KEY` for Anthropic. |
+| `AI_ANTHROPIC_BASE_URL` | *(unset)* | An optional Anthropic endpoint override. Requires `AI_ANTHROPIC_API_KEY`. |
+| `AI_GOOGLE_API_KEY` | *(unset)* | A Google API key, which makes Google available alongside other providers. Do not also set `AI_API_KEY` for Google. |
+| `AI_GOOGLE_BASE_URL` | *(unset)* | An optional Google endpoint override. Requires `AI_GOOGLE_API_KEY`. |
+| `AI_OPENAI_COMPATIBLE_BASE_URL` | *(unset)* | An OpenAI-compatible endpoint (e.g. `http://ollama:11434/v1`), which makes it available alongside other providers. Do not also set `AI_BASE_URL` for it. |
+| `AI_OPENAI_COMPATIBLE_API_KEY` | *(unset)* | An optional key for the OpenAI-compatible endpoint. Ignored without `AI_OPENAI_COMPATIBLE_BASE_URL`. |
 | `AI_MAX_STEPS` | `8` | The most tool calls (search, read, outline) the assistant may chain while answering one message. |
 | `AI_TEMPERATURE` | *(unset)* | Sampling temperature from 0 to 2. Unset uses the provider default. **Ignored by current Anthropic models** (Claude Sonnet 5.5, Opus 5.5, Haiku 5.5), which reject sampling settings: the request goes ahead without it and a warning is logged. Unset it for those models. |
 | `AI_EFFORT` | *(unset)* | Reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. Unset uses the model's default. A level the model does not support is adjusted or dropped by the provider library, with a logged warning, not an error. See [controlling cost](#choosing-a-model-and-controlling-cost). |
 | `AI_PROMPT_CACHE` | `true` | Ask the provider to cache the unchanged start of each request (Anthropic). Set `false` to turn it off. OpenAI and Google cache on their own and ignore this. |
 | `AI_PRICES` | *(unset)* | Price overrides for the cost estimates shown in conversations, as JSON in USD per million tokens: `{"my-model": {"input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75}}`. `cacheRead` and `cacheWrite` are optional and default to the input price. Entries add to or replace the built-in Anthropic prices. |
 | `AI_PREPROCESS_MODEL` | `AI_MODEL` | The model used for book preprocessing. A cheaper model is usually enough. Requires `AI_PROVIDER`. See [book preprocessing](#book-preprocessing). |
-| `AI_PREPROCESS_AUTO` | `false` | Preprocess each book automatically after import. Off by default because it sends whole books to the provider and costs money. Requires `AI_PROVIDER`. |
+| `AI_PREPROCESS_AUTO` | `false` | Preprocess each book automatically after import. Off by default because it sends whole books to the provider and costs money. Requires credentials for at least one provider. |
 | `MARGINALIA_MIGRATIONS_DIR` | `/app/drizzle` (in the image) | Location of the database migrations. Only change this if you build your own image layout. |
 | `NODE_ENV` | `production` (in the image) | Runtime mode. Leave as is. |
 

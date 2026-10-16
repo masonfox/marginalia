@@ -74,6 +74,25 @@ function parsePrices(
 	return parsed.data;
 }
 
+export const AI_PROVIDERS = [
+	"openai",
+	"anthropic",
+	"google",
+	"openai-compatible",
+] as const;
+
+export type AiProviderName = (typeof AI_PROVIDERS)[number];
+
+const baseUrl = () =>
+	optional(
+		z
+			.url({
+				protocol: /^https?$/,
+				error: "must be an absolute http(s) URL",
+			})
+			.optional(),
+	);
+
 export const envSchema = z.object({
 	DATABASE_URL: optional(
 		z.string({ error: "is required (a PostgreSQL connection string)" }),
@@ -118,21 +137,22 @@ export const envSchema = z.object({
 	MARGINALIA_TRUST_PROXY: boolean(false),
 	AI_PROVIDER: optional(
 		z
-			.enum(["openai", "anthropic", "google", "openai-compatible"], {
+			.enum(AI_PROVIDERS, {
 				error: "must be openai, anthropic, google, or openai-compatible",
 			})
 			.optional(),
 	),
 	AI_MODEL: optional(z.string().optional()),
 	AI_API_KEY: optional(z.string().optional()),
-	AI_BASE_URL: optional(
-		z
-			.url({
-				protocol: /^https?$/,
-				error: "must be an absolute http(s) URL",
-			})
-			.optional(),
-	),
+	AI_BASE_URL: baseUrl(),
+	AI_OPENAI_API_KEY: optional(z.string().optional()),
+	AI_OPENAI_BASE_URL: baseUrl(),
+	AI_ANTHROPIC_API_KEY: optional(z.string().optional()),
+	AI_ANTHROPIC_BASE_URL: baseUrl(),
+	AI_GOOGLE_API_KEY: optional(z.string().optional()),
+	AI_GOOGLE_BASE_URL: baseUrl(),
+	AI_OPENAI_COMPATIBLE_BASE_URL: baseUrl(),
+	AI_OPENAI_COMPATIBLE_API_KEY: optional(z.string().optional()),
 	AI_MAX_STEPS: integer(1, 8, "a positive whole number"),
 	AI_TEMPERATURE: optional(
 		z.coerce
@@ -161,20 +181,28 @@ export const envSchema = z.object({
 	),
 });
 
-export type AiProviderName =
-	| "openai"
-	| "anthropic"
-	| "google"
-	| "openai-compatible";
-
-/** Language model settings. Absent from Config when AI is not configured. Never log `apiKey`. */
-export interface AiConfig {
+/** A provider and one of its model ids. */
+export interface AiSelection {
 	provider: AiProviderName;
 	model: string;
-	/** Model for whole-book preprocessing. Defaults to `model`. */
-	preprocessModel: string;
+}
+
+/** How to reach one provider. Never log `apiKey`. */
+export interface AiCredentials {
 	apiKey: string | undefined;
 	baseUrl: string | undefined;
+}
+
+/** Language model settings. Never log the API keys in `credentials`. */
+export interface AiConfig {
+	/** Providers with usable credentials. A provider is available when it has an entry. */
+	credentials: Partial<Record<AiProviderName, AiCredentials>>;
+	/** Defaults from AI_PROVIDER with AI_MODEL and AI_PREPROCESS_MODEL. */
+	envDefaults: {
+		chat?: AiSelection;
+		/** Unset means preprocessing follows the chat default. */
+		preprocess?: AiSelection;
+	};
 	maxSteps: number;
 	temperature: number | undefined;
 	/** Undefined means the provider's default. */
@@ -203,8 +231,10 @@ export interface Config {
 	logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
 	/** Preprocess books automatically after ingest (AI_PREPROCESS_AUTO). */
 	preprocessAuto: boolean;
-	/** Undefined when no AI provider is configured. */
-	ai: AiConfig | undefined;
+	/** AI is disabled when `ai.credentials` is empty. */
+	ai: AiConfig;
+	/** Ignored settings to log at startup. They name variables only, never values. */
+	warnings: string[];
 }
 
 export class ConfigError extends Error {
@@ -229,7 +259,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		);
 	}
 	const e = result.data;
-	const ai = buildAiConfig(e);
+	const { ai, warnings } = buildAiConfig(e);
 	return {
 		databaseUrl: e.DATABASE_URL,
 		port: e.PORT,
@@ -247,50 +277,122 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		logLevel: e.LOG_LEVEL,
 		preprocessAuto: e.AI_PREPROCESS_AUTO,
 		ai,
+		warnings,
 	};
 }
 
 type Env = z.infer<typeof envSchema>;
 
-/** Cross-field validation for the AI variables. Messages name variables only, never values. */
-function buildAiConfig(e: Env): AiConfig | undefined {
-	if (e.AI_PROVIDER === undefined) {
-		const orphans: string[] = [];
-		if (e.AI_PREPROCESS_MODEL !== undefined) {
-			orphans.push("AI_PREPROCESS_MODEL requires AI_PROVIDER to be set");
-		}
-		if (e.AI_PREPROCESS_AUTO) {
-			orphans.push("AI_PREPROCESS_AUTO requires AI_PROVIDER to be set");
-		}
-		if (orphans.length > 0) throw new ConfigError(orphans);
-		return undefined;
-	}
+/** The per-provider credential variables. */
+const PROVIDER_VARS = {
+	openai: { apiKey: "AI_OPENAI_API_KEY", baseUrl: "AI_OPENAI_BASE_URL" },
+	anthropic: {
+		apiKey: "AI_ANTHROPIC_API_KEY",
+		baseUrl: "AI_ANTHROPIC_BASE_URL",
+	},
+	google: { apiKey: "AI_GOOGLE_API_KEY", baseUrl: "AI_GOOGLE_BASE_URL" },
+	"openai-compatible": {
+		apiKey: "AI_OPENAI_COMPATIBLE_API_KEY",
+		baseUrl: "AI_OPENAI_COMPATIBLE_BASE_URL",
+	},
+} as const satisfies Record<
+	AiProviderName,
+	{ apiKey: keyof Env; baseUrl: keyof Env }
+>;
+
+/**
+ * Cross-field validation for the AI variables. AI_PROVIDER with AI_API_KEY and
+ * AI_BASE_URL supplies the credentials of the provider it names. Messages name
+ * variables only, never values.
+ */
+function buildAiConfig(e: Env): { ai: AiConfig; warnings: string[] } {
 	const issues: string[] = [];
-	if (e.AI_MODEL === undefined) {
-		issues.push("AI_MODEL is required when AI_PROVIDER is set");
+	const warnings: string[] = [];
+	const credentials: AiConfig["credentials"] = {};
+	const legacy = e.AI_PROVIDER;
+	const legacySet = (["AI_API_KEY", "AI_BASE_URL"] as const).filter(
+		(name) => e[name] !== undefined,
+	);
+
+	for (const provider of AI_PROVIDERS) {
+		const vars = PROVIDER_VARS[provider];
+		const ownSet = [vars.apiKey, vars.baseUrl].filter(
+			(name) => e[name] !== undefined,
+		);
+		let c: AiCredentials = { apiKey: e[vars.apiKey], baseUrl: e[vars.baseUrl] };
+		if (provider === legacy && legacySet.length > 0) {
+			if (ownSet.length > 0) {
+				issues.push(
+					`${[...legacySet, ...ownSet].join(" and ")} both set credentials for ${provider}; use either the AI_PROVIDER variables or ${vars.apiKey}/${vars.baseUrl}`,
+				);
+				continue;
+			}
+			c = { apiKey: e.AI_API_KEY, baseUrl: e.AI_BASE_URL };
+		}
+		if (provider === "openai-compatible") {
+			if (c.baseUrl !== undefined) credentials[provider] = c;
+			else if (provider !== legacy && c.apiKey !== undefined) {
+				warnings.push(`${vars.apiKey} is ignored without ${vars.baseUrl}`);
+			}
+		} else if (c.apiKey !== undefined) {
+			credentials[provider] = c;
+		} else if (e[vars.baseUrl] !== undefined) {
+			issues.push(`${vars.baseUrl} requires ${vars.apiKey} to be set`);
+		}
 	}
-	if (e.AI_PROVIDER !== "openai-compatible" && e.AI_API_KEY === undefined) {
-		issues.push(`AI_API_KEY is required when AI_PROVIDER is ${e.AI_PROVIDER}`);
+
+	const envDefaults: AiConfig["envDefaults"] = {};
+	if (legacy === undefined) {
+		if (e.AI_PREPROCESS_MODEL !== undefined) {
+			issues.push("AI_PREPROCESS_MODEL requires AI_PROVIDER to be set");
+		}
+		for (const name of ["AI_MODEL", "AI_API_KEY", "AI_BASE_URL"] as const) {
+			if (e[name] !== undefined) {
+				warnings.push(`${name} is ignored because AI_PROVIDER is not set`);
+			}
+		}
+	} else {
+		const vars = PROVIDER_VARS[legacy];
+		const duplicated =
+			legacySet.length > 0 &&
+			(e[vars.apiKey] !== undefined || e[vars.baseUrl] !== undefined);
+		if (e.AI_MODEL === undefined) {
+			issues.push("AI_MODEL is required when AI_PROVIDER is set");
+		} else {
+			envDefaults.chat = { provider: legacy, model: e.AI_MODEL };
+		}
+		if (!duplicated && credentials[legacy] === undefined) {
+			issues.push(
+				legacy === "openai-compatible"
+					? `AI_BASE_URL or ${vars.baseUrl} is required when AI_PROVIDER is openai-compatible`
+					: `AI_API_KEY or ${vars.apiKey} is required when AI_PROVIDER is ${legacy}`,
+			);
+		}
+		if (e.AI_PREPROCESS_MODEL !== undefined) {
+			envDefaults.preprocess = {
+				provider: legacy,
+				model: e.AI_PREPROCESS_MODEL,
+			};
+		}
 	}
-	if (e.AI_PROVIDER === "openai-compatible" && e.AI_BASE_URL === undefined) {
+
+	if (e.AI_PREPROCESS_AUTO && Object.keys(credentials).length === 0) {
 		issues.push(
-			"AI_BASE_URL is required when AI_PROVIDER is openai-compatible",
+			"AI_PREPROCESS_AUTO requires credentials for at least one AI provider",
 		);
 	}
-	if (issues.length > 0 || e.AI_MODEL === undefined) {
-		throw new ConfigError(issues);
-	}
+	if (issues.length > 0) throw new ConfigError(issues);
 	return {
-		provider: e.AI_PROVIDER,
-		model: e.AI_MODEL,
-		preprocessModel: e.AI_PREPROCESS_MODEL ?? e.AI_MODEL,
-		apiKey: e.AI_API_KEY,
-		baseUrl: e.AI_BASE_URL,
-		maxSteps: e.AI_MAX_STEPS,
-		temperature: e.AI_TEMPERATURE,
-		effort: e.AI_EFFORT,
-		promptCache: e.AI_PROMPT_CACHE,
-		prices: e.AI_PRICES ?? {},
+		ai: {
+			credentials,
+			envDefaults,
+			maxSteps: e.AI_MAX_STEPS,
+			temperature: e.AI_TEMPERATURE,
+			effort: e.AI_EFFORT,
+			promptCache: e.AI_PROMPT_CACHE,
+			prices: e.AI_PRICES ?? {},
+		},
+		warnings,
 	};
 }
 
@@ -306,20 +408,22 @@ export function servesWeb(config: Config): boolean {
 
 /** A loggable view of the config: secrets are replaced by whether they are set. */
 export function redactedConfig(config: Config) {
-	const { authPassword, databaseUrl, ai, ...rest } = config;
+	const { authPassword, databaseUrl, ai, warnings: _, ...rest } = config;
 	return {
 		...rest,
-		ai: ai && {
-			provider: ai.provider,
-			model: ai.model,
-			preprocessModel: ai.preprocessModel,
-			baseUrl: ai.baseUrl,
+		ai: {
+			providers: Object.fromEntries(
+				Object.entries(ai.credentials).map(([provider, c]) => [
+					provider,
+					{ baseUrl: c.baseUrl, apiKeySet: c.apiKey !== undefined },
+				]),
+			),
+			envDefaults: ai.envDefaults,
 			maxSteps: ai.maxSteps,
 			temperature: ai.temperature,
 			effort: ai.effort,
 			promptCache: ai.promptCache,
 			prices: ai.prices,
-			apiKeySet: ai.apiKey !== undefined,
 		},
 		databaseUrl: redactUrlPassword(databaseUrl),
 		authEnabled: authPassword !== undefined,

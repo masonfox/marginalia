@@ -1,8 +1,8 @@
 ## 1. Configuration
 
-- [ ] 1.1 Add per-provider credential variables (`AI_{OPENAI,ANTHROPIC,GOOGLE}_API_KEY`/`_BASE_URL`, `AI_OPENAI_COMPATIBLE_BASE_URL`/`_API_KEY`) to the env schema in `src/server/config.ts`, and reshape `AiConfig` into `credentials`, `envDefaults.chat`/`envDefaults.preprocess`, and the global settings (design Decision 1). Verify with `config.test.ts` cases for each provider, legacy `AI_PROVIDER` mapping, and an env-only config that yields the same defaults as today.
-- [ ] 1.2 Implement the cross-field validation from the ai-providers spec: duplicate legacy and per-provider credentials, a base URL without a key, an invalid URL, `AI_PREPROCESS_MODEL` without `AI_PROVIDER`, and warnings (not errors) for `AI_MODEL`/`AI_API_KEY`/`AI_BASE_URL` without `AI_PROVIDER`. Verify with tests asserting each message names its variables and contains no key value.
-- [ ] 1.3 Update `redactConfig` to report `apiKeySet` per provider, and make `AI_PREPROCESS_AUTO` require at least one available provider. Verify with config tests.
+- [x] 1.1 Add per-provider credential variables (`AI_{OPENAI,ANTHROPIC,GOOGLE}_API_KEY`/`_BASE_URL`, `AI_OPENAI_COMPATIBLE_BASE_URL`/`_API_KEY`) to the env schema in `src/server/config.ts`, and reshape `AiConfig` into `credentials`, `envDefaults.chat`/`envDefaults.preprocess`, and the global settings (design Decision 1). Verify with `config.test.ts` cases for each provider, legacy `AI_PROVIDER` mapping, and an env-only config that yields the same defaults as today.
+- [x] 1.2 Implement the cross-field validation from the ai-providers spec: duplicate legacy and per-provider credentials, a base URL without a key, an invalid URL, `AI_PREPROCESS_MODEL` without `AI_PROVIDER`, and warnings (not errors) for `AI_MODEL`/`AI_API_KEY`/`AI_BASE_URL` without `AI_PROVIDER`. Verify with tests asserting each message names its variables and contains no key value.
+- [x] 1.3 Update `redactConfig` to report `apiKeySet` per provider, and make `AI_PREPROCESS_AUTO` require at least one available provider. Verify with config tests.
 
 ## 2. AI runtime
 

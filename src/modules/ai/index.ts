@@ -6,7 +6,9 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel, streamText } from "ai";
 import type {
 	AiConfig,
+	AiCredentials,
 	AiProviderName,
+	AiSelection,
 	ReasoningEffort,
 } from "#/server/config";
 
@@ -47,9 +49,15 @@ export interface AiRuntime {
 	providerOptions: ProviderOptions;
 }
 
-/** Maps configuration to an AI SDK model. Returns a disabled runtime when no provider is set. */
+/** Maps configuration to an AI SDK model. Returns a disabled runtime when no env default model is set. */
 export function createAi(config: AiConfig | undefined): AiRuntime {
-	if (!config) {
+	// Providers may echo a key in errors, whatever its shape.
+	for (const c of Object.values(config?.credentials ?? {})) {
+		registerSecret(c.apiKey);
+	}
+	const chat = config?.envDefaults.chat;
+	const credentials = chat && config?.credentials[chat.provider];
+	if (!config || !chat || !credentials) {
 		return {
 			model: null,
 			preprocessModel: null,
@@ -60,21 +68,21 @@ export function createAi(config: AiConfig | undefined): AiRuntime {
 			providerOptions: {},
 		};
 	}
-	// Providers may echo the key in errors, whatever its shape.
-	registerSecret(config.apiKey);
+	// The env preprocess default shares the chat provider, so its credentials exist.
+	const preprocess = config.envDefaults.preprocess ?? chat;
 	return {
-		model: buildModel(config),
-		preprocessModel: buildModel(config, config.preprocessModel),
+		model: buildModel(chat, credentials),
+		preprocessModel: buildModel(preprocess, credentials),
 		status: {
 			enabled: true,
-			provider: config.provider,
-			model: config.model,
-			preprocessModel: config.preprocessModel,
+			provider: chat.provider,
+			model: chat.model,
+			preprocessModel: preprocess.model,
 		},
 		maxSteps: config.maxSteps,
 		temperature: config.temperature,
 		reasoning: config.effort,
-		providerOptions: buildProviderOptions(config),
+		providerOptions: buildProviderOptions(chat.provider, config.promptCache),
 	};
 }
 
@@ -83,15 +91,21 @@ export function createAi(config: AiConfig | undefined): AiRuntime {
  * up to the last cacheable block, so each tool-loop step and the next turn
  * read the earlier prefix. OpenAI and Google cache on their own.
  */
-function buildProviderOptions(c: AiConfig): ProviderOptions {
-	if (c.provider === "anthropic" && c.promptCache) {
+function buildProviderOptions(
+	provider: AiProviderName,
+	promptCache: boolean,
+): ProviderOptions {
+	if (provider === "anthropic" && promptCache) {
 		return { anthropic: { cacheControl: { type: "ephemeral" } } };
 	}
 	return {};
 }
 
-function buildModel(c: AiConfig, modelId: string = c.model): LanguageModel {
-	switch (c.provider) {
+function buildModel(
+	{ provider, model: modelId }: AiSelection,
+	c: AiCredentials,
+): LanguageModel {
+	switch (provider) {
 		case "openai":
 			return createOpenAI({ apiKey: c.apiKey, baseURL: c.baseUrl })(modelId);
 		case "anthropic":

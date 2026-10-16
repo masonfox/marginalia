@@ -180,11 +180,8 @@ describe("conversation operations behind the server functions", () => {
 
 	it("exposes the AI status without the key", () => {
 		const ai = createAi({
-			provider: "openai",
-			model: "gpt-test",
-			preprocessModel: "gpt-test",
-			apiKey: SECRET,
-			baseUrl: undefined,
+			credentials: { openai: { apiKey: SECRET, baseUrl: undefined } },
+			envDefaults: { chat: { provider: "openai", model: "gpt-test" } },
 			maxSteps: 8,
 			temperature: undefined,
 			effort: undefined,

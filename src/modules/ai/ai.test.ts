@@ -1,6 +1,6 @@
 import { APICallError } from "ai";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AiConfig } from "#/server/config";
+import type { AiConfig, AiProviderName } from "#/server/config";
 import {
 	clearSecrets,
 	createAi,
@@ -11,21 +11,47 @@ import {
 	registerSecret,
 } from "./index";
 
-const cfg = (over: Partial<AiConfig>): AiConfig => ({
-	provider: "openai",
-	model: "m1",
-	preprocessModel: "m1",
-	apiKey: "sk-secret",
-	baseUrl: undefined,
-	maxSteps: 8,
-	temperature: undefined,
-	effort: undefined,
-	promptCache: true,
-	prices: {},
-	...over,
-});
+interface Single {
+	provider: AiProviderName;
+	model: string;
+	preprocessModel: string;
+	apiKey: string | undefined;
+	baseUrl: string | undefined;
+	maxSteps: number;
+	temperature: number | undefined;
+	effort: AiConfig["effort"];
+	promptCache: boolean;
+}
 
-function modelOf(over: Partial<AiConfig>) {
+/** A config with one provider, as AI_PROVIDER would give. */
+const cfg = (over: Partial<Single>): AiConfig => {
+	const c: Single = {
+		provider: "openai",
+		model: "m1",
+		preprocessModel: "m1",
+		apiKey: "sk-secret",
+		baseUrl: undefined,
+		maxSteps: 8,
+		temperature: undefined,
+		effort: undefined,
+		promptCache: true,
+		...over,
+	};
+	return {
+		credentials: { [c.provider]: { apiKey: c.apiKey, baseUrl: c.baseUrl } },
+		envDefaults: {
+			chat: { provider: c.provider, model: c.model },
+			preprocess: { provider: c.provider, model: c.preprocessModel },
+		},
+		maxSteps: c.maxSteps,
+		temperature: c.temperature,
+		effort: c.effort,
+		promptCache: c.promptCache,
+		prices: {},
+	};
+};
+
+function modelOf(over: Partial<Single>) {
 	const { model } = createAi(cfg(over));
 	if (!model || typeof model === "string") throw new Error("no model object");
 	return model;
