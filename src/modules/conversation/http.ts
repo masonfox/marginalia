@@ -47,6 +47,11 @@ export async function handleChatRequest(
 			return result.response;
 		case "disabled":
 			return json(503, "AI is not configured on this instance");
+		case "missing_model":
+			return json(
+				503,
+				"Choose a chat model in Settings before starting a chat.",
+			);
 		case "model_unavailable":
 			return Response.json(
 				{

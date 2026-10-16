@@ -360,13 +360,13 @@ describe("conversation model", () => {
 		expect(gpt.doStreamCalls).toHaveLength(0);
 	});
 
-	it("reports disabled when no model applies", async () => {
+	it("reports a missing model when no model applies", async () => {
 		const id = await newConversation();
 		const result = await startChat(deps(runtime({ openai: replying("x") })), {
 			conversationId: id,
 			message: "Hi",
 		});
-		expect(result.status).toBe("disabled");
+		expect(result.status).toBe("missing_model");
 		expect((await getConversation(t.db, id))?.messages).toEqual([]);
 	});
 

@@ -1,5 +1,5 @@
 import { MockLanguageModelV4 } from "ai/test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	createSession,
 	LoginRateLimiter,
@@ -121,6 +121,30 @@ describe("POST /api/chat", () => {
 		);
 		expect(res.status).toBe(503);
 		expect((await getConversation(t.db, id))?.messages).toEqual([]);
+	});
+
+	it("returns 503 Settings guidance for a missing chat model without resolving or storing", async () => {
+		await t.pool.query(
+			"update ai_settings set chat_provider = null, chat_model = null where id = 1",
+		);
+		try {
+			const id = await newConversation();
+			const model = modelWith(() => []);
+			const ai = enabled(model);
+			const resolve = vi.spyOn(ai, "resolve");
+			const res = await chat(ai, post({ conversationId: id, message: "hi" }));
+			expect(res.status).toBe(503);
+			expect(await res.json()).toEqual({
+				error: "Choose a chat model in Settings before starting a chat.",
+			});
+			expect(resolve).not.toHaveBeenCalled();
+			expect(model.doStreamCalls).toHaveLength(0);
+			expect((await getConversation(t.db, id))?.messages).toEqual([]);
+		} finally {
+			await t.pool.query(
+				"update ai_settings set chat_provider = 'openai', chat_model = 'mock' where id = 1",
+			);
+		}
 	});
 
 	it("returns 503 naming the model when the conversation's model is unavailable", async () => {

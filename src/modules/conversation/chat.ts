@@ -92,6 +92,7 @@ export type ChatStart =
 	| { status: "invalid_passage"; reason: PassageRefInvalid | "no_message" }
 	| { status: "passage_out_of_scope"; unitLabel: string | null }
 	| { status: "disabled" }
+	| { status: "missing_model" }
 	/** The model the turn would use has a provider without credentials. */
 	| { status: "model_unavailable"; selection: AiSelection }
 	| { status: "not_found" }
@@ -119,7 +120,7 @@ export async function startChat(
 	// model, else the chat default now. Never falls back to another model.
 	const selection =
 		conversation.model ?? (await getAiDefaults(db, ai)).chat.selection;
-	if (!selection) return { status: "disabled" };
+	if (!selection) return { status: "missing_model" };
 	const resolved = await ai.resolve(selection);
 	if (!resolved.ok) return { status: "model_unavailable", selection };
 	if (input.replyContext && input.passageRef)

@@ -403,6 +403,36 @@ describe("startChat", () => {
 		expect(JSON.stringify(conv.messages[0]?.parts)).toContain("First");
 	});
 
+	it("reports a missing model without resolving or storing, while an override works without a default", async () => {
+		await t.pool.query(
+			"update ai_settings set chat_provider = null, chat_model = null where id = 1",
+		);
+		try {
+			const id = await newConversation();
+			const model = scripted(textReply("Override reply."));
+			const ai = runtime(model);
+			const resolve = vi.spyOn(ai, "resolve");
+			expect(
+				await startChat(deps(ai), { conversationId: id, message: "hi" }),
+			).toEqual({ status: "missing_model" });
+			expect(resolve).not.toHaveBeenCalled();
+			expect(model.doStreamCalls).toHaveLength(0);
+			expect((await getConversation(t.db, id))?.messages).toEqual([]);
+			const selection = { provider: "openai" as const, model: "override" };
+			expect(
+				await setConversationModel({ db: t.db, ai }, id, selection),
+			).toMatchObject({ status: "ok" });
+			await (await run(ai, id, "hi")).text();
+			expect(resolve).toHaveBeenCalledWith(selection);
+			expect(model.doStreamCalls).toHaveLength(1);
+			await saved(id, 2);
+		} finally {
+			await t.pool.query(
+				"update ai_settings set chat_provider = 'openai', chat_model = 'mock-1' where id = 1",
+			);
+		}
+	});
+
 	it("reports disabled and not_found without calling a model", async () => {
 		const id = await newConversation();
 		const off = createAi(undefined);
