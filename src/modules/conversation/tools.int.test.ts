@@ -8,6 +8,7 @@ import {
 import { parseEpub } from "#/modules/epub";
 import {
 	createNote,
+	listNotes,
 	mergeSubjects,
 	renameSubject,
 	saveCorrection,
@@ -1001,6 +1002,67 @@ describe("lookupNotes", () => {
 		if (queried.status !== "ok") throw new Error("expected ok");
 		expect(queried.notes).toHaveLength(LIMITS.notes);
 		expect(queried.truncated).toBe(true);
+	});
+
+	it("reads exactly what slicing the unbounded list would show", async () => {
+		// Runs after the batch above: more than 20 titles, more than 5 matches.
+		const clip = (s: string) =>
+			s.length <= LIMITS.noteChars ? s : `${s.slice(0, LIMITS.noteChars - 1)}…`;
+		const expected = async (i: number | null, cap: number, match?: string) => {
+			const bound = i === null ? null : unit(i).endPosition;
+			const all = await listNotes(
+				t.db,
+				delta.editionId,
+				bound,
+				{ kind: "all" },
+				{ match },
+			);
+			if (all.length === 0) return { status: "not_found" };
+			const shown = all.slice(0, cap);
+			return {
+				count: shown.length,
+				truncated: all.length > shown.length,
+				notes: shown.map((n) =>
+					match === undefined
+						? { id: n.id, title: n.title }
+						: {
+								id: n.id,
+								title: n.title,
+								body: clip(n.body),
+								clipped: n.body.length > LIMITS.noteChars || undefined,
+							},
+				),
+			};
+		};
+		const actual = async (i: number | null, query?: string) => {
+			const r = await lookupNotes(through(i), { book: "b1", query });
+			if (r.status !== "ok") return { status: r.status };
+			return {
+				count: r.count,
+				truncated: r.truncated,
+				notes: r.notes.map((n) =>
+					"body" in n
+						? { id: n.id, title: n.title, body: n.body, clipped: n.clipped }
+						: { id: n.id, title: n.title },
+				),
+			};
+		};
+		for (const i of [0, 1, 2, null]) {
+			const listed = await actual(i);
+			expect(listed).toEqual(await expected(i, LIMITS.noteTitles));
+			for (const query of ["batch", "villain", "Begin."])
+				expect(await actual(i, query)).toEqual(
+					await expected(i, LIMITS.notes, query),
+				);
+		}
+		expect((await actual(0)).truncated).toBe(true);
+		expect((await actual(0, "batch")).truncated).toBe(true);
+		const [long] = (await actual(1, "Begin.")).notes ?? [];
+		expect(long).toMatchObject({ title: "Long thoughts", clipped: true });
+		// The note anchored at chapter three stays withheld before it.
+		const villain = JSON.stringify(await actual(1, "villain"));
+		expect(villain).toContain("Is the harbourmaster lying?");
+		expect(villain).not.toContain("Chapter three twist");
 	});
 
 	it("refuses books outside the conversation", async () => {

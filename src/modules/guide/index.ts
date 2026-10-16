@@ -44,7 +44,9 @@ export {
 	createNote,
 	defaultNoteAnchor,
 	deleteNote,
+	findNotes,
 	getNote,
+	listNoteSummaries,
 	listNotes,
 	listSubjectNotes,
 	MAX_NOTE_BODY,
@@ -56,6 +58,7 @@ export {
 	type NoteInput,
 	type NoteResult,
 	type ReaderNote,
+	type ReaderNoteSummary,
 	updateNote,
 } from "./notes";
 export {

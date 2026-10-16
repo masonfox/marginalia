@@ -77,6 +77,9 @@ export interface ReaderNote {
 	updatedAt: Date;
 }
 
+/** A note without its body: what a title listing needs. */
+export type ReaderNoteSummary = Omit<ReaderNote, "body">;
+
 /** What the reader writes. Without `anchor`, the note is anchored at the reading position. */
 export interface NoteInput {
 	title: string;
@@ -168,10 +171,16 @@ const noteColumns = {
 
 type NoteRow = Pick<typeof readerNotes.$inferSelect, keyof typeof noteColumns>;
 
+const { body: _body, ...summaryColumns } = noteColumns;
+
 const toNote = (row: NoteRow): ReaderNote => ({
+	...toSummary(row),
+	body: row.body,
+});
+
+const toSummary = (row: Omit<NoteRow, "body">): ReaderNoteSummary => ({
 	id: row.id,
 	title: row.title,
-	body: row.body,
 	asOf: {
 		kind: row.asOfKind,
 		locator: row.asOfLocator,
@@ -478,39 +487,103 @@ export async function listNotes(
 	filter: NoteFilter = { kind: "all" },
 	{ match }: { match?: string } = {},
 ): Promise<ReaderNote[]> {
-	if (filter.kind === "subject" && filter.keys.length === 0) return [];
-	if (filter.kind === "unit" && filter.locators?.length === 0) return [];
-	// LIKE wildcards in the reader's words match themselves.
-	const pattern =
-		match === undefined ? undefined : `%${match.replace(/[\\%_]/g, "\\$&")}%`;
+	const where = visibleNotes(editionId, bound, filter, match);
+	if (where === null) return [];
 	const rows = await db
 		.select(noteColumns)
 		.from(readerNotes)
-		.where(
-			and(
-				eq(readerNotes.editionId, editionId),
-				bound === null ? undefined : lte(readerNotes.asOfPosition, bound),
-				pattern === undefined
-					? undefined
-					: or(
-							ilike(readerNotes.title, pattern),
-							ilike(readerNotes.body, pattern),
-						),
-				filter.kind === "subject"
-					? inArray(readerNotes.subjectKey, filter.keys)
-					: filter.kind === "unit"
-						? filter.locators
-							? inArray(readerNotes.unitLocator, filter.locators)
-							: isNotNull(readerNotes.unitLocator)
-						: undefined,
-			),
-		)
-		.orderBy(
-			sql`${readerNotes.asOfPosition} asc nulls last`,
-			desc(readerNotes.updatedAt),
-			asc(readerNotes.id),
-		);
+		.where(where)
+		.orderBy(...noteOrder);
 	return rows.map(toNote);
+}
+
+/**
+ * The first `limit` notes {@link listNotes} returns with no filter, without
+ * their bodies: a capped title listing reads no more than it shows.
+ */
+export async function listNoteSummaries(
+	db: Executor,
+	editionId: string,
+	bound: number | null,
+	limit: number,
+): Promise<ReaderNoteSummary[]> {
+	const rows = await db
+		.select(summaryColumns)
+		.from(readerNotes)
+		.where(visibleNotes(editionId, bound, { kind: "all" }) ?? undefined)
+		.orderBy(...noteOrder)
+		.limit(limit);
+	return rows.map(toSummary);
+}
+
+/**
+ * The first `limit` notes {@link listNotes} returns, each body cut in the
+ * query to its first `bodyChars + 1` characters: enough to clip it to
+ * `bodyChars` and to tell that it was longer.
+ */
+export async function findNotes(
+	db: Executor,
+	editionId: string,
+	bound: number | null,
+	filter: NoteFilter,
+	{
+		match,
+		limit,
+		bodyChars,
+	}: { match?: string; limit: number; bodyChars: number },
+): Promise<ReaderNote[]> {
+	const where = visibleNotes(editionId, bound, filter, match);
+	if (where === null) return [];
+	const rows = await db
+		.select({
+			...noteColumns,
+			body: sql<string>`left(${readerNotes.body}, ${bodyChars + 1})`,
+		})
+		.from(readerNotes)
+		.where(where)
+		.orderBy(...noteOrder)
+		.limit(limit);
+	return rows.map(toNote);
+}
+
+/** In reading order of their anchors, the end of the book last, most recently edited first among equals. */
+const noteOrder = [
+	sql`${readerNotes.asOfPosition} asc nulls last`,
+	desc(readerNotes.updatedAt),
+	asc(readerNotes.id),
+];
+
+/** The condition picking the notes {@link listNotes} returns; null when no note can match. */
+function visibleNotes(
+	editionId: string,
+	bound: number | null,
+	filter: NoteFilter,
+	match?: string,
+) {
+	if (filter.kind === "subject" && filter.keys.length === 0) return null;
+	if (filter.kind === "unit" && filter.locators?.length === 0) return null;
+	// LIKE wildcards in the reader's words match themselves.
+	const pattern =
+		match === undefined ? undefined : `%${match.replace(/[\\%_]/g, "\\$&")}%`;
+	return (
+		and(
+			eq(readerNotes.editionId, editionId),
+			bound === null ? undefined : lte(readerNotes.asOfPosition, bound),
+			pattern === undefined
+				? undefined
+				: or(
+						ilike(readerNotes.title, pattern),
+						ilike(readerNotes.body, pattern),
+					),
+			filter.kind === "subject"
+				? inArray(readerNotes.subjectKey, filter.keys)
+				: filter.kind === "unit"
+					? filter.locators
+						? inArray(readerNotes.unitLocator, filter.locators)
+						: isNotNull(readerNotes.unitLocator)
+					: undefined,
+		) ?? null
+	);
 }
 
 /** One note, when it is visible at the bound; null otherwise. */

@@ -3,10 +3,11 @@ import { z } from "zod";
 import { hasCurrentPreprocessing, normalizeNameKey } from "#/modules/analysis";
 import { getToc, type TocNode } from "#/modules/catalog";
 import {
+	findNotes,
 	getUnitAnchors,
-	listNotes,
+	listNoteSummaries,
 	type NoteFilter,
-	type ReaderNote,
+	type ReaderNoteSummary,
 	resolveObservations,
 	resolveSubjects,
 	type SubjectResolution,
@@ -373,7 +374,7 @@ export const NOTES_ATTRIBUTION =
  * naming the attachment would reach past the bound.
  */
 function attachmentOf(
-	note: ReaderNote,
+	note: ReaderNoteSummary,
 	bound: number | null,
 	anchors: UnitAnchors,
 	resolution: SubjectResolution,
@@ -415,7 +416,7 @@ export async function lookupNotes(
 		bound,
 		anchors,
 	);
-	const describe = (n: ReaderNote) => ({
+	const describe = (n: ReaderNoteSummary) => ({
 		id: n.id,
 		title: clip(n.title, 200),
 		attachedTo: attachmentOf(n, bound, anchors, resolution),
@@ -427,7 +428,13 @@ export async function lookupNotes(
 	};
 
 	if (query === undefined && subject === undefined) {
-		const notes = await listNotes(deps.db, book.editionId, bound);
+		// One past the cap tells whether the listing is truncated.
+		const notes = await listNoteSummaries(
+			deps.db,
+			book.editionId,
+			bound,
+			LIMITS.noteTitles + 1,
+		);
 		if (notes.length === 0)
 			return {
 				status: "not_found" as const,
@@ -453,8 +460,10 @@ export async function lookupNotes(
 		const keys = key ? resolution.keysOf(resolution.refOf(key)) : null;
 		filter = { kind: "subject", keys: keys ?? [] };
 	}
-	const notes = await listNotes(deps.db, book.editionId, bound, filter, {
+	const notes = await findNotes(deps.db, book.editionId, bound, filter, {
 		match: query,
+		limit: LIMITS.notes + 1,
+		bodyChars: LIMITS.noteChars,
 	});
 	if (notes.length === 0)
 		return {
