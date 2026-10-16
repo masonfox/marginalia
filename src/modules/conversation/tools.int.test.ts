@@ -1005,7 +1005,9 @@ describe("lookupNotes", () => {
 	});
 
 	it("reads exactly what slicing the unbounded list would show", async () => {
-		// Runs after the batch above: more than 20 titles, more than 5 matches.
+		// Its own batch: more than 20 titles, more than 5 matches.
+		for (let i = 0; i < 22; i++)
+			await note(`Slice batch note ${i}`, "batch body", atUnit(0));
 		const clip = (s: string) =>
 			s.length <= LIMITS.noteChars ? s : `${s.slice(0, LIMITS.noteChars - 1)}…`;
 		const expected = async (i: number | null, cap: number, match?: string) => {
