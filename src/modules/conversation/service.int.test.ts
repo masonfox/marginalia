@@ -72,8 +72,8 @@ function runtime(
 	chat?: AiSelection,
 ): AiRuntime {
 	return {
-		available: () => AI_PROVIDERS.filter((p) => models[p]),
-		resolve: (selection) => {
+		available: async () => AI_PROVIDERS.filter((p) => models[p]),
+		resolve: async (selection) => {
 			const model = models[selection.provider];
 			return model
 				? { ok: true, model, providerOptions: {}, selection }

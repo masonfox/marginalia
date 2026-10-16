@@ -82,7 +82,7 @@ beforeAll(async () => {
 		db: t.db,
 		config: { dataDir, preprocessAuto: false },
 		log: silentLog,
-		ai: { available: () => [], envDefaults: {} },
+		ai: { available: async () => [], envDefaults: {} },
 		enqueue: async () => null,
 	} as unknown as AppContext);
 });
@@ -1383,9 +1383,9 @@ describe("preprocessing model selection", () => {
 		});
 		return {
 			calls,
-			available: () => available,
+			available: async () => available,
 			envDefaults,
-			resolve: vi.fn((selection: AiSelection) =>
+			resolve: vi.fn(async (selection: AiSelection) =>
 				available.includes(selection.provider)
 					? { ok: true as const, model, providerOptions: {}, selection }
 					: { ok: false as const, reason: "unavailable" as const },

@@ -33,9 +33,9 @@ export async function choosePreprocessModel(
 	ai: AiSource,
 	choice?: AiSelection,
 ): Promise<PreprocessChoice> {
-	if (ai.available().length === 0) return { status: "disabled" };
+	if ((await ai.available()).length === 0) return { status: "disabled" };
 	if (choice) {
-		const checked = checkSelection(ai, choice);
+		const checked = await checkSelection(ai, choice);
 		if (checked.status === "unavailable")
 			return { status: "unavailable", selection: choice };
 		return checked;
@@ -131,7 +131,7 @@ export async function getPreprocessOverview(
 	return {
 		...status,
 		...(pending ?? {}),
-		aiEnabled: ai.available().length > 0,
+		aiEnabled: (await ai.available()).length > 0,
 		preprocessDefault: defaults.preprocess,
 	};
 }

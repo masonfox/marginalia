@@ -1,4 +1,5 @@
 // Model listing through each provider's REST endpoint. The AI SDK has no listing API.
+
 import type {
 	AiCredentials,
 	AiProviderName,
@@ -10,6 +11,7 @@ import {
 	redactSecrets,
 	registerSecret,
 } from "./errors";
+import { credentialsFingerprint } from "./fingerprint";
 
 /** How long a provider's listing is reused. */
 export const MODEL_LIST_TTL_MS = 10 * 60 * 1000;
@@ -54,12 +56,14 @@ export interface ListModelsOptions {
 
 type Entry = { id: string; name?: string };
 
-const cache = new Map<AiProviderName, { at: number; models: Entry[] }>();
+const cache = new Map<string, { at: number; models: Entry[] }>();
 
 /** Forgets every cached listing. For tests. */
 export function clearModelListCache(provider?: AiProviderName): void {
-	if (provider) cache.delete(provider);
-	else cache.clear();
+	if (provider) {
+		for (const key of cache.keys())
+			if (key.startsWith(`${provider}:`)) cache.delete(key);
+	} else cache.clear();
 }
 
 /**
@@ -78,7 +82,8 @@ export async function listModels(
 			price: options.priceOf?.(m.id) ?? null,
 		})),
 	});
-	const hit = cache.get(provider);
+	const fingerprint = credentialsFingerprint(provider, credentials);
+	const hit = cache.get(fingerprint);
 	if (!options.refresh && hit && Date.now() - hit.at < MODEL_LIST_TTL_MS) {
 		return priced(hit.models);
 	}
@@ -87,7 +92,7 @@ export async function listModels(
 		: AbortSignal.timeout(TIMEOUT_MS);
 	try {
 		const models = await fetchModels(provider, credentials, signal);
-		cache.set(provider, { at: Date.now(), models });
+		cache.set(fingerprint, { at: Date.now(), models });
 		return priced(models);
 	} catch (error) {
 		return {

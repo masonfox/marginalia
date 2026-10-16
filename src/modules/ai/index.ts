@@ -1,4 +1,4 @@
-// Language model resolution from configuration. No database access.
+// Resolve every call from the current stored credentials.
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogle } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -14,6 +14,7 @@ import {
 } from "#/server/config";
 
 import { registerSecret } from "./errors";
+import { credentialsFingerprint } from "./fingerprint";
 
 export {
 	clearSecrets,
@@ -50,11 +51,11 @@ export type ResolvedModel =
 
 export interface AiRuntime {
 	/** Providers with credentials, in a fixed order. */
-	available(): AiProviderName[];
+	available(): Promise<AiProviderName[]>;
 	/** Builds a model for a selection with its provider's credentials. */
-	resolve(selection: AiSelection): ResolvedModel;
+	resolve(selection: AiSelection): Promise<ResolvedModel>;
 	/** Defaults from AI_PROVIDER with AI_MODEL and AI_PREPROCESS_MODEL. */
-	envDefaults: AiConfig["envDefaults"];
+	envDefaults: { chat?: AiSelection; preprocess?: AiSelection };
 	maxSteps: number;
 	temperature: number | undefined;
 	/** Reasoning effort for every call; undefined leaves the provider default. */
@@ -64,22 +65,26 @@ export interface AiRuntime {
 type ProviderFactory = (modelId: string) => LanguageModel;
 
 /** Resolves models from configuration. AI is disabled when no provider has credentials. */
-export function createAi(config: AiConfig | undefined): AiRuntime {
-	const credentials = config?.credentials ?? {};
-	// Providers may echo a key in errors, whatever its shape.
-	for (const c of Object.values(credentials)) registerSecret(c.apiKey);
-	const available = AI_PROVIDERS.filter((p) => credentials[p] !== undefined);
+export function createAi(
+	config: AiConfig | undefined,
+	load: () => Promise<
+		Partial<Record<AiProviderName, AiCredentials>>
+	> = async () => ({}),
+): AiRuntime {
 	const promptCache = config?.promptCache ?? true;
 	// Provider factories hold the credentials; models are cheap, so built per call.
-	const factories = new Map<AiProviderName, ProviderFactory>();
+	const factories = new Map<string, ProviderFactory>();
 
-	const resolve = (selection: AiSelection): ResolvedModel => {
+	const resolve = async (selection: AiSelection): Promise<ResolvedModel> => {
+		const credentials = await load();
 		const c = credentials[selection.provider];
 		if (!c) return { ok: false, reason: "unavailable" };
-		let factory = factories.get(selection.provider);
+		registerSecret(c.apiKey);
+		const fingerprint = credentialsFingerprint(selection.provider, c);
+		let factory = factories.get(fingerprint);
 		if (!factory) {
 			factory = buildFactory(selection.provider, c);
-			factories.set(selection.provider, factory);
+			factories.set(fingerprint, factory);
 		}
 		return {
 			ok: true,
@@ -90,9 +95,12 @@ export function createAi(config: AiConfig | undefined): AiRuntime {
 	};
 
 	return {
-		available: () => [...available],
+		available: async () => {
+			const credentials = await load();
+			return AI_PROVIDERS.filter((p) => credentials[p] !== undefined);
+		},
 		resolve,
-		envDefaults: config?.envDefaults ?? {},
+		envDefaults: {},
 		maxSteps: config?.maxSteps ?? 8,
 		temperature: config?.temperature,
 		reasoning: config?.effort,

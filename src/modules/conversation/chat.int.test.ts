@@ -82,8 +82,13 @@ function runtime(
 ): AiRuntime {
 	const chat = { provider: "openai", model: "mock-1" } as const;
 	return {
-		available: () => ["openai"],
-		resolve: (selection) => ({ ok: true, model, providerOptions, selection }),
+		available: async () => ["openai"],
+		resolve: async (selection) => ({
+			ok: true,
+			model,
+			providerOptions,
+			selection,
+		}),
 		envDefaults: { chat },
 		maxSteps,
 		temperature: undefined,
@@ -643,8 +648,8 @@ describe("request prefix", () => {
 		const after = scripted(textReply("Third answer."));
 		const ai: AiRuntime = {
 			...runtime(before),
-			available: () => ["openai", "anthropic"],
-			resolve: (selection) => ({
+			available: async () => ["openai", "anthropic"],
+			resolve: async (selection) => ({
 				ok: true,
 				model: selection.provider === "anthropic" ? after : before,
 				providerOptions: {},

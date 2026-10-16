@@ -33,8 +33,7 @@ export async function enqueueAutoPreprocess(
 	},
 	editionId: string,
 ): Promise<boolean> {
-	if (!deps.config.preprocessAuto || deps.ai.available().length === 0)
-		return false;
+	if (!deps.config.preprocessAuto) return false;
 	const chosen = await choosePreprocessModel(deps.db, deps.ai);
 	if (chosen.status !== "ok") {
 		// Provider and model ids only; never credentials.
@@ -104,7 +103,7 @@ export function jobHandlers(): JobHandlers {
 			if (!selection)
 				throw new NonRetryableError("No preprocessing model is set.");
 			// No fallback: an unavailable model fails the run without retry.
-			const resolved = ai.resolve(selection);
+			const resolved = await ai.resolve(selection);
 			const ok = resolved.ok ? resolved : undefined;
 			await preprocessEdition(
 				{

@@ -61,8 +61,8 @@ function modelWith(
 const enabled = (model: MockLanguageModelV4): AiRuntime => {
 	const chat = { provider: "openai", model: "mock" } as const;
 	return {
-		available: () => ["openai"],
-		resolve: (selection) => ({
+		available: async () => ["openai"],
+		resolve: async (selection) => ({
 			ok: true,
 			model,
 			providerOptions: {},
@@ -127,7 +127,7 @@ describe("POST /api/chat", () => {
 		});
 		const ai: AiRuntime = {
 			...enabled(model),
-			resolve: () => ({ ok: false, reason: "unavailable" }),
+			resolve: async () => ({ ok: false, reason: "unavailable" }),
 		};
 		const res = await chat(ai, post({ conversationId: id, message: "hi" }));
 		expect(res.status).toBe(503);

@@ -49,7 +49,8 @@ export const startPreprocessFn = createServerFn({ method: "POST" })
 	)
 	.handler(async ({ data }) => {
 		const { db, ai, enqueue, pendingJobDetail } = appContext();
-		if (ai.available().length === 0) throw new Error("AI is not configured.");
+		if ((await ai.available()).length === 0)
+			throw new Error("AI is not configured.");
 		const edition = await getEditionDetail(db, data.editionId);
 		if (!edition || edition.status !== "ready")
 			throw new Error("The book is not ready.");

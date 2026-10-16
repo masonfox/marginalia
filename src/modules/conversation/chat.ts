@@ -112,7 +112,7 @@ export async function startChat(
 	input: ChatInput,
 ): Promise<ChatStart> {
 	const { db, ai } = deps;
-	if (ai.available().length === 0) return { status: "disabled" };
+	if ((await ai.available()).length === 0) return { status: "disabled" };
 	const conversation = await getConversation(db, input.conversationId);
 	if (!conversation) return { status: "not_found" };
 	// Resolved per turn, before anything is stored: the conversation's own
@@ -120,7 +120,7 @@ export async function startChat(
 	const selection =
 		conversation.model ?? (await getAiDefaults(db, ai)).chat.selection;
 	if (!selection) return { status: "disabled" };
-	const resolved = ai.resolve(selection);
+	const resolved = await ai.resolve(selection);
 	if (!resolved.ok) return { status: "model_unavailable", selection };
 	if (input.replyContext && input.passageRef)
 		return { status: "invalid_context" };
@@ -190,7 +190,7 @@ export async function setConversationModel(
 ): Promise<SetModelResult> {
 	let selection: AiSelection | null = null;
 	if (input !== null) {
-		const checked = checkSelection(deps.ai, input);
+		const checked = await checkSelection(deps.ai, input);
 		if (checked.status !== "ok") return checked;
 		selection = checked.selection;
 	}

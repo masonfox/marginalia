@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { listModels, type ModelList } from "#/modules/ai";
 import {
+	loadCredentials,
 	resetChatDefault,
 	resetPreprocessDefault,
 	type SaveResult,
@@ -26,8 +27,10 @@ export const listModelsFn = createServerFn({ method: "GET" })
 		}),
 	)
 	.handler(async ({ data }): Promise<ModelList> => {
-		const { config } = appContext();
-		const credentials = config.ai?.credentials[data.provider];
+		const { config, db } = appContext();
+		const credentials = (await loadCredentials(db, config.secretKey))[
+			data.provider
+		];
 		if (!credentials)
 			return { models: [], error: "This provider is not configured." };
 		const table = priceTable(config.ai?.prices);

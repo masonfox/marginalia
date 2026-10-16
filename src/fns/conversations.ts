@@ -63,9 +63,12 @@ export const createConversationFn = createServerFn({ method: "POST" })
 			selection: selectionSchema.optional(),
 		}),
 	)
-	.handler(({ data }) => {
+	.handler(async ({ data }) => {
 		const { db, ai } = appContext();
-		if (data.selection && !ai.available().includes(data.selection.provider))
+		if (
+			data.selection &&
+			!(await ai.available()).includes(data.selection.provider)
+		)
 			return { error: "model_unavailable" as const };
 		return createConversationForEdition(
 			db,

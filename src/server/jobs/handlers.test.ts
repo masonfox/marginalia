@@ -10,7 +10,7 @@ const run = (auto: boolean, enabled: boolean) => {
 			db: {} as never,
 			config: { preprocessAuto: auto },
 			ai: {
-				available: () => (enabled ? ["openai"] : []),
+				available: async () => (enabled ? ["openai"] : []),
 				envDefaults: { chat: { provider: "openai", model: "m" } },
 			},
 			enqueue,

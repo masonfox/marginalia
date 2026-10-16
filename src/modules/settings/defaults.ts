@@ -49,7 +49,7 @@ export async function getAiDefaults(
 	ai: AiSource,
 ): Promise<AiDefaults> {
 	const [row] = await db.select().from(aiSettings).where(eq(aiSettings.id, 1));
-	const available = ai.available();
+	const available = await ai.available();
 	const withAvailability = (
 		selection: AiSelection | null,
 		source: DefaultSource,
@@ -98,7 +98,7 @@ export async function getAiStatus(
 	db: Executor,
 	ai: AiSource,
 ): Promise<AiStatus> {
-	const providers = ai.available();
+	const providers = await ai.available();
 	return {
 		enabled: providers.length > 0,
 		providers,
@@ -112,7 +112,7 @@ export async function saveChatDefault(
 	ai: AiSource,
 	input: unknown,
 ): Promise<SaveResult> {
-	const checked = checkSelection(ai, input);
+	const checked = await checkSelection(ai, input);
 	if (checked.status !== "ok") return checked;
 	await upsert(db, {
 		chatProvider: checked.selection.provider,
@@ -135,7 +135,7 @@ export async function savePreprocessDefault(
 		});
 		return { status: "ok", selection: null };
 	}
-	const checked = checkSelection(ai, input);
+	const checked = await checkSelection(ai, input);
 	if (checked.status !== "ok") return checked;
 	await upsert(db, {
 		preprocessMode: "model",
@@ -160,19 +160,20 @@ export async function resetPreprocessDefault(db: Executor): Promise<void> {
 }
 
 /** Validates a selection and requires its provider to have credentials. */
-export function checkSelection(
+export async function checkSelection(
 	ai: AiSource,
 	input: unknown,
-):
+): Promise<
 	| { status: "ok"; selection: AiSelection }
-	| Exclude<SaveResult, { status: "ok" }> {
+	| Exclude<SaveResult, { status: "ok" }>
+> {
 	const parsed = selectionSchema.safeParse(input);
 	if (!parsed.success)
 		return {
 			status: "invalid",
 			message: parsed.error.issues[0]?.message ?? "Invalid model selection.",
 		};
-	if (!ai.available().includes(parsed.data.provider))
+	if (!(await ai.available()).includes(parsed.data.provider))
 		return { status: "unavailable", provider: parsed.data.provider };
 	return { status: "ok", selection: parsed.data };
 }

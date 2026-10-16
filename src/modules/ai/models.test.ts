@@ -45,6 +45,30 @@ afterEach(() => {
 });
 
 describe("listModels", () => {
+	it("never reuses a listing across key or base URL changes", async () => {
+		const calls = stubFetch(
+			json({ data: [{ id: "first" }] }),
+			json({ data: [{ id: "second" }] }),
+			json({ data: [{ id: "third" }] }),
+		);
+		expect((await listModels("openai", key("first-key"))).models[0]?.id).toBe(
+			"first",
+		);
+		expect((await listModels("openai", key("first-key"))).models[0]?.id).toBe(
+			"first",
+		);
+		expect((await listModels("openai", key("second-key"))).models[0]?.id).toBe(
+			"second",
+		);
+		expect(
+			(await listModels("openai", key("second-key", "https://proxy.test/v1")))
+				.models[0]?.id,
+		).toBe("third");
+		expect(calls).toHaveLength(3);
+		clearModelListCache("openai");
+		await listModels("openai", key("second-key", "https://proxy.test/v1"));
+		expect(calls).toHaveLength(4);
+	});
 	it("lists OpenAI models with the key and known prices", async () => {
 		const calls = stubFetch(
 			json({ data: [{ id: "gpt-x" }, { id: "claude-haiku-4-5-20251001" }] }),
