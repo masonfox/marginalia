@@ -4,10 +4,13 @@ import { listModels, type ModelList } from "#/modules/ai";
 import {
 	clearChatDefault,
 	clearPreprocessDefault,
+	listProviderCredentials,
 	loadCredentials,
+	removeProviderCredentials,
 	type SaveResult,
 	saveChatDefault,
 	savePreprocessDefault,
+	saveProviderCredentials,
 } from "#/modules/settings";
 import { priceFor, priceTable } from "#/modules/usage";
 import { AI_PROVIDERS } from "#/server/config";
@@ -89,3 +92,23 @@ function saveOutcome(result: SaveResult): { error: string | null } {
 			};
 	}
 }
+
+/** All server functions pass through handleRequest's instance access guard. */
+export const listProviderCredentialsFn = createServerFn({
+	method: "GET",
+}).handler(async () => {
+	const { db, config } = appContext();
+	return listProviderCredentials(db, config.secretKey);
+});
+export const saveProviderCredentialsFn = createServerFn({ method: "POST" })
+	.validator((input: unknown) => input)
+	.handler(async ({ data }) => {
+		const { db, config } = appContext();
+		return saveProviderCredentials(db, config.secretKey, data);
+	});
+export const removeProviderCredentialsFn = createServerFn({ method: "POST" })
+	.validator(z.object({ provider: z.enum(AI_PROVIDERS) }))
+	.handler(async ({ data }) => {
+		await removeProviderCredentials(appContext().db, data.provider);
+		return { status: "ok" as const };
+	});
