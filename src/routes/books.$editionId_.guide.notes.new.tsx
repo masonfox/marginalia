@@ -59,7 +59,7 @@ function NewNoteView() {
 				{excerpt
 					? `Saved from a conversation and written as of ${excerpt.anchorLabel ?? "the end of the book"}, the conversation's scope, unless you choose otherwise. Nothing is saved until you save the note.`
 					: anchor
-						? `Written as of ${anchor.label ?? "the end of the book"} unless you choose otherwise: your reading position.`
+						? `Written as of ${anchor.choice.kind === "passage" ? `your place in ${anchor.label ?? "the book"}` : (anchor.label ?? "the end of the book")} unless you choose otherwise: your reading position.`
 						: "No reading position is set, so choose how far into the book this note is written as of."}
 			</p>
 			<NoteEditor

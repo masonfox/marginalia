@@ -11,6 +11,7 @@ import { getReadingUnits, ingestEdition, passages } from "#/modules/catalog";
 import { PARSER_VERSION, parseEpub } from "#/modules/epub";
 import {
 	createNote,
+	defaultNoteAnchor,
 	END_OF_BOOK_POSITION,
 	getCorrectionReview,
 	getMergedObservations,
@@ -186,6 +187,131 @@ describe("reparse keeps the reading position", () => {
 		// Still the end of the same, now current, unit.
 		const [, now] = await getReadingUnits(t.db, edition.id);
 		expect(now?.endPosition).toBe(before.maxPosition + 1);
+	});
+
+	/**
+	 * An edition whose older parse split each chapter's second heading into
+	 * a unit of its own, which the current parser folds into the chapter;
+	 * the reading position is set at the end of old unit `at`, then reparsed.
+	 */
+	async function mergedAfterReparse(name: string, at: number) {
+		const bytes = await buildEpub({
+			title: name,
+			chapters: [
+				{
+					href: "ch1.xhtml",
+					title: "Chapter 1",
+					body: "<h2>Chapter 1</h2><p>Alpha.</p><h2>Part B</h2><p>Beta.</p>",
+				},
+				{
+					href: "ch2.xhtml",
+					title: "Chapter 2",
+					body: "<h2>Chapter 2</h2><p>Gamma.</p><h2>Chapter 3</h2><p>Delta.</p>",
+				},
+			],
+		});
+		const { sha256, edition } = await addUploadedBook(
+			t.db,
+			dataDir,
+			bytes,
+			`${name}.epub`,
+		);
+		const old = reshape(await parseEpub(bytes), OLD_VERSION, (ps) => ps);
+		const split = (spineIndex: number, label: string) => {
+			const heading = old.sections[spineIndex]?.passages.find(
+				(x) => x.text === label,
+			);
+			if (!heading) throw new Error(`expected ${label}`);
+			return {
+				label,
+				depth: 0,
+				target: { spineIndex, blockIndex: heading.blockIndex },
+				children: [],
+			};
+		};
+		old.toc = [
+			old.toc[0],
+			split(0, "Part B"),
+			old.toc[1],
+			split(1, "Chapter 3"),
+		].filter((e) => e !== undefined);
+		await ingestEdition(
+			{
+				db: t.db,
+				dataDir,
+				log: silentLog,
+				parse: async () => old,
+				parserVersion: OLD_VERSION,
+			},
+			sha256,
+			{ finalAttempt: true },
+		);
+		const before = await getReadingUnits(t.db, edition.id);
+		expect(before.map((u) => u.label)).toEqual([
+			"Chapter 1",
+			"Part B",
+			"Chapter 2",
+			"Chapter 3",
+		]);
+		const unit = before[at];
+		if (!unit) throw new Error(`no unit ${at}`);
+		await setReadingPosition(t.db, edition.id, {
+			kind: "unit",
+			endPosition: unit.endPosition,
+		});
+		await jobHandlers()["catalog.reparse"]?.({ editionId: edition.id }, ctx);
+		const units = await getReadingUnits(t.db, edition.id);
+		expect(units.map((u) => u.label)).toEqual(["Chapter 1", "Chapter 2"]);
+		const [passage] = await t.db
+			.select({
+				locator: passages.locator,
+				position: passages.revealPosition,
+			})
+			.from(passages)
+			.where(
+				and(
+					eq(passages.editionId, edition.id),
+					eq(passages.position, unit.endPosition),
+				),
+			);
+		if (!passage) throw new Error("expected the bound's passage");
+		return { editionId: edition.id, units, passage };
+	}
+
+	it("defaults a new note to the passage at a position a merge left inside a unit", async () => {
+		const { editionId, units, passage } = await mergedAfterReparse(
+			"reparse-default-anchor",
+			2,
+		);
+		const [first, second] = units as [(typeof units)[0], (typeof units)[0]];
+		expect(await defaultNoteAnchor(t.db, editionId)).toEqual({
+			choice: { kind: "passage", locator: passage.locator },
+			label: "Chapter 2",
+		});
+		const made = await createNote(t.db, editionId, { title: "Here", body: "" });
+		if (!made.ok) throw new Error(made.reason);
+		expect(made.note.asOf).toEqual({
+			kind: "passage",
+			locator: passage.locator,
+			position: passage.position,
+			label: "Chapter 2",
+		});
+		// Not moved back to Chapter 1's end, so not shown there.
+		expect(await listNotes(t.db, editionId, first.endPosition)).toEqual([]);
+		expect(await listNotes(t.db, editionId, second.endPosition)).toHaveLength(
+			1,
+		);
+	});
+
+	it("defaults to the preserved position when no unit ends before it", async () => {
+		const { editionId, passage } = await mergedAfterReparse(
+			"reparse-default-anchor-first",
+			0,
+		);
+		expect(await defaultNoteAnchor(t.db, editionId)).toEqual({
+			choice: { kind: "passage", locator: passage.locator },
+			label: "Chapter 1",
+		});
 	});
 });
 

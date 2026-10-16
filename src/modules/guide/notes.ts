@@ -193,10 +193,10 @@ const unitHolding = (units: ReadingUnit[], position: number) =>
 /**
  * The anchor a new note defaults to (reader-notes "As of" anchor): the
  * reading position's unit, or the end of the book when the position is
- * finished. A position that no longer ends a current unit falls back to the
- * last unit ending before it, so the default never reaches past the
- * position. Null when the position is unset or precedes every unit: the
- * reader must choose.
+ * finished. A position a reparse left inside a current unit is kept, as the
+ * passage at it (the last one at or before it), rather than moved back to
+ * an earlier unit's end. Null when the position is unset or precedes every
+ * passage: the reader must choose.
  */
 export async function defaultNoteAnchor(
 	db: Executor,
@@ -208,13 +208,29 @@ export async function defaultNoteAnchor(
 	if (position.kind === "finished")
 		return { choice: { kind: "end" }, label: null };
 	const { units } = anchors ?? (await getUnitAnchors(db, editionId));
-	const unit = units
-		.filter((u) => u.endPosition <= position.maxPosition)
-		.at(-1);
-	if (!unit) return null;
+	const unit = units.find((u) => u.endPosition === position.maxPosition);
+	if (unit)
+		return {
+			choice: { kind: "unit", endPosition: unit.endPosition },
+			label: unit.label,
+		};
+	const [passage] = await db
+		.select({ locator: passages.locator, position: passages.position })
+		.from(passages)
+		.where(
+			and(
+				eq(passages.editionId, editionId),
+				lte(passages.position, position.maxPosition),
+			),
+		)
+		.orderBy(desc(passages.position))
+		.limit(1);
+	if (!passage) return null;
 	return {
-		choice: { kind: "unit", endPosition: unit.endPosition },
-		label: unit.label,
+		choice: { kind: "passage", locator: passage.locator },
+		label:
+			unitHolding(units, passage.position ?? position.maxPosition)?.label ??
+			null,
 	};
 }
 
