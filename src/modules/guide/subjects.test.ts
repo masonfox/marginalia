@@ -3,6 +3,7 @@ import {
 	type AliasLink,
 	type Appearance,
 	buildResolution,
+	compareKeys,
 	dismissalKey,
 	MAX_PROPOSALS,
 	type ProposalName,
@@ -275,5 +276,172 @@ describe("proposeMerges", () => {
 		expect(first).toHaveLength(MAX_PROPOSALS);
 		expect(propose([...names].reverse())).toEqual(first);
 		expect(first[0]?.alias.key).toBe("name00");
+	});
+});
+
+/** The pairwise scan proposeMerges replaced, kept to check it gives the same proposals. */
+function pairwiseProposals(input: Parameters<typeof proposeMerges>[0]) {
+	const { resolution, appearances, dismissed } = input;
+	const subjectOf = new Map(input.links.map((l) => [l.nameKey, l.subjectId]));
+	const candidates = input.names.flatMap((n) => {
+		const at = appearances.get(n.key);
+		const tokens = significantTokens(n.key);
+		return at && tokens.size > 0 ? [{ ...n, seen: at, tokens }] : [];
+	});
+	type Candidate = (typeof candidates)[number];
+	const side = (c: Candidate) => ({
+		ref: resolution.refOf(c.key),
+		key: c.key,
+		name: c.seen.name,
+	});
+	const contains = (outer: Candidate, inner: Candidate) =>
+		[...inner.tokens].every((t) => outer.tokens.has(t));
+	const proposals: ReturnType<typeof proposeMerges> = [];
+	for (const [i, a] of candidates.entries()) {
+		for (const b of candidates.slice(i + 1)) {
+			if (a.kind !== b.kind) continue;
+			const linked = subjectOf.get(a.key);
+			if (linked !== undefined && linked === subjectOf.get(b.key)) continue;
+			if (resolution.refOf(a.key) === resolution.refOf(b.key)) continue;
+			if (dismissed.has(dismissalKey(a.key, b.key).join("\n"))) continue;
+			if (!contains(a, b) && !contains(b, a)) continue;
+			const [p, q] =
+				b.tokens.size > a.tokens.size ||
+				(b.tokens.size === a.tokens.size &&
+					(b.key.length > a.key.length ||
+						(b.key.length === a.key.length && b.key < a.key)))
+					? [b, a]
+					: [a, b];
+			const later = a.seen.position >= b.seen.position ? a.seen : b.seen;
+			proposals.push({
+				primary: side(p),
+				alias: side(q),
+				kind: a.kind,
+				reveal: { endPosition: later.position, unitLabel: later.unitLabel },
+			});
+		}
+	}
+	return proposals
+		.sort(
+			(x, y) =>
+				x.reveal.endPosition - y.reveal.endPosition ||
+				compareKeys(x.primary.key, y.primary.key) ||
+				compareKeys(x.alias.key, y.alias.key),
+		)
+		.slice(0, MAX_PROPOSALS);
+}
+
+/** A small seeded generator (mulberry32), so a failure reproduces. */
+function seeded(seed: number) {
+	let s = seed >>> 0;
+	const next = () => {
+		s = (s + 0x6d2b79f5) >>> 0;
+		let t = s;
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+	return {
+		int: (n: number) => Math.floor(next() * n),
+		pick: <T>(xs: readonly T[]) => xs[Math.floor(next() * xs.length)] as T,
+		chance: (p: number) => next() < p,
+	};
+}
+
+const WORDS = [
+	"anna",
+	"brawne",
+	"lamia",
+	"kassad",
+	"sol",
+	"weintraub",
+	"martin",
+	"silenus",
+	"the",
+	"von",
+	"al",
+	"shrike",
+] as const;
+
+/** A random proposal input: names of a few words, some linked, some dismissed. */
+function randomInput(seed: number): Parameters<typeof proposeMerges>[0] {
+	const r = seeded(seed);
+	const count = r.int(140);
+	const names: ProposalName[] = [];
+	const appearances = new Map<string, Appearance>();
+	for (let n = 0; n < count; n++) {
+		const words = Array.from({ length: 1 + r.int(3) }, () => r.pick(WORDS));
+		const key = words.join(" ");
+		names.push({ key, kind: r.chance(0.8) ? "character" : "place" });
+		if (!appearances.has(key) && r.chance(0.95))
+			appearances.set(key, seen(key, 1 + r.int(8)));
+	}
+	const keys = [...new Set(names.map((n) => n.key))];
+	const subjects: SubjectRecord[] = [];
+	const links: AliasLink[] = [];
+	for (let k = 0; k < keys.length; ) {
+		const size = r.chance(0.7) ? 0 : 1 + r.int(3);
+		if (size > 0) {
+			const id = subjects.length + 1;
+			subjects.push({ id, displayKey: null, kind: null });
+			for (const [m, key] of keys.slice(k, k + size).entries())
+				links.push(m === 0 ? primary(key, id) : alias(key, id, 1 + r.int(8)));
+		}
+		k += Math.max(size, 1);
+	}
+	const dismissed = new Set<string>();
+	for (let d = r.int(20); d > 0; d--)
+		dismissed.add(dismissalKey(r.pick(keys), r.pick(keys)).join("\n"));
+	return {
+		names,
+		resolution: buildResolution({
+			subjects,
+			links,
+			appearances,
+			bound: r.chance(0.3) ? null : 1 + r.int(8),
+		}),
+		appearances,
+		links,
+		dismissed,
+	};
+}
+
+describe("proposeMerges at scale", () => {
+	it("gives the pairwise scan's proposals on random inputs", () => {
+		for (let seed = 1; seed <= 300; seed++) {
+			const input = randomInput(seed);
+			expect(proposeMerges(input), `seed ${seed}`).toEqual(
+				pairwiseProposals(input),
+			);
+		}
+	});
+
+	it("keeps a large index fast", () => {
+		// 20,000 names, mostly a given name with one of 2,000 family names.
+		const names: ProposalName[] = [];
+		const appearances = new Map<string, Appearance>();
+		for (let i = 0; i < 20000; i++) {
+			const key =
+				i % 10 === 0 ? `family${i / 10}` : `given${i} family${i % 2000}`;
+			names.push({ key, kind: "character" });
+			appearances.set(key, seen(key, 1 + (i % 400)));
+		}
+		const input = {
+			names,
+			resolution: buildResolution({
+				subjects: [],
+				links: [],
+				appearances,
+				bound: null,
+			}),
+			appearances,
+			links: [],
+			dismissed: new Set<string>(),
+		};
+		const started = performance.now();
+		const proposals = proposeMerges(input);
+		// Generous: the pairwise scan compares some 200 million pairs here.
+		expect(performance.now() - started).toBeLessThan(5000);
+		expect(proposals).toHaveLength(MAX_PROPOSALS);
 	});
 });

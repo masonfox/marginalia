@@ -260,6 +260,11 @@ export const dismissalKey = (a: string, b: string): [string, string] =>
  * Pairs already linked to one subject (revealed or not) and dismissed pairs
  * are left out. Deterministic: ordered by the later first appearance, then
  * by keys, and capped at MAX_PROPOSALS.
+ *
+ * A pair is only considered through an index of each kind's words: the
+ * contained name's rarest word must be among the fuller name's. Only the
+ * best MAX_PROPOSALS are kept while scanning, so a word shared by many names
+ * costs comparisons but not memory.
  */
 export function proposeMerges(input: {
 	names: ProposalName[];
@@ -282,18 +287,63 @@ export function proposeMerges(input: {
 		key: c.key,
 		name: c.seen.name,
 	});
-	const contains = (outer: Candidate, inner: Candidate) =>
-		[...inner.tokens].every((t) => outer.tokens.has(t));
+	const contains = (outer: Candidate, inner: Candidate) => {
+		for (const t of inner.tokens) if (!outer.tokens.has(t)) return false;
+		return true;
+	};
 
-	const proposals: MergeProposal[] = [];
-	for (const [i, a] of candidates.entries()) {
-		for (const b of candidates.slice(i + 1)) {
-			if (a.kind !== b.kind) continue;
+	// The candidates holding each word, per kind, in input order.
+	const holders = new Map<string, number[]>();
+	const wordOf = (kind: string, token: string) => `${kind}\n${token}`;
+	for (const [i, c] of candidates.entries())
+		for (const t of c.tokens) {
+			const word = wordOf(c.kind, t);
+			const list = holders.get(word);
+			if (list) list.push(i);
+			else holders.set(word, [i]);
+		}
+
+	// `i` and `j` are the pair's input order, which breaks ties as the
+	// pairwise scan this replaces did.
+	type Found = MergeProposal & { i: number; j: number };
+	const order = (x: Found, y: Found) =>
+		x.reveal.endPosition - y.reveal.endPosition ||
+		compareKeys(x.primary.key, y.primary.key) ||
+		compareKeys(x.alias.key, y.alias.key) ||
+		x.i - y.i ||
+		x.j - y.j;
+	let found: Found[] = [];
+	// A pair revealed later than this could never be kept.
+	let cutoff = Number.POSITIVE_INFINITY;
+	const keep = () => {
+		found.sort(order);
+		found = found.slice(0, MAX_PROPOSALS);
+		const worst = found[MAX_PROPOSALS - 1];
+		if (worst) cutoff = worst.reveal.endPosition;
+	};
+
+	for (const [n, inner] of candidates.entries()) {
+		// Every name containing `inner` holds its rarest word.
+		let rarest: number[] = [];
+		for (const t of inner.tokens) {
+			const list = holders.get(wordOf(inner.kind, t)) ?? [];
+			if (rarest.length === 0 || list.length < rarest.length) rarest = list;
+		}
+		for (const m of rarest) {
+			if (m === n) continue;
+			const outer = candidates[m] as Candidate;
+			if (!contains(outer, inner)) continue;
+			// Names with the same words contain each other: take the pair once.
+			if (m < n && contains(inner, outer)) continue;
+			const [i, j] = n < m ? [n, m] : [m, n];
+			const a = candidates[i] as Candidate;
+			const b = candidates[j] as Candidate;
+			const later = a.seen.position >= b.seen.position ? a.seen : b.seen;
+			if (later.position > cutoff) continue;
 			const linked = subjectOf.get(a.key);
 			if (linked !== undefined && linked === subjectOf.get(b.key)) continue;
 			if (resolution.refOf(a.key) === resolution.refOf(b.key)) continue;
 			if (dismissed.has(dismissalKey(a.key, b.key).join("\n"))) continue;
-			if (!contains(a, b) && !contains(b, a)) continue;
 			// The fuller name is kept; ties go to the longer, then the earlier key.
 			const [primary, alias] =
 				b.tokens.size > a.tokens.size ||
@@ -302,21 +352,17 @@ export function proposeMerges(input: {
 						(b.key.length === a.key.length && b.key < a.key)))
 					? [b, a]
 					: [a, b];
-			const later = a.seen.position >= b.seen.position ? a.seen : b.seen;
-			proposals.push({
+			found.push({
 				primary: side(primary),
 				alias: side(alias),
 				kind: a.kind,
 				reveal: { endPosition: later.position, unitLabel: later.unitLabel },
+				i,
+				j,
 			});
+			if (found.length >= 2 * MAX_PROPOSALS) keep();
 		}
 	}
-	return proposals
-		.sort(
-			(x, y) =>
-				x.reveal.endPosition - y.reveal.endPosition ||
-				compareKeys(x.primary.key, y.primary.key) ||
-				compareKeys(x.alias.key, y.alias.key),
-		)
-		.slice(0, MAX_PROPOSALS);
+	keep();
+	return found.map(({ i: _i, j: _j, ...proposal }) => proposal);
 }
