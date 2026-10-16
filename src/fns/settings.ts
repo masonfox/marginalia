@@ -66,14 +66,14 @@ export const savePreprocessDefaultFn = createServerFn({ method: "POST" })
 		return saveOutcome(await savePreprocessDefault(db, ai, data.selection));
 	});
 
-/** Removes the saved chat default, so the environment's applies again. */
+/** Removes the saved chat default, returning to the initial default. */
 export const clearChatDefaultFn = createServerFn({ method: "POST" }).handler(
 	async () => {
 		await clearChatDefault(appContext().db);
 	},
 );
 
-/** Removes the saved preprocessing default, so the environment's applies again. */
+/** Removes the saved preprocessing default, returning to the initial default. */
 export const clearPreprocessDefaultFn = createServerFn({
 	method: "POST",
 }).handler(async () => {
@@ -88,7 +88,7 @@ function saveOutcome(result: SaveResult): { error: string | null } {
 			return { error: result.message };
 		case "unavailable":
 			return {
-				error: `The provider ${result.provider} is not configured. Add its credentials to the environment first.`,
+				error: `The provider ${result.provider} is not configured. Add its credentials in Settings first.`,
 			};
 	}
 }

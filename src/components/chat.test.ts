@@ -122,7 +122,6 @@ describe("modelInEffect", () => {
 		providers,
 		chat: {
 			selection: chat,
-			source: chat ? ("settings" as const) : ("none" as const),
 			available: chat !== null && providers.includes(chat.provider),
 		},
 	});
@@ -168,19 +167,13 @@ describe("AiSetupNotice", () => {
 			}),
 		);
 
-	it("without a provider, points to the environment variables", () => {
+	it("without a provider, points to Settings", () => {
 		const html = notice({ status: "disabled" });
 		expect(html).toContain("AI is not configured");
-		for (const v of [
-			"AI_ANTHROPIC_API_KEY",
-			"AI_OPENAI_API_KEY",
-			"AI_GOOGLE_API_KEY",
-			"AI_OPENAI_COMPATIBLE_BASE_URL",
-			"AI_PROVIDER",
-		])
-			expect(html).toContain(`<code>${v}</code>`);
-		expect(html).toContain("restart");
-		expect(html).not.toContain('href="/settings"');
+		expect(html).toContain('href="/settings"');
+		expect(html).toContain("Add a provider");
+		expect(html).not.toContain("AI_API_KEY");
+		expect(html).not.toContain("restart");
 	});
 	it("with providers but no chat default, points to Settings", () => {
 		const html = notice({ status: "no_default" });

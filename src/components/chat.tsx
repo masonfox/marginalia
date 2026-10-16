@@ -492,14 +492,6 @@ export function SourcesList({ sources }: { sources: VerifiedCitation[] }) {
 	);
 }
 
-/** Credential variables, one per provider; `AI_PROVIDER` with `AI_API_KEY` works for one. */
-export const AI_CREDENTIAL_VARS = [
-	"AI_ANTHROPIC_API_KEY",
-	"AI_OPENAI_API_KEY",
-	"AI_GOOGLE_API_KEY",
-	"AI_OPENAI_COMPATIBLE_BASE_URL",
-];
-
 /** What the next reply would use: a model, or why there is none. */
 export type ModelInEffect =
 	| { status: "ok" | "unavailable"; selection: AiSelection; own: boolean }
@@ -538,7 +530,7 @@ const settingsLink = (
 
 /**
  * Shown in place of the chat input when no reply can be sent: AI is not
- * configured (the environment), no chat default is set (Settings), or the
+ * configured (Settings), no chat default is set (Settings), or the
  * model in effect is unavailable. `actions` offers another model.
  */
 export function AiSetupNotice({
@@ -554,17 +546,8 @@ export function AiSetupNotice({
 			? [
 					"AI is not configured",
 					<>
-						Set at least one of{" "}
-						{AI_CREDENTIAL_VARS.map((v, i) => (
-							<span key={v}>
-								{i > 0 && ", "}
-								<code>{v}</code>
-							</span>
-						))}{" "}
-						(or <code>AI_PROVIDER</code> with <code>AI_MODEL</code> and{" "}
-						<code>AI_API_KEY</code>) in the server's environment, then restart
-						Marginalia. Reading and search work without it, and earlier messages
-						stay available.
+						Add a provider and choose a chat model in {settingsLink}. Reading
+						and search work without AI, and earlier messages stay available.
 					</>,
 				]
 			: effect.status === "no_default"
