@@ -71,12 +71,19 @@ function AppShell() {
 					>
 						Marginalia
 					</Link>
-					{shell.authEnabled && !onLogin && (
-						<form method="post" action="/logout">
-							<Button type="submit" variant="ghost" size="sm">
-								Log out
+					{!onLogin && (
+						<div className="flex items-center gap-1">
+							<Button asChild variant="ghost" size="sm">
+								<Link to="/settings">Settings</Link>
 							</Button>
-						</form>
+							{shell.authEnabled && (
+								<form method="post" action="/logout">
+									<Button type="submit" variant="ghost" size="sm">
+										Log out
+									</Button>
+								</form>
+							)}
+						</div>
 					)}
 				</div>
 				{!shell.authEnabled && (
