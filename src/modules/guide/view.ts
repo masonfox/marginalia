@@ -421,9 +421,14 @@ export interface GuideNote extends ReaderNote {
 	/**
 	 * The attached subject as it resolves at the bound, or null when the note
 	 * is not attached to one. `name` is null when none of its names has
-	 * appeared within the bound, so it has no timeline there.
+	 * appeared within the bound, so it has no timeline there; at a partial
+	 * bound its key and ref are then withheld too (as is the note's
+	 * `subjectKey`), since they would name a subject not yet seen.
 	 */
-	subject: { key: string; ref: string; name: string | null } | null;
+	subject:
+		| { key: string; ref: string; name: string | null }
+		| { key: null; ref: null; name: null }
+		| null;
 	/** The attached unit, or null when the note is not attached to one. */
 	unit: { locator: string; label: string } | null;
 }
@@ -449,18 +454,22 @@ async function describeNotes(
 				: null;
 		const unit =
 			note.unitLocator !== null ? anchors.unitAt(note.unitLocator) : null;
-		return {
+		const described = {
 			...note,
-			subject:
-				ref !== null && note.subjectKey !== null
-					? {
-							key: note.subjectKey,
-							ref,
-							name: resolution?.nameOf(ref) ?? null,
-						}
-					: null,
 			unit: unit ? { locator: unit.startLocator, label: unit.label } : null,
 		};
+		if (ref === null || note.subjectKey === null)
+			return { ...described, subject: null };
+		const name = resolution?.nameOf(ref) ?? null;
+		// A note can be anchored before its subject first appears: at a
+		// partial bound, withhold everything that would name it.
+		if (bound !== null && name === null)
+			return {
+				...described,
+				subjectKey: null,
+				subject: { key: null, ref: null, name: null },
+			};
+		return { ...described, subject: { key: note.subjectKey, ref, name } };
 	});
 }
 

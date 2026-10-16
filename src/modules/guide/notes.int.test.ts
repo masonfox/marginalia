@@ -540,6 +540,44 @@ describe("attached notes", () => {
 		).toEqual({ key: "brawne", ref: merged.ref, name: "Brawne Lamia" });
 	});
 
+	it("withholds a subject not yet seen from a note anchored before it appears", async () => {
+		const id = await book();
+		await saveUnitResult(t.db, id, result(0, ["Hyperion"]));
+		await saveUnitResult(t.db, id, result(2, ["Moneta"]));
+		const early = await created(
+			id,
+			note("A generic title", {
+				anchor: { kind: "unit", endPosition: u(0).endPosition },
+				attachment: { kind: "subject", ref: "k:moneta" },
+			}),
+		);
+		expect(early.subjectKey).toBe("moneta");
+
+		const listed = await listGuideNotes(t.db, id, through(0));
+		if (!listed.ok) throw new Error(listed.reason);
+		expect(titles(listed.notes)).toEqual(["A generic title"]);
+		expect(listed.notes[0]?.subject).toEqual({
+			key: null,
+			ref: null,
+			name: null,
+		});
+		expect(listed.notes[0]?.subjectKey).toBeNull();
+		expect(JSON.stringify(listed.notes).toLowerCase()).not.toContain("moneta");
+		const one = await getGuideNote(t.db, id, through(1), early.id);
+		if (!one.ok) throw new Error(one.reason);
+		expect(JSON.stringify(one.note).toLowerCase()).not.toContain("moneta");
+
+		// Once the subject has appeared, it is named again.
+		const all = await listGuideNotes(t.db, id, whole);
+		expect(all.ok && all.notes[0]?.subject).toEqual({
+			key: "moneta",
+			ref: "k:moneta",
+			name: "Moneta",
+		});
+		const late = await getGuideNote(t.db, id, through(2), early.id);
+		expect(late.ok && late.note?.subject?.name).toBe("Moneta");
+	});
+
 	it("lists a unit's notes with that unit in Chapters", async () => {
 		const id = await book();
 		const second = await startOf(id, 1);

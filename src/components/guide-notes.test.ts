@@ -3,7 +3,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { GuideNote } from "#/modules/guide";
-import { asOfText, draftOf, NoteBody, newNoteDraft } from "./guide-notes";
+import {
+	Attachment,
+	asOfText,
+	draftOf,
+	NoteBody,
+	newNoteDraft,
+} from "./guide-notes";
 
 const parse = (html: string) =>
 	new DOMParser().parseFromString(html, "text/html");
@@ -123,6 +129,32 @@ describe("note drafts", () => {
 		).toMatchObject({
 			anchor: { kind: "passage", locator: "p" },
 			attachment: { kind: "unit", unitLocator: "u" },
+		});
+	});
+});
+
+describe("Attachment", () => {
+	it("never names a subject that has no name at the bound", () => {
+		for (const subject of [
+			{ key: null, ref: null, name: null },
+			{ key: "moneta", ref: "k:moneta", name: null },
+		] as const)
+			expect(
+				renderToStaticMarkup(
+					createElement(Attachment, {
+						note: note({ subject }),
+						editionId: "e",
+					}),
+				),
+			).toBe("");
+	});
+
+	it("keeps a withheld subject attachment unsent when editing", () => {
+		expect(
+			draftOf(note({ subject: { key: null, ref: null, name: null } })),
+		).toMatchObject({
+			attachment: { kind: "subject", ref: "" },
+			subjectName: "A subject not yet seen",
 		});
 	});
 });

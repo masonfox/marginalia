@@ -113,20 +113,18 @@ export function Attachment({
 	editionId: string;
 }) {
 	if (note.subject) {
+		// No name at the bound: the subject has not appeared, so it is not named.
+		if (note.subject.name === null || note.subject.ref === null) return null;
 		return (
 			<>
 				{" · about "}
-				{note.subject.name ? (
-					<Link
-						to="/books/$editionId/guide/index/$subjectRef"
-						params={{ editionId, subjectRef: note.subject.ref }}
-						className="underline-offset-2 hover:underline"
-					>
-						{note.subject.name}
-					</Link>
-				) : (
-					`“${note.subject.key}”`
-				)}
+				<Link
+					to="/books/$editionId/guide/index/$subjectRef"
+					params={{ editionId, subjectRef: note.subject.ref }}
+					className="underline-offset-2 hover:underline"
+				>
+					{note.subject.name}
+				</Link>
 			</>
 		);
 	}
@@ -240,13 +238,17 @@ export function draftOf(note: GuideNote): NoteDraft {
 				: note.asOf.kind === "unit"
 					? { kind: "unit", endPosition: note.asOf.position as number }
 					: { kind: "passage", locator: note.asOf.locator as string },
+		// A withheld subject keeps an empty ref: left unchanged, the attachment
+		// is not sent, so the stored one is kept.
 		attachment: note.subject
-			? { kind: "subject", ref: note.subject.ref }
+			? { kind: "subject", ref: note.subject.ref ?? "" }
 			: note.unit
 				? { kind: "unit", unitLocator: note.unit.locator }
 				: { kind: "none" },
 		sourceConversationId: note.sourceConversationId,
-		subjectName: note.subject?.name ?? note.subject?.key ?? null,
+		subjectName: note.subject
+			? (note.subject.name ?? note.subject.key ?? "A subject not yet seen")
+			: null,
 	};
 }
 
@@ -368,7 +370,8 @@ function NoteAttachmentPicker({
 	});
 	const listed = subjects.data?.ok ? subjects.data.subjects : [];
 	const chosenRef = value.kind === "subject" ? value.ref : "";
-	const unlisted = chosenRef !== "" && !listed.some((s) => s.ref === chosenRef);
+	const unlisted =
+		value.kind === "subject" && !listed.some((s) => s.ref === chosenRef);
 	const firstUnit = units[0]?.startLocator;
 	return (
 		<fieldset className="grid gap-2" data-testid="note-attachment">
