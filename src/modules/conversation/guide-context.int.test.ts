@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { saveUnitResult } from "#/modules/analysis";
 import { getReadingUnits, type ReadingUnit } from "#/modules/catalog";
-import { saveCorrection } from "#/modules/guide";
+import { mergeSubjects, saveCorrection, splitSubject } from "#/modules/guide";
 import { deleteEdition } from "#/modules/library";
 import { createTestDb, type TestDb } from "../../../test/db";
 import { buildEpub } from "../../../test/epub-builder";
@@ -25,7 +25,10 @@ beforeAll(async () => {
 });
 
 /** A preprocessed book of `count` one-paragraph chapters, with one summary and observation each. */
-async function preprocessedBook(count: number) {
+async function preprocessedBook(
+	count: number,
+	nameAt: (i: number) => string = () => "Keeper",
+) {
 	const e = await ingestBook(
 		t.db,
 		dataDir,
@@ -52,9 +55,9 @@ async function preprocessedBook(count: number) {
 				summaryCitations: [],
 				observations: [
 					{
-						name: "Keeper",
+						name: nameAt(i),
 						kind: "character",
-						note: `Keeper note ${i + 1}.`,
+						note: `${nameAt(i)} note ${i + 1}.`,
 						citations: [],
 					},
 				],
@@ -265,5 +268,72 @@ describe("trail observations", () => {
 			null,
 			null,
 		]);
+	});
+
+	it("resolves each item by its own observed name after a split", async () => {
+		// Strider in units 0 and 2, Aragorn in unit 1; the scope ends at unit 1.
+		const b = await preprocessedBook(3, (i) =>
+			i === 1 ? "Aragorn" : "Strider",
+		);
+		const { id: conversationId } = await createConversation(t.db, {
+			editionIds: [b.id],
+			scopes: {
+				[b.id]: {
+					maxPosition: b.unit(1).endPosition,
+					scopeLabel: b.unit(1).label,
+				},
+			},
+		});
+		const merged = await mergeSubjects(
+			t.db,
+			b.id,
+			{ kind: "whole" },
+			{
+				targetRef: "k:aragorn",
+				sourceRef: "k:strider",
+				reveal: { kind: "unit", endPosition: b.unit(0).endPosition },
+			},
+		);
+		if (!merged.ok) throw new Error(`merge refused: ${merged.reason}`);
+		// A lookup stored for Strider while the names were one subject.
+		const lookup = () =>
+			getTrailObservations(t.db, {
+				conversationId,
+				editionId: b.id,
+				name: "Strider",
+				items: [
+					{ unitLabel: b.unit(0).label, observedAs: "Strider" },
+					{ unitLabel: b.unit(1).label, observedAs: "Aragorn" },
+					// Beyond the scope, and no current row: never matched.
+					{ unitLabel: b.unit(2).label, observedAs: "Strider" },
+					{ unitLabel: b.unit(0).label, observedAs: "Aragorn" },
+				],
+			});
+		const expected = [
+			expect.objectContaining({
+				unitLocator: b.unit(0).startLocator,
+				nameKey: "strider",
+				generated: "Strider note 1.",
+			}),
+			expect.objectContaining({
+				unitLocator: b.unit(1).startLocator,
+				nameKey: "aragorn",
+				generated: "Aragorn note 2.",
+			}),
+			null,
+			null,
+		];
+		expect(await lookup()).toEqual(expected);
+		const split = await splitSubject(
+			t.db,
+			b.id,
+			{ kind: "whole" },
+			{
+				ref: merged.ref,
+				nameKey: "strider",
+			},
+		);
+		expect(split.ok).toBe(true);
+		expect(await lookup()).toEqual(expected);
 	});
 });

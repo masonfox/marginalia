@@ -9,6 +9,7 @@ import {
 	getMergedSummaries,
 	getUnitAnchors,
 	observationText,
+	type ResolvedObservations,
 	resolveObservations,
 	type UnitAnchors,
 } from "#/modules/guide";
@@ -186,15 +187,17 @@ export interface TrailObservation {
 /**
  * The current rows behind the items of a stored observation lookup, matched
  * by unit label and observed name, within the conversation's current scope.
- * An item whose row is no longer current (or whose book is gone) is null, so
- * it offers no correction.
+ * Each item is resolved by its own observed name rather than the looked-up
+ * one, so regrouping names since the lookup does not orphan it. An item whose
+ * row is no longer current (or whose book is gone) is null, so it offers no
+ * correction.
  */
 export async function getTrailObservations(
 	db: Executor,
 	input: {
 		conversationId: string;
 		editionId: string;
-		/** The name the model looked up. */
+		/** The name the model looked up; kept for callers, not used to match. */
 		name: string;
 		items: { unitLabel: string; observedAs: string }[];
 	},
@@ -203,23 +206,33 @@ export async function getTrailObservations(
 	const book = books.find((b) => b.editionId === input.editionId);
 	if (!book) return input.items.map(() => null);
 	const anchors = await getUnitAnchors(db, book.editionId);
-	const found = await resolveObservations(
-		db,
-		book.editionId,
-		input.name,
-		book.maxPosition,
-		anchors,
-		{ includeHidden: true },
-	);
-	const rows = found?.observations ?? [];
-	return input.items.map((item) => {
+	// Each observed name is resolved once, in whatever group it is in now.
+	const rowsByKey = new Map<string, ResolvedObservations["observations"]>();
+	const result: (TrailObservation | null)[] = [];
+	for (const item of input.items) {
 		const key = normalizeNameKey(item.observedAs);
+		let rows = rowsByKey.get(key);
+		if (!rows) {
+			const found = await resolveObservations(
+				db,
+				book.editionId,
+				item.observedAs,
+				book.maxPosition,
+				anchors,
+				{ includeHidden: true },
+			);
+			rows = found?.observations ?? [];
+			rowsByKey.set(key, rows);
+		}
 		const group = rows.filter(
 			(r) => r.unitLabel === item.unitLabel && r.nameKey === key,
 		);
 		const [row] = group;
-		if (!row) return null;
-		return {
+		if (!row) {
+			result.push(null);
+			continue;
+		}
+		result.push({
 			unitLabel: row.unitLabel,
 			unitLocator: row.unitLocator,
 			nameKey: row.nameKey,
@@ -230,6 +243,7 @@ export async function getTrailObservations(
 				text: row.note,
 				citations: row.citations,
 			}),
-		};
-	});
+		});
+	}
+	return result;
 }
