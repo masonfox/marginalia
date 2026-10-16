@@ -2,20 +2,23 @@ import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { AI_CREDENTIAL_VARS } from "#/components/chat";
 import {
 	initialDraft,
 	ModelPicker,
 	PROVIDER_LABELS,
 	selectionLabel,
 } from "#/components/model-picker";
+import { ProviderCredentials } from "#/components/provider-credentials";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn } from "#/fns/conversations";
 import {
 	clearChatDefaultFn,
 	clearPreprocessDefaultFn,
+	listProviderCredentialsFn,
+	removeProviderCredentialsFn,
 	saveChatDefaultFn,
 	savePreprocessDefaultFn,
+	saveProviderCredentialsFn,
 } from "#/fns/settings";
 import type { AiDefault } from "#/modules/settings";
 import type { AiProviderName } from "#/server/config";
@@ -25,24 +28,65 @@ const statusQuery = queryOptions({
 	queryFn: () => getAiStatusFn(),
 });
 
+const credentialsQuery = queryOptions({
+	queryKey: ["provider-credentials"],
+	queryFn: () => listProviderCredentialsFn(),
+});
 export const Route = createFileRoute("/settings")({
-	loader: ({ context }) => context.queryClient.ensureQueryData(statusQuery),
+	loader: async ({ context }) => {
+		await Promise.all([
+			context.queryClient.ensureQueryData(statusQuery),
+			context.queryClient.ensureQueryData(credentialsQuery),
+		]);
+	},
 	head: () => ({ meta: [{ title: "Settings · Marginalia" }] }),
 	component: SettingsPage,
 });
 
 function SettingsPage() {
 	const { data: status } = useQuery(statusQuery);
+	const { data: credentials } = useQuery(credentialsQuery);
+	const queryClient = useQueryClient();
+	const save = useServerFn(saveProviderCredentialsFn),
+		remove = useServerFn(removeProviderCredentialsFn);
+	const reload = async () => {
+		await Promise.all([
+			queryClient.invalidateQueries({ queryKey: statusQuery.queryKey }),
+			queryClient.invalidateQueries({ queryKey: credentialsQuery.queryKey }),
+			queryClient.invalidateQueries({ queryKey: ["models"] }),
+		]);
+	};
 	if (!status) return null;
 	return (
 		<main className="mx-auto max-w-3xl px-4 py-8">
 			<h1 className="font-serif text-3xl font-semibold">Settings</h1>
+			<section aria-label="Providers" className="mt-6 space-y-3">
+				<h2 className="text-lg font-medium">Providers</h2>
+				<p className="text-sm text-muted-foreground">
+					Add a provider to make its models available. Keys are encrypted and
+					never shown again.
+				</p>
+				{credentials?.map((value) => (
+					<ProviderCredentials
+						key={value.provider}
+						value={value}
+						onSave={async (draft) => {
+							const result = await save({ data: draft });
+							if (result.status === "ok") await reload();
+							return result;
+						}}
+						onRemove={async (provider) => {
+							await remove({ data: { provider } });
+							await reload();
+						}}
+					/>
+				))}
+			</section>
 			{status.enabled ? (
 				<>
 					<p className="mt-1 text-sm text-muted-foreground">
 						Available providers:{" "}
-						{status.providers.map((p) => PROVIDER_LABELS[p]).join(", ")}. API
-						keys and endpoints are set in the environment.
+						{status.providers.map((p) => PROVIDER_LABELS[p]).join(", ")}.
 					</p>
 					<ChatDefaultCard providers={status.providers} value={status.chat} />
 					<PreprocessDefaultCard
@@ -54,17 +98,7 @@ function SettingsPage() {
 				<section className="mt-6 rounded-lg border border-dashed p-6 text-sm">
 					<h2 className="font-medium">No AI provider is configured</h2>
 					<p className="mt-2 text-muted-foreground">
-						Providers are configured through environment variables, not here.
-						Set at least one of{" "}
-						{AI_CREDENTIAL_VARS.map((v, i) => (
-							<span key={v}>
-								{i > 0 && ", "}
-								<code className="text-xs">{v}</code>
-							</span>
-						))}
-						, or <code className="text-xs">AI_PROVIDER</code> with{" "}
-						<code className="text-xs">AI_API_KEY</code>, then restart
-						Marginalia. The default models can then be chosen on this page.
+						Add a provider above, then choose default models here.
 					</p>
 				</section>
 			)}
@@ -72,7 +106,7 @@ function SettingsPage() {
 	);
 }
 
-/** Saving and resetting one default, then reloading the status. */
+/** Saving and clearing one default, then reloading the status. */
 function useDefaultActions() {
 	const queryClient = useQueryClient();
 	const [busy, setBusy] = useState(false);
