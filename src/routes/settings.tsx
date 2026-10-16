@@ -21,7 +21,7 @@ import {
 	saveProviderCredentialsFn,
 } from "#/fns/settings";
 import type { AiDefault } from "#/modules/settings";
-import type { AiProviderName } from "#/server/config";
+import type { AiProviderName, AiSelection } from "#/server/config";
 
 const statusQuery = queryOptions({
 	queryKey: ["ai-status"],
@@ -112,22 +112,37 @@ function useDefaultActions() {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	// Saves report a refusal as `{ error }`; resets return nothing.
+	// Resolves whether the change was made.
 	const run = async (
 		action: () => Promise<{ error: string | null } | null>,
-	) => {
+	): Promise<boolean> => {
 		setBusy(true);
 		setError(null);
 		try {
 			const result = await action();
 			if (result?.error) setError(result.error);
 			await queryClient.invalidateQueries({ queryKey: statusQuery.queryKey });
+			return !result?.error;
 		} catch {
 			setError("The change could not be saved.");
+			return false;
 		} finally {
 			setBusy(false);
 		}
 	};
 	return { busy, error, run };
+}
+
+/**
+ * The picker's draft, kept across status reloads so unsaved edits survive;
+ * reset when its provider is no longer available.
+ */
+function useDraft(providers: AiProviderName[], selection: AiSelection | null) {
+	const [draft, setDraft] = useState(() => initialDraft(providers, selection));
+	if (providers.length > 0 && !providers.includes(draft.provider)) {
+		setDraft(initialDraft(providers, null));
+	}
+	return [draft, setDraft] as const;
 }
 
 function CurrentDefault({
@@ -186,9 +201,7 @@ function ChatDefaultCard({
 	const save = useServerFn(saveChatDefaultFn);
 	const reset = useServerFn(clearChatDefaultFn);
 	const { busy, error, run } = useDefaultActions();
-	const [draft, setDraft] = useState(() =>
-		initialDraft(providers, value.selection),
-	);
+	const [draft, setDraft] = useDraft(providers, value.selection);
 	return (
 		<section
 			aria-label="Chat default"
@@ -237,8 +250,9 @@ function PreprocessDefaultCard({
 	const reset = useServerFn(clearPreprocessDefaultFn);
 	const { busy, error, run } = useDefaultActions();
 	const [sameAsChat, setSameAsChat] = useState(value.sameAsChat);
-	const [draft, setDraft] = useState(() =>
-		initialDraft(providers, value.sameAsChat ? null : value.selection),
+	const [draft, setDraft] = useDraft(
+		providers,
+		value.sameAsChat ? null : value.selection,
 	);
 	return (
 		<section
@@ -250,7 +264,13 @@ function PreprocessDefaultCard({
 				value={value}
 				sameAsChat={value.sameAsChat}
 				busy={busy}
-				onReset={() => run(() => reset().then(() => null))}
+				onReset={async () => {
+					// A cleared default follows chat; the old draft would restore it.
+					if (await run(() => reset().then(() => null))) {
+						setSameAsChat(true);
+						setDraft(initialDraft(providers, null));
+					}
+				}}
 			/>
 			<p className="text-sm text-muted-foreground">
 				Used when a book is preprocessed without choosing a model. It may use a
