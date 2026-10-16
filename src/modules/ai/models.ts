@@ -41,6 +41,7 @@ export interface ListedModel {
 export interface ModelList {
 	models: ListedModel[];
 	error?: string;
+	statusCode?: number;
 }
 
 export interface ListModelsOptions {
@@ -56,8 +57,9 @@ type Entry = { id: string; name?: string };
 const cache = new Map<AiProviderName, { at: number; models: Entry[] }>();
 
 /** Forgets every cached listing. For tests. */
-export function clearModelListCache(): void {
-	cache.clear();
+export function clearModelListCache(provider?: AiProviderName): void {
+	if (provider) cache.delete(provider);
+	else cache.clear();
 }
 
 /**
@@ -88,11 +90,24 @@ export async function listModels(
 		cache.set(provider, { at: Date.now(), models });
 		return priced(models);
 	} catch (error) {
-		return { models: [], error: listingError(error) };
+		return {
+			models: [],
+			error: listingError(error),
+			...(error instanceof ListingError && error.statusCode !== undefined
+				? { statusCode: error.statusCode }
+				: {}),
+		};
 	}
 }
 
-class ListingError extends Error {}
+class ListingError extends Error {
+	constructor(
+		message: string,
+		readonly statusCode?: number,
+	) {
+		super(message);
+	}
+}
 
 function listingError(error: unknown): string {
 	if (error instanceof Error && error.name === "TimeoutError") {
@@ -189,7 +204,7 @@ async function getJson(
 	headers: Record<string, string>,
 	signal: AbortSignal,
 ): Promise<unknown> {
-	const response = await fetch(url, { headers, signal });
+	const response = await fetch(url, { headers, signal, redirect: "error" });
 	if (!response.ok) {
 		const text = (await response.text().catch(() => "")).trim();
 		// Masked before cutting, so a key cannot survive as a fragment.
@@ -198,6 +213,7 @@ async function getJson(
 			: "";
 		throw new ListingError(
 			`the provider returned HTTP ${response.status}${excerpt}`,
+			response.status,
 		);
 	}
 	try {
