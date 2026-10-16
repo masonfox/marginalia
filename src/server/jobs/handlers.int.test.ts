@@ -11,6 +11,7 @@ import { getReadingUnits, ingestEdition, passages } from "#/modules/catalog";
 import { PARSER_VERSION, parseEpub } from "#/modules/epub";
 import {
 	createNote,
+	END_OF_BOOK_POSITION,
 	getCorrectionReview,
 	getMergedObservations,
 	getMergedSummaries,
@@ -18,6 +19,7 @@ import {
 	getUnitAnchors,
 	guideCorrections,
 	listGuideNotes,
+	listGuideSubjects,
 	listNotes,
 	loadSubjectLinks,
 	mergeSubjects,
@@ -714,5 +716,180 @@ describe("reparse re-anchors notes", () => {
 		// Every note stays listed in the Notes view.
 		const listed = await listGuideNotes(t.db, edition.id, { kind: "whole" });
 		expect(listed.ok && listed.notes).toHaveLength(5);
+	});
+});
+
+describe("reparse re-anchors past the end of the book", () => {
+	it("shows anchors on a removed final passage only for the whole book and detaches its correction", async () => {
+		const bytes = await buildEpub({
+			title: "reparse-terminal",
+			chapters: [
+				{
+					href: "ch1.xhtml",
+					title: "Chapter 1",
+					body: "<h2>Chapter 1</h2><p>Alpha.</p>",
+				},
+				{
+					href: "ch2.xhtml",
+					title: "Chapter 2",
+					body: "<h2>Chapter 2</h2><p>Beta.</p>",
+				},
+			],
+		});
+		const { sha256, edition } = await addUploadedBook(
+			t.db,
+			dataDir,
+			bytes,
+			"reparse-terminal.epub",
+		);
+		// The older parser kept a stray closing paragraph as a unit of its own;
+		// the reparse removes it, and nothing after it survives.
+		const old = reshape(await parseEpub(bytes), OLD_VERSION, (ps) =>
+			ps.flatMap((p) =>
+				p.text === "Beta." ? [p, { ...p, text: "A stray coda." }] : [p],
+			),
+		);
+		const coda = old.sections[1]?.passages.find(
+			(x) => x.text === "A stray coda.",
+		);
+		if (!coda) throw new Error("expected the coda");
+		old.toc = [
+			...old.toc,
+			{
+				label: "Coda",
+				depth: 0,
+				target: { spineIndex: 1, blockIndex: coda.blockIndex },
+				children: [],
+			},
+		];
+		await ingestEdition(
+			{
+				db: t.db,
+				dataDir,
+				log: silentLog,
+				parse: async () => old,
+				parserVersion: OLD_VERSION,
+			},
+			sha256,
+			{ finalAttempt: true },
+		);
+		/** Strider seen in the first unit, Aragorn in every later one. */
+		const preprocess = async (prefix: string) => {
+			for (const unit of await getReadingUnits(t.db, edition.id)) {
+				await saveUnitResult(t.db, edition.id, {
+					unitOrdinal: unit.ordinal,
+					unitLabel: unit.label,
+					endPosition: unit.endPosition,
+					summary: `${prefix} ${unit.label}`,
+					summaryCitations: [],
+					observations: [
+						{
+							name: unit.ordinal === 0 ? "Strider" : "Aragorn",
+							kind: "character",
+							note: unit.label,
+							citations: [],
+						},
+					],
+					model: "m",
+				});
+			}
+		};
+		await preprocess("Old");
+		const before = await getReadingUnits(t.db, edition.id);
+		expect(before.map((u) => u.label)).toEqual([
+			"Chapter 1",
+			"Chapter 2",
+			"Coda",
+		]);
+		const last = before[2] as (typeof before)[number];
+		const [stray] = await t.db
+			.select({ locator: passages.locator })
+			.from(passages)
+			.where(
+				and(
+					eq(passages.editionId, edition.id),
+					eq(passages.text, "A stray coda."),
+				),
+			);
+		if (!stray) throw new Error("expected the stray passage");
+		expect(stray.locator).toBe(last.startLocator);
+		const whole = { kind: "whole" } as const;
+		const merged = await mergeSubjects(t.db, edition.id, whole, {
+			targetRef: "k:strider",
+			sourceRef: "k:aragorn",
+			reveal: { kind: "passage", locator: stray.locator },
+		});
+		expect(merged.ok).toBe(true);
+		const saved = await saveCorrection(t.db, edition.id, {
+			target: "summary",
+			unitLocator: last.startLocator,
+			action: "replace",
+			text: "Mine.",
+		});
+		expect(saved.ok).toBe(true);
+		const made = await createNote(t.db, edition.id, {
+			title: "Coda",
+			body: "",
+			anchor: { kind: "passage", locator: stray.locator },
+		});
+		if (!made.ok) throw new Error(made.reason);
+
+		await jobHandlers()["catalog.reparse"]?.({ editionId: edition.id }, ctx);
+		expect((await getEdition(t.db, edition.id))?.parserVersion).toBe(
+			PARSER_VERSION,
+		);
+		const units = await getReadingUnits(t.db, edition.id);
+		expect(units.map((u) => u.label)).toEqual(["Chapter 1", "Chapter 2"]);
+		const final = {
+			kind: "unit",
+			endPosition: (units[1] as (typeof units)[number]).endPosition,
+		} as const;
+		await preprocess("New");
+
+		// The alias keeps its locator and reveals past every unit.
+		const aliases = (await loadSubjectLinks(t.db, edition.id)).links.filter(
+			(l) => !l.isPrimary,
+		);
+		expect(aliases).toEqual([
+			expect.objectContaining({
+				nameKey: "aragorn",
+				revealLocator: stray.locator,
+				revealPosition: END_OF_BOOK_POSITION,
+			}),
+		]);
+		const names = async (choice: typeof whole | typeof final) => {
+			const listed = await listGuideSubjects(t.db, edition.id, choice);
+			if (!listed.ok) throw new Error("expected subjects");
+			return listed.subjects.map((s) => s.name).sort();
+		};
+		expect(await names(final)).toEqual(["Aragorn", "Strider"]);
+		expect(await names(whole)).toHaveLength(1);
+
+		// The correction keeps its locator, detached, and applies nowhere.
+		const stored = await t.db
+			.select({
+				unitLocator: guideCorrections.unitLocator,
+				detached: guideCorrections.detached,
+			})
+			.from(guideCorrections)
+			.where(eq(guideCorrections.editionId, edition.id));
+		expect(stored).toEqual([
+			{ unitLocator: last.startLocator, detached: true },
+		]);
+		const anchors = await getUnitAnchors(t.db, edition.id);
+		expect(
+			(await getMergedSummaries(t.db, edition.id, null, anchors)).map(
+				(s) => s.summary,
+			),
+		).toEqual(["New Chapter 1", "New Chapter 2"]);
+
+		// The note is as of the end of the book.
+		expect(
+			(await listNotes(t.db, edition.id, null)).map((n) => n.asOf),
+		).toEqual([{ kind: "end", locator: null, position: null, label: null }]);
+		const atFinal = await listGuideNotes(t.db, edition.id, final);
+		expect(atFinal.ok && atFinal.notes).toEqual([]);
+		const atWhole = await listGuideNotes(t.db, edition.id, whole);
+		expect(atWhole.ok && atWhole.notes).toHaveLength(1);
 	});
 });
