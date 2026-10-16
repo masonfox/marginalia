@@ -456,6 +456,27 @@ export function ConversationModelControl({
 						onChange={setDraft}
 						disabled={busy}
 					/>
+					{/* Without a usable default, ModelChoice offers no way back to it. */}
+					{fallback === null && draft !== null && own !== null && (
+						<Button
+							type="button"
+							variant="ghost"
+							size="xs"
+							disabled={busy}
+							onClick={() => setDraft(null)}
+						>
+							Use the default
+						</Button>
+					)}
+					{fallback === null && draft === null && own !== null && (
+						<p className="text-sm text-muted-foreground">
+							{status.chat.selection
+								? `The default, ${selectionLabel(status.chat.selection)}, is unavailable`
+								: "No chat default is set"}
+							, so this conversation will have no usable model until one is
+							chosen here or in Settings.
+						</p>
+					)}
 					{error && (
 						<p role="alert" className="text-sm text-destructive-foreground">
 							{error}
@@ -469,12 +490,7 @@ export function ConversationModelControl({
 						</DialogClose>
 						<Button
 							type="button"
-							disabled={
-								busy ||
-								blank ||
-								(draft === null && fallback === null) ||
-								sameSelection(draft, own)
-							}
+							disabled={busy || blank || sameSelection(draft, own)}
 							onClick={async () => {
 								if (await save(draft)) onOpenChange(false);
 							}}

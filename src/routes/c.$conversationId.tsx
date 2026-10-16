@@ -619,19 +619,17 @@ function ConversationPage() {
 									>
 										Choose a model
 									</Button>
-									{effect.status === "unavailable" &&
-										effect.own &&
-										aiStatus.chat.available && (
-											<Button
-												type="button"
-												size="sm"
-												variant="outline"
-												disabled={busy || conversationModel.busy}
-												onClick={() => void conversationModel.save(null)}
-											>
-												Use the default
-											</Button>
-										)}
+									{effect.status === "unavailable" && effect.own && (
+										<Button
+											type="button"
+											size="sm"
+											variant="outline"
+											disabled={busy || conversationModel.busy}
+											onClick={() => void conversationModel.save(null)}
+										>
+											Use the default
+										</Button>
+									)}
 									{conversationModel.error && (
 										<p role="alert" className="text-destructive-foreground">
 											{conversationModel.error}
