@@ -1,4 +1,6 @@
 import { z } from "zod";
+// biome-ignore lint/style/noRestrictedImports: config must register secrets without importing the runtime, which depends on config.
+import { registerSecret } from "#/modules/ai/errors";
 
 /** Treat empty strings as unset so `VAR=` in Compose or `.env` means "use the default". */
 const optional = <T extends z.ZodType>(schema: T) =>
@@ -83,16 +85,6 @@ export const AI_PROVIDERS = [
 
 export type AiProviderName = (typeof AI_PROVIDERS)[number];
 
-const baseUrl = () =>
-	optional(
-		z
-			.url({
-				protocol: /^https?$/,
-				error: "must be an absolute http(s) URL",
-			})
-			.optional(),
-	);
-
 export const envSchema = z.object({
 	DATABASE_URL: optional(
 		z.string({ error: "is required (a PostgreSQL connection string)" }),
@@ -132,27 +124,21 @@ export const envSchema = z.object({
 			.transform((v) => v.replace(/\/+$/, ""))
 			.optional(),
 	),
+	MARGINALIA_SECRET_KEY: z
+		.string({ error: "is required; generate with openssl rand -base64 32" })
+		.refine(
+			(value) =>
+				/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+					value,
+				) && Buffer.from(value, "base64").length >= 32,
+			{
+				message:
+					"must be base64 encoding at least 32 bytes; generate with openssl rand -base64 32",
+			},
+		),
 	AUTH_PASSWORD: optional(z.string().optional()),
 	MARGINALIA_SESSION_DAYS: integer(1, 30, "a positive whole number of days"),
 	MARGINALIA_TRUST_PROXY: boolean(false),
-	AI_PROVIDER: optional(
-		z
-			.enum(AI_PROVIDERS, {
-				error: "must be openai, anthropic, google, or openai-compatible",
-			})
-			.optional(),
-	),
-	AI_MODEL: optional(z.string().optional()),
-	AI_API_KEY: optional(z.string().optional()),
-	AI_BASE_URL: baseUrl(),
-	AI_OPENAI_API_KEY: optional(z.string().optional()),
-	AI_OPENAI_BASE_URL: baseUrl(),
-	AI_ANTHROPIC_API_KEY: optional(z.string().optional()),
-	AI_ANTHROPIC_BASE_URL: baseUrl(),
-	AI_GOOGLE_API_KEY: optional(z.string().optional()),
-	AI_GOOGLE_BASE_URL: baseUrl(),
-	AI_OPENAI_COMPATIBLE_BASE_URL: baseUrl(),
-	AI_OPENAI_COMPATIBLE_API_KEY: optional(z.string().optional()),
 	AI_MAX_STEPS: integer(1, 8, "a positive whole number"),
 	AI_TEMPERATURE: optional(
 		z.coerce
@@ -170,7 +156,6 @@ export const envSchema = z.object({
 	),
 	AI_PROMPT_CACHE: boolean(true),
 	AI_PRICES: optional(z.string().transform(parsePrices).optional()),
-	AI_PREPROCESS_MODEL: optional(z.string().optional()),
 	AI_PREPROCESS_AUTO: boolean(false),
 	LOG_LEVEL: optional(
 		z
@@ -195,14 +180,6 @@ export interface AiCredentials {
 
 /** Language model settings. Never log the API keys in `credentials`. */
 export interface AiConfig {
-	/** Providers with usable credentials. A provider is available when it has an entry. */
-	credentials: Partial<Record<AiProviderName, AiCredentials>>;
-	/** Defaults from AI_PROVIDER with AI_MODEL and AI_PREPROCESS_MODEL. */
-	envDefaults: {
-		chat?: AiSelection;
-		/** Unset means preprocessing follows the chat default. */
-		preprocess?: AiSelection;
-	};
 	maxSteps: number;
 	temperature: number | undefined;
 	/** Undefined means the provider's default. */
@@ -213,6 +190,7 @@ export interface AiConfig {
 }
 
 export interface Config {
+	secretKey: string;
 	databaseUrl: string;
 	port: number;
 	dataDir: string;
@@ -231,10 +209,7 @@ export interface Config {
 	logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
 	/** Preprocess books automatically after ingest (AI_PREPROCESS_AUTO). */
 	preprocessAuto: boolean;
-	/** AI is disabled when `ai.credentials` is empty. */
 	ai: AiConfig;
-	/** Ignored settings to log at startup. They name variables only, never values. */
-	warnings: string[];
 }
 
 export class ConfigError extends Error {
@@ -259,8 +234,9 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		);
 	}
 	const e = result.data;
-	const { ai, warnings } = buildAiConfig(e);
+	registerSecret(e.MARGINALIA_SECRET_KEY);
 	return {
+		secretKey: e.MARGINALIA_SECRET_KEY,
 		databaseUrl: e.DATABASE_URL,
 		port: e.PORT,
 		dataDir: e.MARGINALIA_DATA_DIR,
@@ -276,123 +252,13 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		trustProxy: e.MARGINALIA_TRUST_PROXY,
 		logLevel: e.LOG_LEVEL,
 		preprocessAuto: e.AI_PREPROCESS_AUTO,
-		ai,
-		warnings,
-	};
-}
-
-type Env = z.infer<typeof envSchema>;
-
-/** The per-provider credential variables. */
-const PROVIDER_VARS = {
-	openai: { apiKey: "AI_OPENAI_API_KEY", baseUrl: "AI_OPENAI_BASE_URL" },
-	anthropic: {
-		apiKey: "AI_ANTHROPIC_API_KEY",
-		baseUrl: "AI_ANTHROPIC_BASE_URL",
-	},
-	google: { apiKey: "AI_GOOGLE_API_KEY", baseUrl: "AI_GOOGLE_BASE_URL" },
-	"openai-compatible": {
-		apiKey: "AI_OPENAI_COMPATIBLE_API_KEY",
-		baseUrl: "AI_OPENAI_COMPATIBLE_BASE_URL",
-	},
-} as const satisfies Record<
-	AiProviderName,
-	{ apiKey: keyof Env; baseUrl: keyof Env }
->;
-
-/**
- * Cross-field validation for the AI variables. AI_PROVIDER with AI_API_KEY and
- * AI_BASE_URL supplies the credentials of the provider it names. Messages name
- * variables only, never values.
- */
-function buildAiConfig(e: Env): { ai: AiConfig; warnings: string[] } {
-	const issues: string[] = [];
-	const warnings: string[] = [];
-	const credentials: AiConfig["credentials"] = {};
-	const legacy = e.AI_PROVIDER;
-	const legacySet = (["AI_API_KEY", "AI_BASE_URL"] as const).filter(
-		(name) => e[name] !== undefined,
-	);
-
-	for (const provider of AI_PROVIDERS) {
-		const vars = PROVIDER_VARS[provider];
-		const ownSet = [vars.apiKey, vars.baseUrl].filter(
-			(name) => e[name] !== undefined,
-		);
-		let c: AiCredentials = { apiKey: e[vars.apiKey], baseUrl: e[vars.baseUrl] };
-		if (provider === legacy && legacySet.length > 0) {
-			if (ownSet.length > 0) {
-				issues.push(
-					`${[...legacySet, ...ownSet].join(" and ")} both set credentials for ${provider}; use either the AI_PROVIDER variables or ${vars.apiKey}/${vars.baseUrl}`,
-				);
-				continue;
-			}
-			c = { apiKey: e.AI_API_KEY, baseUrl: e.AI_BASE_URL };
-		}
-		if (provider === "openai-compatible") {
-			if (c.baseUrl !== undefined) credentials[provider] = c;
-			else if (provider !== legacy && c.apiKey !== undefined) {
-				warnings.push(`${vars.apiKey} is ignored without ${vars.baseUrl}`);
-			}
-		} else if (c.apiKey !== undefined) {
-			credentials[provider] = c;
-		} else if (e[vars.baseUrl] !== undefined) {
-			issues.push(`${vars.baseUrl} requires ${vars.apiKey} to be set`);
-		}
-	}
-
-	const envDefaults: AiConfig["envDefaults"] = {};
-	if (legacy === undefined) {
-		if (e.AI_PREPROCESS_MODEL !== undefined) {
-			issues.push("AI_PREPROCESS_MODEL requires AI_PROVIDER to be set");
-		}
-		for (const name of ["AI_MODEL", "AI_API_KEY", "AI_BASE_URL"] as const) {
-			if (e[name] !== undefined) {
-				warnings.push(`${name} is ignored because AI_PROVIDER is not set`);
-			}
-		}
-	} else {
-		const vars = PROVIDER_VARS[legacy];
-		const duplicated =
-			legacySet.length > 0 &&
-			(e[vars.apiKey] !== undefined || e[vars.baseUrl] !== undefined);
-		if (e.AI_MODEL === undefined) {
-			issues.push("AI_MODEL is required when AI_PROVIDER is set");
-		} else {
-			envDefaults.chat = { provider: legacy, model: e.AI_MODEL };
-		}
-		if (!duplicated && credentials[legacy] === undefined) {
-			issues.push(
-				legacy === "openai-compatible"
-					? `AI_BASE_URL or ${vars.baseUrl} is required when AI_PROVIDER is openai-compatible`
-					: `AI_API_KEY or ${vars.apiKey} is required when AI_PROVIDER is ${legacy}`,
-			);
-		}
-		if (e.AI_PREPROCESS_MODEL !== undefined) {
-			envDefaults.preprocess = {
-				provider: legacy,
-				model: e.AI_PREPROCESS_MODEL,
-			};
-		}
-	}
-
-	if (e.AI_PREPROCESS_AUTO && Object.keys(credentials).length === 0) {
-		issues.push(
-			"AI_PREPROCESS_AUTO requires credentials for at least one AI provider",
-		);
-	}
-	if (issues.length > 0) throw new ConfigError(issues);
-	return {
 		ai: {
-			credentials,
-			envDefaults,
 			maxSteps: e.AI_MAX_STEPS,
 			temperature: e.AI_TEMPERATURE,
 			effort: e.AI_EFFORT,
 			promptCache: e.AI_PROMPT_CACHE,
 			prices: e.AI_PRICES ?? {},
 		},
-		warnings,
 	};
 }
 
@@ -408,23 +274,10 @@ export function servesWeb(config: Config): boolean {
 
 /** A loggable view of the config: secrets are replaced by whether they are set. */
 export function redactedConfig(config: Config) {
-	const { authPassword, databaseUrl, ai, warnings: _, ...rest } = config;
+	const { authPassword, databaseUrl, secretKey, ...rest } = config;
 	return {
 		...rest,
-		ai: {
-			providers: Object.fromEntries(
-				Object.entries(ai.credentials).map(([provider, c]) => [
-					provider,
-					{ baseUrl: c.baseUrl, apiKeySet: c.apiKey !== undefined },
-				]),
-			),
-			envDefaults: ai.envDefaults,
-			maxSteps: ai.maxSteps,
-			temperature: ai.temperature,
-			effort: ai.effort,
-			promptCache: ai.promptCache,
-			prices: ai.prices,
-		},
+		secretKeySet: secretKey !== undefined,
 		databaseUrl: redactUrlPassword(databaseUrl),
 		authEnabled: authPassword !== undefined,
 	};

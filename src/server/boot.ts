@@ -31,7 +31,6 @@ async function start(): Promise<AppContext> {
 	const config = loadConfigOrExit();
 	const log = createLogger(config.logLevel);
 	log.info({ config: redactedConfig(config) }, "starting marginalia");
-	for (const warning of config.warnings) log.warn(warning);
 
 	const { db, pool } = createDb(config.databaseUrl);
 	await migrateOrExit(pool, log);

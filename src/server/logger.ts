@@ -20,6 +20,12 @@ export function createLogger(
 				paths: [
 					"password",
 					"authPassword",
+					"secretKey",
+					"*.secretKey",
+					"MARGINALIA_SECRET_KEY",
+					"*.MARGINALIA_SECRET_KEY",
+					"apiKey",
+					"*.apiKey",
 					"*.password",
 					"*.authPassword",
 					"req.headers.cookie",
