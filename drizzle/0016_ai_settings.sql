@@ -1,3 +1,16 @@
+CREATE TABLE "ai_credentials" (
+	"provider" text PRIMARY KEY NOT NULL,
+	"api_key_ciphertext" "bytea",
+	"api_key_iv" "bytea",
+	"api_key_tag" "bytea",
+	"api_key_hint" text,
+	"base_url" text,
+	"secret_key_id" text,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "ai_credentials_provider_ck" CHECK ("ai_credentials"."provider" in ('openai', 'anthropic', 'google', 'openai-compatible')),
+	CONSTRAINT "ai_credentials_key_ck" CHECK (("ai_credentials"."api_key_ciphertext" is null and "ai_credentials"."api_key_iv" is null and "ai_credentials"."api_key_tag" is null) or ("ai_credentials"."api_key_ciphertext" is not null and "ai_credentials"."api_key_iv" is not null and "ai_credentials"."api_key_tag" is not null))
+);
+--> statement-breakpoint
 CREATE TABLE "ai_settings" (
 	"id" smallint PRIMARY KEY DEFAULT 1 NOT NULL,
 	"chat_provider" text,

@@ -1,5 +1,5 @@
 {
-  "id": "07aa622a-1973-4abe-929b-5b4fa33f79f2",
+  "id": "af07ccb6-8df5-476f-8baf-32fc2fea90b0",
   "prevId": "441d56de-9f14-4f9e-ae1a-d583a919b3db",
   "version": "7",
   "dialect": "postgresql",
@@ -2337,6 +2337,77 @@
         "library_sources_kind_check": {
           "name": "library_sources_kind_check",
           "value": "\"library_sources\".\"kind\" in ('upload', 'filesystem')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.ai_credentials": {
+      "name": "ai_credentials",
+      "schema": "",
+      "columns": {
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "api_key_ciphertext": {
+          "name": "api_key_ciphertext",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "api_key_iv": {
+          "name": "api_key_iv",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "api_key_tag": {
+          "name": "api_key_tag",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "api_key_hint": {
+          "name": "api_key_hint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_url": {
+          "name": "base_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "secret_key_id": {
+          "name": "secret_key_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "ai_credentials_provider_ck": {
+          "name": "ai_credentials_provider_ck",
+          "value": "\"ai_credentials\".\"provider\" in ('openai', 'anthropic', 'google', 'openai-compatible')"
+        },
+        "ai_credentials_key_ck": {
+          "name": "ai_credentials_key_ck",
+          "value": "(\"ai_credentials\".\"api_key_ciphertext\" is null and \"ai_credentials\".\"api_key_iv\" is null and \"ai_credentials\".\"api_key_tag\" is null) or (\"ai_credentials\".\"api_key_ciphertext\" is not null and \"ai_credentials\".\"api_key_iv\" is not null and \"ai_credentials\".\"api_key_tag\" is not null)"
         }
       },
       "isRLSEnabled": false
