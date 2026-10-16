@@ -423,7 +423,9 @@ export interface GuideNote extends ReaderNote {
 	 * is not attached to one. `name` is null when none of its names has
 	 * appeared within the bound, so it has no timeline there; at a partial
 	 * bound its key and ref are then withheld too (as is the note's
-	 * `subjectKey`), since they would name a subject not yet seen.
+	 * `subjectKey`), since they would name a subject not yet seen. At a
+	 * partial bound the key (and `subjectKey`) is always one of the names seen
+	 * there: a stored name not yet seen is replaced by the displayed one.
 	 */
 	subject:
 		| { key: string; ref: string; name: string | null }
@@ -469,7 +471,20 @@ async function describeNotes(
 				subjectKey: null,
 				subject: { key: null, ref: null, name: null },
 			};
-		return { ...described, subject: { key: note.subjectKey, ref, name } };
+		// The stored name may not have appeared yet though another of the
+		// subject's names has: at a partial bound, show a seen one in its place.
+		const names = bound !== null ? (resolution?.namesOf(ref) ?? []) : [];
+		const key =
+			bound === null || names.some((n) => n.key === note.subjectKey)
+				? note.subjectKey
+				: (names.find((n) => n.name === name) ?? names[0])?.key;
+		if (key === undefined)
+			return {
+				...described,
+				subjectKey: null,
+				subject: { key: null, ref: null, name: null },
+			};
+		return { ...described, subjectKey: key, subject: { key, ref, name } };
 	});
 }
 

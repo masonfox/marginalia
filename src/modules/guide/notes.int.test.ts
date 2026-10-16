@@ -29,6 +29,7 @@ import {
 	mergeSubjects,
 	type NoteInput,
 	readerNotes,
+	renameSubject,
 	resolveSubjects,
 	saveCorrection,
 	setReadingPosition,
@@ -577,6 +578,74 @@ describe("attached notes", () => {
 		const late = await getGuideNote(t.db, id, through(2), early.id);
 		expect(late.ok && late.note?.subject?.name).toBe("Moneta");
 	});
+
+	for (const display of [null, "moneta"] as const)
+		it(`names a merged subject by a seen name, not its unseen primary (display ${display})`, async () => {
+			const id = await book();
+			await saveUnitResult(t.db, id, result(0, ["Mystery Woman"]));
+			await saveUnitResult(t.db, id, result(2, ["Moneta"]));
+			// "Mystery Woman" is revealed as Moneta from the end of unit 0,
+			// before the name Moneta itself appears.
+			const merged = await mergeSubjects(t.db, id, whole, {
+				targetRef: "k:moneta",
+				sourceRef: "k:mystery woman",
+				reveal: { kind: "unit", endPosition: u(0).endPosition },
+			});
+			if (!merged.ok) throw new Error(merged.reason);
+			if (display) {
+				const renamed = await renameSubject(t.db, id, whole, {
+					ref: merged.ref,
+					displayKey: display,
+				});
+				if (!renamed.ok) throw new Error(renamed.reason);
+			}
+			const early = await created(
+				id,
+				note("An early theory", {
+					anchor: { kind: "unit", endPosition: u(0).endPosition },
+					attachment: { kind: "subject", ref: merged.ref },
+				}),
+			);
+			expect(early.subjectKey).toBe("moneta");
+
+			const seen = {
+				key: "mystery woman",
+				ref: merged.ref,
+				name: "Mystery Woman",
+			};
+			for (const i of [0, 1]) {
+				const listed = await listGuideNotes(t.db, id, through(i));
+				if (!listed.ok) throw new Error(listed.reason);
+				expect(titles(listed.notes)).toEqual(["An early theory"]);
+				expect(listed.notes[0]?.subject).toEqual(seen);
+				expect(listed.notes[0]?.subjectKey).toBe("mystery woman");
+				expect(JSON.stringify(listed.notes).toLowerCase()).not.toContain(
+					"moneta",
+				);
+				const one = await getGuideNote(t.db, id, through(i), early.id);
+				if (!one.ok) throw new Error(one.reason);
+				expect(one.note?.subject).toEqual(seen);
+				expect(one.note?.subjectKey).toBe("mystery woman");
+				expect(JSON.stringify(one.note).toLowerCase()).not.toContain("moneta");
+			}
+
+			// An edit that leaves the attachment out keeps the stored name.
+			const edited = await updateNote(t.db, id, early.id, {
+				title: "A revised theory",
+				body: "Still no names.",
+			});
+			if (!edited.ok) throw new Error(edited.reason);
+			expect(edited.note.subjectKey).toBe("moneta");
+
+			// Once Moneta has appeared, the stored name is shown.
+			const all = await getGuideNote(t.db, id, whole, early.id);
+			expect(all.ok && all.note?.subjectKey).toBe("moneta");
+			expect(all.ok && all.note?.subject).toEqual({
+				key: "moneta",
+				ref: merged.ref,
+				name: display ? "Moneta" : "Mystery Woman",
+			});
+		});
 
 	it("lists a unit's notes with that unit in Chapters", async () => {
 		const id = await book();
