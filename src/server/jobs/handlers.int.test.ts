@@ -18,12 +18,15 @@ import {
 	getReadingPosition,
 	getUnitAnchors,
 	guideCorrections,
+	guideSubjectAliases,
 	listGuideNotes,
 	listGuideSubjects,
 	listNotes,
 	loadSubjectLinks,
 	mergeSubjects,
 	type NoteInput,
+	readerNotes,
+	readingPositions,
 	saveCorrection,
 	setReadingPosition,
 } from "#/modules/guide";
@@ -61,8 +64,14 @@ beforeAll(async () => {
 	} as unknown as AppContext);
 });
 
-/** A ready edition parsed under another parser version, with a complete preprocessing run. */
-async function preprocessedEdition(name: string) {
+/**
+ * A ready edition parsed under another parser version, with a complete
+ * preprocessing run; `edit` is how the older parser's passages differed.
+ */
+async function preprocessedEdition(
+	name: string,
+	edit: Parameters<typeof reshape>[2] = (ps) => ps,
+) {
 	const bytes = await buildEpub({
 		title: name,
 		language: "en",
@@ -74,7 +83,7 @@ async function preprocessedEdition(name: string) {
 		bytes,
 		`${name}.epub`,
 	);
-	const old = reshape(await parseEpub(bytes), OLD_VERSION, (ps) => ps);
+	const old = reshape(await parseEpub(bytes), OLD_VERSION, edit);
 	await ingestEdition(
 		{
 			db: t.db,
@@ -86,10 +95,11 @@ async function preprocessedEdition(name: string) {
 		sha256,
 		{ finalAttempt: true },
 	);
+	const [unit] = await getReadingUnits(t.db, edition.id);
 	await saveUnitResult(t.db, edition.id, {
 		unitOrdinal: 0,
 		unitLabel: "One",
-		endPosition: 0,
+		endPosition: unit?.endPosition ?? 0,
 		summary: "Anna waits.",
 		summaryCitations: [],
 		observations: [
@@ -519,8 +529,82 @@ describe("reparse invalidates preprocessing", () => {
 		);
 	});
 
-	it("rolls back invalidation with a failed replacement", async () => {
-		const { sha256, editionId } = await preprocessedEdition("reparse-fail");
+	it("rolls back invalidation and reader anchors with a failed replacement", async () => {
+		// The older parser kept a stray paragraph first, so a replacement
+		// would move every reader anchor.
+		const { sha256, editionId } = await preprocessedEdition(
+			"reparse-fail",
+			(ps) =>
+				ps.flatMap((p) =>
+					p.text === "Anna waits."
+						? [{ ...p, text: "A stray paragraph." }, p]
+						: [p],
+				),
+		);
+		const [unit] = await getReadingUnits(t.db, editionId);
+		if (!unit) throw new Error("expected a unit");
+		const [anna] = await t.db
+			.select({ locator: passages.locator })
+			.from(passages)
+			.where(
+				and(
+					eq(passages.editionId, editionId),
+					eq(passages.text, "Anna waits."),
+				),
+			);
+		if (!anna) throw new Error("expected Anna's passage");
+		await setReadingPosition(t.db, editionId, {
+			kind: "unit",
+			endPosition: unit.endPosition,
+		});
+		const merged = await mergeSubjects(
+			t.db,
+			editionId,
+			{ kind: "whole" },
+			{
+				targetRef: "k:anna",
+				sourceRef: "k:the waiting woman",
+				reveal: { kind: "passage", locator: anna.locator },
+			},
+		);
+		expect(merged.ok).toBe(true);
+		const saved = await saveCorrection(t.db, editionId, {
+			target: "summary",
+			unitLocator: unit.startLocator,
+			action: "replace",
+			text: "Mine.",
+		});
+		expect(saved.ok).toBe(true);
+		const made = await createNote(t.db, editionId, {
+			title: "Anna",
+			body: "",
+			anchor: { kind: "passage", locator: anna.locator },
+			attachment: { kind: "unit", unitLocator: unit.startLocator },
+		});
+		if (!made.ok) throw new Error(made.reason);
+		const readerRows = async () => ({
+			position: await t.db
+				.select()
+				.from(readingPositions)
+				.where(eq(readingPositions.editionId, editionId)),
+			aliases: await t.db
+				.select()
+				.from(guideSubjectAliases)
+				.where(eq(guideSubjectAliases.editionId, editionId)),
+			corrections: await t.db
+				.select()
+				.from(guideCorrections)
+				.where(eq(guideCorrections.editionId, editionId)),
+			notes: await t.db
+				.select()
+				.from(readerNotes)
+				.where(eq(readerNotes.editionId, editionId)),
+		});
+		const before = await readerRows();
+		expect(before.position).toHaveLength(1);
+		expect(before.aliases).toHaveLength(2);
+		expect(before.corrections).toHaveLength(1);
+		expect(before.notes).toHaveLength(1);
 		// Fails the final edition update, after the replace hook has run.
 		await t.db.execute(sql`
 			create function fail_ready() returns trigger language plpgsql as
@@ -546,6 +630,16 @@ describe("reparse invalidates preprocessing", () => {
 		expect(
 			await lookupObservations(t.db, editionId, "Anna", null, 10),
 		).toHaveLength(1);
+		// Every reader row keeps its old locator and position.
+		expect(await readerRows()).toEqual(before);
+		// The same replacement, succeeding, does move them.
+		await jobHandlers()["library.ingest"]?.({ sha256 }, ctx);
+		expect((await getEdition(t.db, editionId))?.parserVersion).toBe(
+			PARSER_VERSION,
+		);
+		const after = await readerRows();
+		for (const rows of ["position", "aliases", "corrections", "notes"] as const)
+			expect(after[rows]).not.toEqual(before[rows]);
 	});
 });
 
