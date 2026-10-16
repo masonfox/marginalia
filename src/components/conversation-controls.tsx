@@ -449,13 +449,20 @@ export function ConversationModelControl({
 							wrote them.
 						</DialogDescription>
 					</DialogHeader>
-					<ModelChoice
-						providers={status.providers}
-						fallback={fallback}
-						value={draft}
-						onChange={setDraft}
-						disabled={busy}
-					/>
+					{status.providers.length > 0 ? (
+						<ModelChoice
+							providers={status.providers}
+							fallback={fallback}
+							value={draft}
+							onChange={setDraft}
+							disabled={busy}
+						/>
+					) : (
+						<p className="text-sm text-muted-foreground">
+							No AI provider is configured. Add one in Settings to choose a
+							model.
+						</p>
+					)}
 					{/* Without a usable default, ModelChoice offers no way back to it. */}
 					{fallback === null && draft !== null && own !== null && (
 						<Button

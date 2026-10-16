@@ -224,3 +224,62 @@ describe("Settings defaults", () => {
 		expect(button(chat, "Save chat default").disabled).toBe(true);
 	});
 });
+
+describe("Settings without providers", () => {
+	const removed = (chat: AiSelection | null, own: AiSelection | null) => {
+		status = {
+			enabled: false,
+			providers: [],
+			chat: { selection: chat, available: false },
+			preprocess: own
+				? { selection: own, available: false, sameAsChat: false }
+				: { selection: chat, available: false, sameAsChat: true },
+		};
+	};
+
+	it("keeps saved defaults as unavailable summaries with clear actions", async () => {
+		removed(haiku, gpt);
+		mocks.clearChat.mockResolvedValue(undefined);
+		await mount();
+		expect(container.textContent).toContain("No AI provider is configured");
+		const chat = card("Chat default");
+		const pre = card("Preprocessing default");
+		expect(chat.textContent).toContain("Current: Anthropic / claude-haiku");
+		expect(chat.textContent).toContain("this default is unavailable");
+		expect(pre.textContent).toContain("Current: OpenAI / gpt-small");
+		expect(pre.textContent).toContain("this default is unavailable");
+		expect(container.querySelector("select")).toBeNull();
+		expect(container.querySelector("input")).toBeNull();
+		expect(() => button(chat, "Save chat default")).toThrow();
+		expect(() => button(pre, "Save preprocessing default")).toThrow();
+		await click(button(chat, "Clear"));
+		expect(mocks.clearChat).toHaveBeenCalled();
+		await click(button(pre, "Clear"));
+		expect(mocks.clearPreprocess).toHaveBeenCalled();
+		expect(mocks.models).not.toHaveBeenCalled();
+	});
+
+	it("keeps a saved chat default followed by preprocessing", async () => {
+		removed(haiku, null);
+		await mount();
+		expect(card("Chat default").textContent).toContain(
+			"Anthropic / claude-haiku",
+		);
+		expect(card("Preprocessing default").textContent).toContain(
+			"Same as chat (Anthropic / claude-haiku)",
+		);
+		expect(container.querySelector("select")).toBeNull();
+	});
+
+	it("a fresh instance only offers provider setup", async () => {
+		removed(null, null);
+		await mount();
+		expect(container.textContent).toContain("No AI provider is configured");
+		expect(
+			container.querySelector('section[aria-label="Chat default"]'),
+		).toBeNull();
+		expect(
+			container.querySelector('section[aria-label="Preprocessing default"]'),
+		).toBeNull();
+	});
+});

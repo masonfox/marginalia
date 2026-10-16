@@ -126,9 +126,23 @@ describe("modelInEffect", () => {
 		},
 	});
 
-	it("is disabled without any provider, even with an override", () => {
-		expect(modelInEffect(status([], null), anthropic)).toEqual({
+	it("is disabled without any provider or saved model", () => {
+		expect(modelInEffect(status([], null), null)).toEqual({
 			status: "disabled",
+		});
+	});
+	it("names an override unavailable once the last provider is removed", () => {
+		expect(modelInEffect(status([], null), anthropic)).toEqual({
+			status: "unavailable",
+			selection: anthropic,
+			own: true,
+		});
+	});
+	it("names the default unavailable once the last provider is removed", () => {
+		expect(modelInEffect(status([], anthropic), null)).toEqual({
+			status: "unavailable",
+			selection: anthropic,
+			own: false,
 		});
 	});
 	it("follows the chat default, labelled as the default", () => {

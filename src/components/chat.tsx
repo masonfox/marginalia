@@ -501,12 +501,12 @@ export type ModelInEffect =
 /**
  * The conversation's own model, else the chat default. A model whose provider
  * has no credentials is unavailable; no other model is used in its place.
+ * Disabled only when no provider is configured and no model was ever chosen.
  */
 export function modelInEffect(
 	status: Pick<AiStatus, "enabled" | "providers" | "chat">,
 	own: AiSelection | null,
 ): ModelInEffect {
-	if (!status.enabled) return { status: "disabled" };
 	if (own)
 		return {
 			status: status.providers.includes(own.provider) ? "ok" : "unavailable",
@@ -514,7 +514,7 @@ export function modelInEffect(
 			own: true,
 		};
 	const fallback = status.chat.selection;
-	if (!fallback) return { status: "no_default" };
+	if (!fallback) return { status: status.enabled ? "no_default" : "disabled" };
 	return {
 		status: status.chat.available ? "ok" : "unavailable",
 		selection: fallback,

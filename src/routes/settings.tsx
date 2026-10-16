@@ -95,12 +95,21 @@ function SettingsPage() {
 					/>
 				</>
 			) : (
-				<section className="mt-6 rounded-lg border border-dashed p-6 text-sm">
-					<h2 className="font-medium">No AI provider is configured</h2>
-					<p className="mt-2 text-muted-foreground">
-						Add a provider above, then choose default models here.
-					</p>
-				</section>
+				<>
+					<section className="mt-6 rounded-lg border border-dashed p-6 text-sm">
+						<h2 className="font-medium">No AI provider is configured</h2>
+						<p className="mt-2 text-muted-foreground">
+							Add a provider above, then choose default models here.
+						</p>
+					</section>
+					{/* Saved defaults stay visible, unavailable, and clearable. */}
+					{(status.chat.selection || !status.preprocess.sameAsChat) && (
+						<>
+							<ChatDefaultCard providers={[]} value={status.chat} />
+							<PreprocessDefaultCard providers={[]} value={status.preprocess} />
+						</>
+					)}
+				</>
 			)}
 		</main>
 	);
@@ -216,25 +225,29 @@ function ChatDefaultCard({
 			<p className="text-sm text-muted-foreground">
 				Used by conversations that do not have their own model.
 			</p>
-			<ModelPicker
-				providers={providers}
-				value={draft}
-				onChange={setDraft}
-				disabled={busy}
-			/>
+			{providers.length > 0 && (
+				<ModelPicker
+					providers={providers}
+					value={draft}
+					onChange={setDraft}
+					disabled={busy}
+				/>
+			)}
 			{error && (
 				<p role="alert" className="text-sm text-destructive-foreground">
 					{error}
 				</p>
 			)}
-			<Button
-				type="button"
-				size="sm"
-				disabled={busy || draft.model.trim() === ""}
-				onClick={() => run(() => save({ data: { selection: draft } }))}
-			>
-				Save chat default
-			</Button>
+			{providers.length > 0 && (
+				<Button
+					type="button"
+					size="sm"
+					disabled={busy || draft.model.trim() === ""}
+					onClick={() => run(() => save({ data: { selection: draft } }))}
+				>
+					Save chat default
+				</Button>
+			)}
 		</section>
 	);
 }
@@ -276,28 +289,30 @@ function PreprocessDefaultCard({
 				Used when a book is preprocessed without choosing a model. It may use a
 				different provider from chat.
 			</p>
-			<fieldset className="space-y-1 text-sm" disabled={busy}>
-				<legend className="sr-only">Preprocessing model</legend>
-				<label className="flex items-center gap-2">
-					<input
-						type="radio"
-						name="preprocess-mode"
-						checked={sameAsChat}
-						onChange={() => setSameAsChat(true)}
-					/>
-					Same as the chat default
-				</label>
-				<label className="flex items-center gap-2">
-					<input
-						type="radio"
-						name="preprocess-mode"
-						checked={!sameAsChat}
-						onChange={() => setSameAsChat(false)}
-					/>
-					A specific model
-				</label>
-			</fieldset>
-			{!sameAsChat && (
+			{providers.length > 0 && (
+				<fieldset className="space-y-1 text-sm" disabled={busy}>
+					<legend className="sr-only">Preprocessing model</legend>
+					<label className="flex items-center gap-2">
+						<input
+							type="radio"
+							name="preprocess-mode"
+							checked={sameAsChat}
+							onChange={() => setSameAsChat(true)}
+						/>
+						Same as the chat default
+					</label>
+					<label className="flex items-center gap-2">
+						<input
+							type="radio"
+							name="preprocess-mode"
+							checked={!sameAsChat}
+							onChange={() => setSameAsChat(false)}
+						/>
+						A specific model
+					</label>
+				</fieldset>
+			)}
+			{providers.length > 0 && !sameAsChat && (
 				<ModelPicker
 					providers={providers}
 					value={draft}
@@ -310,20 +325,22 @@ function PreprocessDefaultCard({
 					{error}
 				</p>
 			)}
-			<Button
-				type="button"
-				size="sm"
-				disabled={busy || (!sameAsChat && draft.model.trim() === "")}
-				onClick={() =>
-					run(() =>
-						save({
-							data: { selection: sameAsChat ? "same-as-chat" : draft },
-						}),
-					)
-				}
-			>
-				Save preprocessing default
-			</Button>
+			{providers.length > 0 && (
+				<Button
+					type="button"
+					size="sm"
+					disabled={busy || (!sameAsChat && draft.model.trim() === "")}
+					onClick={() =>
+						run(() =>
+							save({
+								data: { selection: sameAsChat ? "same-as-chat" : draft },
+							}),
+						)
+					}
+				>
+					Save preprocessing default
+				</Button>
+			)}
 		</section>
 	);
 }

@@ -162,3 +162,34 @@ describe("ConversationModelControl clearing", () => {
 		expect(change?.disabled).toBe(true);
 	});
 });
+
+describe("ConversationModelControl without providers", () => {
+	it("names the unavailable own model and offers only clearing it", async () => {
+		await mount({
+			providers: [],
+			chat: { selection: gpt, available: false },
+			own: haiku,
+		});
+		expect(container.textContent).toContain(
+			"Anthropic / claude-haiku (unavailable)",
+		);
+		expect(dialog()?.textContent).toContain("No AI provider is configured");
+		expect(dialog()?.querySelector("select")).toBeNull();
+		await click(button("Use the default"));
+		await click(button("Save"));
+		expect(mocks.set).toHaveBeenCalledWith({
+			data: { conversationId, selection: null },
+		});
+		expect(mocks.models).not.toHaveBeenCalled();
+	});
+
+	it("shows nothing on a fresh instance", async () => {
+		await mount({
+			providers: [],
+			chat: { selection: null, available: false },
+			own: null,
+		});
+		expect(container.textContent).toBe("");
+		expect(dialog()).toBeNull();
+	});
+});

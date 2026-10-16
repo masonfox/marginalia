@@ -45,8 +45,11 @@ function ConversationsPage() {
 	const { edition, conversations, status } = Route.useLoaderData();
 	const router = useRouter();
 	const ready = edition.status === "ready";
-	// New conversations use the chat default unless one is chosen when starting.
-	const chatDefault = modelInEffect(status, null);
+	// New conversations use the chat default unless one is chosen when starting;
+	// without a provider none can be started.
+	const chatDefault = status.enabled
+		? modelInEffect(status, null)
+		: ({ status: "disabled" } as const);
 
 	return (
 		<main className="mx-auto max-w-3xl px-4 py-8">

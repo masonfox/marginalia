@@ -611,14 +611,16 @@ function ConversationPage() {
 						actions={
 							effect.status !== "disabled" && (
 								<>
-									<Button
-										type="button"
-										size="sm"
-										disabled={busy}
-										onClick={() => setModelPickerOpen(true)}
-									>
-										Choose a model
-									</Button>
+									{aiStatus.providers.length > 0 && (
+										<Button
+											type="button"
+											size="sm"
+											disabled={busy}
+											onClick={() => setModelPickerOpen(true)}
+										>
+											Choose a model
+										</Button>
+									)}
 									{effect.status === "unavailable" && effect.own && (
 										<Button
 											type="button"
