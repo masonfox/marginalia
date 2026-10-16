@@ -241,6 +241,8 @@ function DeleteBook({
 		staleTime: 0,
 	});
 	const warning = content.data ? readerContentWarning(content.data) : null;
+	// Delete waits for this opening's count, so the warning is never skipped.
+	const counted = content.isSuccess && !content.isFetching;
 	return (
 		<AlertDialog
 			open={open}
@@ -276,6 +278,21 @@ function DeleteBook({
 							until you upload the same file again.
 						</AlertDialogDescription>
 					)}
+					{content.isError && !content.isFetching && (
+						<div
+							className="flex items-center gap-2 text-sm text-destructive-foreground"
+							data-testid="delete-reader-content-error"
+						>
+							<span>Could not check for your notes and guide edits.</span>
+							<Button
+								size="xs"
+								variant="outline"
+								onClick={() => void content.refetch()}
+							>
+								Try again
+							</Button>
+						</div>
+					)}
 					{error && (
 						<p className="text-sm text-destructive-foreground">{error}</p>
 					)}
@@ -284,7 +301,7 @@ function DeleteBook({
 					<AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
 					<AlertDialogAction
 						className={buttonVariants({ variant: "destructive" })}
-						disabled={busy}
+						disabled={busy || !counted}
 						onClick={async (event) => {
 							// Keep the dialog open until the delete finishes.
 							event.preventDefault();
