@@ -165,18 +165,80 @@ describe("PreprocessCardView", () => {
 			expect(isActive(s)).toBe(false);
 		}
 	});
-	it("AI unconfigured shows no status or action", () => {
-		expect(render({ aiEnabled: false })).toBe("");
-		expect(
-			render({
+	it("AI unconfigured on a book never preprocessed shows nothing", () => {
+		expect(render({ aiEnabled: false }, { providers: [] })).toBe("");
+	});
+	it.each([
+		"queued",
+		"running",
+	] as const)("a %s run stays cancellable after the last provider is removed", (status) => {
+		const h = render(
+			{
+				aiEnabled: false,
+				status,
+				totalUnits: 10,
+				doneUnits: 4,
+				provider: "anthropic",
+				model: "claude-haiku",
+				hasSpend: true,
+				spendUsd: 0.05,
+			},
+			{ providers: [] },
+		);
+		expect(h).toContain("4 of 10 sections");
+		expect(h).toContain("Model: Anthropic / claude-haiku");
+		expect(h).toContain("$0.0500");
+		expect(h).toContain("Cancel preprocessing");
+		expect(h).not.toContain(` disabled=""`);
+		expect(h).not.toContain("Model for this run");
+	});
+	it("keeps a finished run's status and spend without a provider", () => {
+		const h = render(
+			{
 				aiEnabled: false,
 				status: "complete",
 				totalUnits: 3,
 				doneUnits: 3,
 				model: "m1",
 				hasSpend: true,
-			}),
-		).toBe("");
+				spendUsd: 0.1234,
+			},
+			{ providers: [] },
+		);
+		expect(h).toContain("Complete");
+		expect(h).toContain("Last run: m1");
+		expect(h).toContain("$0.1234");
+		expect(h).not.toContain("<button");
+	});
+	it("keeps a failed run's error but offers no new run without a provider", () => {
+		const h = render(
+			{
+				aiEnabled: false,
+				status: "partial",
+				totalUnits: 3,
+				doneUnits: 1,
+				lastError: "Anthropic / claude-haiku is unavailable.",
+			},
+			{ choice: { provider: "openai", model: "gpt-small" }, providers: [] },
+		);
+		expect(h).toContain("Incomplete");
+		expect(h).toContain("Anthropic / claude-haiku is unavailable.");
+		expect(h).toContain('href="/settings"');
+		expect(h).not.toContain("<button");
+		expect(h).not.toContain("Model for this run");
+		expect(h).not.toContain(">Provider</label>");
+	});
+	it.each([
+		"cancelled",
+		"stale",
+	] as const)("a %s run offers no new run while providers are empty", (status) => {
+		const h = render(
+			{ status, totalUnits: 3, doneUnits: 1 },
+			{ providers: [] },
+		);
+		expect(h).toContain('href="/settings"');
+		expect(h).not.toContain("<button");
+		expect(h).not.toContain(">Provider</label>");
 	});
 });
 

@@ -82,23 +82,27 @@ export function PreprocessCardView({
 	onStart?: () => void;
 	onCancel?: () => void;
 }) {
-	// Without AI there is no preprocessing status or action to show.
-	if (!view.aiEnabled) return null;
+	// Without AI a book never preprocessed has nothing to show; one with a
+	// run keeps its status, and a pending run stays cancellable.
+	if (!view.aiEnabled && view.status === "not_started") return null;
 	const active = isActive(view.status);
 	const failed = view.failedUnits > 0 || view.lastError !== null;
+	// A new run needs a provider; a stale choice or default cannot start one.
+	const runnable = view.aiEnabled && providers?.length !== 0;
 	// A complete book has nothing to regenerate: the job skips current units.
 	// While a job is pending the only action is to cancel it.
-	const action = active
-		? null
-		: view.status === "not_started"
-			? "Start preprocessing"
-			: view.status === "complete"
-				? null
-				: view.status === "stale"
-					? "Regenerate"
-					: view.status === "cancelled"
-						? "Resume"
-						: "Retry";
+	const action =
+		active || !runnable
+			? null
+			: view.status === "not_started"
+				? "Start preprocessing"
+				: view.status === "complete"
+					? null
+					: view.status === "stale"
+						? "Regenerate"
+						: view.status === "cancelled"
+							? "Resume"
+							: "Retry";
 	const runModel = replyModelLabel(view.provider, view.model);
 	const fallback = view.preprocessDefault.available
 		? view.preprocessDefault.selection
@@ -169,6 +173,15 @@ export function PreprocessCardView({
 							Cancel preprocessing
 						</Button>
 					</>
+				)}
+				{!active && !runnable && view.status !== "complete" && (
+					<p className="text-muted-foreground">
+						No AI provider is configured. Add one in{" "}
+						<Link to="/settings" className="underline underline-offset-2">
+							Settings
+						</Link>{" "}
+						to run preprocessing again.
+					</p>
 				)}
 				{action && (
 					<>
