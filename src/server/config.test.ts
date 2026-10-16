@@ -283,12 +283,9 @@ describe("loadConfig", () => {
 			});
 			// No preprocess default means preprocessing follows the chat model.
 			expect(c.ai.envDefaults.preprocess).toBeUndefined();
-			expect(createAi(c.ai).status).toEqual({
-				enabled: true,
-				provider: "anthropic",
-				model: "claude-x",
-				preprocessModel: "claude-x",
-			});
+			expect(
+				createAi(c.ai).resolve({ provider: "anthropic", model: "claude-x" }).ok,
+			).toBe(true);
 		});
 
 		it("loads effort, caching, and price overrides", () => {

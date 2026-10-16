@@ -15,15 +15,20 @@ import {
 	renameConversation,
 	widenConversationScope,
 } from "#/modules/conversation";
+import { getAiStatus } from "#/modules/settings";
 import { priceTable } from "#/modules/usage";
 import { appContext } from "#/server/context";
 
 // Only server functions are exported here: anything else would pull server code into the client bundle.
 
-/** Whether AI is configured, and which provider and model. Never includes the API key. */
-export const getAiStatusFn = createServerFn({ method: "GET" }).handler(
-	() => appContext().ai.status,
-);
+/**
+ * Whether AI is enabled, the available providers, and both defaults with
+ * their source and availability. Never includes API keys or base URLs.
+ */
+export const getAiStatusFn = createServerFn({ method: "GET" }).handler(() => {
+	const { db, ai } = appContext();
+	return getAiStatus(db, ai);
+});
 
 export const listConversationsFn = createServerFn({ method: "GET" })
 	.validator(z.object({ editionId: z.uuid() }))

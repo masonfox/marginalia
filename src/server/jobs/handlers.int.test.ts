@@ -69,7 +69,7 @@ beforeAll(async () => {
 		db: t.db,
 		config: { dataDir, preprocessAuto: false },
 		log: silentLog,
-		ai: { status: { enabled: false } },
+		ai: { available: () => [], envDefaults: {} },
 		enqueue: async () => null,
 	} as unknown as AppContext);
 });

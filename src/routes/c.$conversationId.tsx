@@ -82,11 +82,14 @@ export const Route = createFileRoute("/c/$conversationId")({
 	}),
 	loader: async ({ params }) => {
 		if (!z.uuid().safeParse(params.conversationId).success) throw notFound();
-		const [conversation, ai] = await Promise.all([
+		const [conversation, status] = await Promise.all([
 			getConversationFn({ data: { conversationId: params.conversationId } }),
 			getAiStatusFn(),
 		]);
 		if (!conversation) throw notFound();
+		// The chat default until conversations have models of their own.
+		const chat = status.chat.available ? status.chat.selection : null;
+		const ai = { enabled: chat !== null, ...chat };
 		return { conversation, ai };
 	},
 	head: ({ loaderData }) => ({

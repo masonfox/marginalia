@@ -40,7 +40,7 @@ export const Route = createFileRoute("/p/$locator")({
 				replace: true,
 			});
 		}
-		return { view, aiEnabled: ai.enabled };
+		return { view, aiEnabled: ai.chat.available };
 	},
 	head: ({ loaderData }) => ({
 		meta: [

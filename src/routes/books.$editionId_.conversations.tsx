@@ -19,12 +19,15 @@ export const Route = createFileRoute("/books/$editionId_/conversations")({
 	loader: async ({ params }) => {
 		if (!z.uuid().safeParse(params.editionId).success) throw notFound();
 		const editionId = params.editionId;
-		const [book, conversations, ai] = await Promise.all([
+		const [book, conversations, status] = await Promise.all([
 			getEditionFn({ data: { editionId } }),
 			listConversationsFn({ data: { editionId } }),
 			getAiStatusFn(),
 		]);
 		if (!book) throw notFound();
+		// New conversations use the chat default.
+		const chat = status.chat.available ? status.chat.selection : null;
+		const ai = { enabled: chat !== null, ...chat };
 		return { edition: book.edition, conversations, ai };
 	},
 	head: ({ loaderData }) => ({

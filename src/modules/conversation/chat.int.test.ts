@@ -84,7 +84,6 @@ function runtime(
 		available: () => ["openai"],
 		resolve: (selection) => ({ ok: true, model, providerOptions, selection }),
 		envDefaults: { chat },
-		status: { enabled: true, ...chat },
 		maxSteps,
 		temperature: undefined,
 		reasoning: undefined,

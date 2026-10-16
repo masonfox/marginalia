@@ -12,9 +12,9 @@
 
 ## 3. Settings storage
 
-- [ ] 3.1 Add the Drizzle schema for `ai_settings` (single row), `conversations.ai_provider`/`ai_model` with a both-or-neither check, `messages.provider`, and `preprocess_runs.provider`. Generate the migration with `pnpm db:generate`. Verify that `pnpm db:migrate` applies it on a fresh and on an existing dev database, and that `db.int.test.ts` passes.
-- [ ] 3.2 Create `src/modules/settings` with `getAiDefaults` (effective value, `source`, `available`), `saveChatDefault`, `savePreprocessDefault` (selection or same-as-chat), and the two reset functions, following the resolution order in design Decision 3. Verify with an integration test covering env-only, saved-wins, reset-to-env, same-as-chat following a chat change, and a saved default whose provider is unavailable.
-- [ ] 3.3 Replace `getAiStatusFn` with a status that reports enabled, available providers, and both defaults with source and availability, and never keys or base URLs. Verify with an integration test asserting no credential fields appear in the response.
+- [x] 3.1 Add the Drizzle schema for `ai_settings` (single row), `conversations.ai_provider`/`ai_model` with a both-or-neither check, `messages.provider`, and `preprocess_runs.provider`. Generate the migration with `pnpm db:generate`. Verify that `pnpm db:migrate` applies it on a fresh and on an existing dev database, and that `db.int.test.ts` passes.
+- [x] 3.2 Create `src/modules/settings` with `getAiDefaults` (effective value, `source`, `available`), `saveChatDefault`, `savePreprocessDefault` (selection or same-as-chat), and the two reset functions, following the resolution order in design Decision 3. Verify with an integration test covering env-only, saved-wins, reset-to-env, same-as-chat following a chat change, and a saved default whose provider is unavailable.
+- [x] 3.3 Replace `getAiStatusFn` with a status that reports enabled, available providers, and both defaults with source and availability, and never keys or base URLs. Verify with an integration test asserting no credential fields appear in the response.
 
 ## 4. Conversations
 

@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { cancelRun, getPreprocessStatus } from "#/modules/analysis";
 import { getEditionDetail } from "#/modules/library";
+import { getAiDefaults } from "#/modules/settings";
 import { priceTable, totalOf, usageForEdition } from "#/modules/usage";
 import { appContext } from "#/server/context";
 
@@ -17,13 +18,14 @@ export const getPreprocessStatusFn = createServerFn({ method: "GET" })
 			editionId: data.editionId,
 		}).catch(() => undefined);
 		const status = await getPreprocessStatus(db, data.editionId, job);
+		const defaults = await getAiDefaults(db, ai);
 		const table = priceTable(config.ai?.prices);
 		const rows = await usageForEdition(db, data.editionId);
 		const total = totalOf({ byMessage: {}, byModel: rows, missing: 0 }, table);
 		return {
 			...status,
-			aiEnabled: ai.status.enabled,
-			configuredModel: ai.status.preprocessModel ?? null,
+			aiEnabled: ai.available().length > 0,
+			configuredModel: defaults.preprocess.selection?.model ?? null,
 			spendUsd: rows.length === 0 ? 0 : total.estimatedCost,
 			hasSpend: rows.length > 0,
 			// Null when the provider never reported the count.
@@ -36,7 +38,7 @@ export const startPreprocessFn = createServerFn({ method: "POST" })
 	.validator(z.object({ editionId: z.uuid() }))
 	.handler(async ({ data }) => {
 		const { db, ai, enqueue } = appContext();
-		if (!ai.status.enabled) throw new Error("AI is not configured.");
+		if (ai.available().length === 0) throw new Error("AI is not configured.");
 		const edition = await getEditionDetail(db, data.editionId);
 		if (!edition || edition.status !== "ready")
 			throw new Error("The book is not ready.");

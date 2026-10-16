@@ -4,7 +4,11 @@ import { enqueueAutoPreprocess } from "./handlers";
 const run = (auto: boolean, enabled: boolean) => {
 	const enqueue = vi.fn(async () => "job");
 	return enqueueAutoPreprocess(
-		{ config: { preprocessAuto: auto }, ai: { status: { enabled } }, enqueue },
+		{
+			config: { preprocessAuto: auto },
+			ai: { available: () => (enabled ? ["openai"] : []) },
+			enqueue,
+		},
 		"ed1",
 	).then((r) => ({ r, enqueue }));
 };

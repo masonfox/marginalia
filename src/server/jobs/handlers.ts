@@ -15,7 +15,7 @@ import type { JobHandlers } from "./kinds";
 export async function enqueueAutoPreprocess(
 	deps: {
 		config: { preprocessAuto: boolean };
-		ai: { status: { enabled: boolean } };
+		ai: { available(): readonly string[] };
 		enqueue: (
 			kind: "analysis.preprocess",
 			p: { editionId: string },
@@ -23,7 +23,8 @@ export async function enqueueAutoPreprocess(
 	},
 	editionId: string,
 ): Promise<boolean> {
-	if (!deps.config.preprocessAuto || !deps.ai.status.enabled) return false;
+	if (!deps.config.preprocessAuto || deps.ai.available().length === 0)
+		return false;
 	await deps.enqueue("analysis.preprocess", { editionId });
 	return true;
 }

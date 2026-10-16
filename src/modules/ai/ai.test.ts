@@ -111,7 +111,6 @@ describe("createAi", () => {
 			ok: false,
 			reason: "unavailable",
 		});
-		expect(ai.status).toEqual({ enabled: false });
 	});
 
 	it.each([
@@ -171,17 +170,9 @@ describe("createAi", () => {
 		});
 	});
 
-	it("keeps the env defaults and reports a status without the key", () => {
+	it("keeps the env defaults", () => {
 		const c = cfg({ provider: "anthropic", model: "claude-x" });
-		const ai = createAi(c);
-		expect(ai.envDefaults).toEqual(c.envDefaults);
-		expect(ai.status).toEqual({
-			enabled: true,
-			provider: "anthropic",
-			preprocessModel: "m1",
-			model: "claude-x",
-		});
-		expect(JSON.stringify(ai.status)).not.toContain("sk-secret");
+		expect(createAi(c).envDefaults).toEqual(c.envDefaults);
 	});
 
 	it("carries step and temperature settings", () => {

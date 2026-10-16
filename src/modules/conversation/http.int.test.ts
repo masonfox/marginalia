@@ -69,7 +69,6 @@ const enabled = (model: MockLanguageModelV4): AiRuntime => {
 			selection,
 		}),
 		envDefaults: { chat },
-		status: { enabled: true, ...chat },
 		maxSteps: 4,
 		temperature: undefined,
 		reasoning: undefined,

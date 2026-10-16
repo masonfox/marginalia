@@ -33,14 +33,6 @@ export {
 } from "./models";
 export { MAX_MODEL_ID_LENGTH, selectionSchema } from "./selection";
 
-/** What the UI may know about the AI setup. Never contains the API key. */
-export interface AiStatus {
-	enabled: boolean;
-	provider?: AiProviderName;
-	model?: string;
-	preprocessModel?: string;
-}
-
 export type ProviderOptions = NonNullable<
 	Parameters<typeof streamText>[0]["providerOptions"]
 >;
@@ -63,7 +55,6 @@ export interface AiRuntime {
 	resolve(selection: AiSelection): ResolvedModel;
 	/** Defaults from AI_PROVIDER with AI_MODEL and AI_PREPROCESS_MODEL. */
 	envDefaults: AiConfig["envDefaults"];
-	status: AiStatus;
 	maxSteps: number;
 	temperature: number | undefined;
 	/** Reasoning effort for every call; undefined leaves the provider default. */
@@ -98,25 +89,10 @@ export function createAi(config: AiConfig | undefined): AiRuntime {
 		};
 	};
 
-	const envDefaults = config?.envDefaults ?? {};
-	const chat = envDefaults.chat;
-	// The env preprocess default shares the chat provider.
-	const preprocess = envDefaults.preprocess ?? chat;
-	const status: AiStatus =
-		chat && credentials[chat.provider]
-			? {
-					enabled: true,
-					provider: chat.provider,
-					model: chat.model,
-					preprocessModel: preprocess?.model,
-				}
-			: { enabled: false };
-
 	return {
 		available: () => [...available],
 		resolve,
-		envDefaults,
-		status,
+		envDefaults: config?.envDefaults ?? {},
 		maxSteps: config?.maxSteps ?? 8,
 		temperature: config?.temperature,
 		reasoning: config?.effort,

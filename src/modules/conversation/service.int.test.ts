@@ -1,5 +1,4 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { createAi } from "#/modules/ai";
 import { deleteEdition, ensureEdition } from "#/modules/library";
 import { priceTable, recordUsage } from "#/modules/usage";
 import { loadConfig } from "#/server/config";
@@ -176,25 +175,5 @@ describe("conversation operations behind the server functions", () => {
 		await pruneEmptyConversations(t.db);
 		expect(await getConversation(t.db, doomed.id)).toBeNull();
 		expect(await getConversation(t.db, other.id)).not.toBeNull();
-	});
-
-	it("exposes the AI status without the key", () => {
-		const ai = createAi({
-			credentials: { openai: { apiKey: SECRET, baseUrl: undefined } },
-			envDefaults: { chat: { provider: "openai", model: "gpt-test" } },
-			maxSteps: 8,
-			temperature: undefined,
-			effort: undefined,
-			promptCache: true,
-			prices: {},
-		});
-		expect(ai.status).toEqual({
-			enabled: true,
-			provider: "openai",
-			model: "gpt-test",
-			preprocessModel: "gpt-test",
-		});
-		expect(JSON.stringify(ai.status)).not.toContain(SECRET);
-		expect(createAi(undefined).status).toEqual({ enabled: false });
 	});
 });
