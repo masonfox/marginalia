@@ -38,6 +38,6 @@
 
 ## 7. Documentation and end-to-end
 
-- [ ] 7.1 Update `.env.example`, `compose.yaml`, and `docs/deployment.md` with the per-provider variables, the legacy mapping, Settings precedence and reset, per-conversation and per-run models, and the shared-login note. Verify that `docs.test.ts` passes and that Compose passes `AI_OPENAI_API_KEY` through.
+- [x] 7.1 Update `.env.example`, `compose.yaml`, and `docs/deployment.md` with the per-provider variables, the legacy mapping, Settings precedence and reset, per-conversation and per-run models, and the shared-login note. Verify that `docs.test.ts` passes and that Compose passes `AI_OPENAI_API_KEY` through.
 - [ ] 7.2 Add a Playwright e2e test that opens Settings, changes the chat default, and sees it shown in a new conversation (AI calls stubbed or disabled as in existing e2e). Verify that `pnpm test:e2e` passes.
-- [ ] 7.3 Run `pnpm typecheck`, `pnpm lint`, and `pnpm test`, and confirm all pass.
+- [x] 7.3 Run `pnpm typecheck`, `pnpm lint`, and `pnpm test`, and confirm all pass.

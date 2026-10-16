@@ -47,10 +47,10 @@ All configuration comes from environment variables. They are validated at startu
 | `MARGINALIA_TRUST_PROXY` | `false` | Trust `X-Forwarded-For` and `X-Forwarded-Proto` from a reverse proxy. See [the proxy section](#trusting-the-proxy). |
 | `MARGINALIA_SESSION_DAYS` | `30` | How long a login lasts. |
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, or `silent`. Logs are JSON on stdout. |
-| `AI_PROVIDER` | *(unset)* | `openai`, `anthropic`, `google`, or `openai-compatible`. Unset disables AI: the library, search, and reading work as before, and conversations show setup guidance. See [AI conversations](#ai-conversations). |
-| `AI_MODEL` | *(unset)* | The model name, e.g. `claude-sonnet-5-5`, `gpt-5`, `gemini-2.5-pro`, or `llama3.1`. Required when `AI_PROVIDER` is set. See [choosing a model](#choosing-a-model-and-controlling-cost). |
-| `AI_API_KEY` | *(unset)* | The provider API key. Required for every provider except `openai-compatible`, where it is optional. Never logged or shown in the UI. |
-| `AI_BASE_URL` | *(unset)* | The provider endpoint. Required for `openai-compatible` (e.g. `http://ollama:11434/v1`), and an optional override for the others (for example a proxy). |
+| `AI_PROVIDER` | *(unset)* | `openai`, `anthropic`, `google`, or `openai-compatible`: the provider of the environment's default model, whose credentials may be given with `AI_API_KEY`/`AI_BASE_URL` or with that provider's own variables below. AI is off only when no provider has credentials: the library, search, and reading work as before, and conversations show setup guidance. See [AI conversations](#ai-conversations). |
+| `AI_MODEL` | *(unset)* | The default chat model, e.g. `claude-sonnet-5-5`, `gpt-5`, `gemini-2.5-pro`, or `llama3.1`. Required when `AI_PROVIDER` is set, and ignored (with a warning) without it. A chat default saved in Settings takes precedence. See [choosing a model](#choosing-a-model-and-controlling-cost). |
+| `AI_API_KEY` | *(unset)* | The API key for `AI_PROVIDER`. Required for every provider except `openai-compatible`, where it is optional, unless the provider's own key variable is set instead. Never logged or shown in the UI. |
+| `AI_BASE_URL` | *(unset)* | The endpoint for `AI_PROVIDER`. Required for `openai-compatible` (e.g. `http://ollama:11434/v1`) unless `AI_OPENAI_COMPATIBLE_BASE_URL` is set, and an optional override for the others (for example a proxy). |
 | `AI_OPENAI_API_KEY` | *(unset)* | An OpenAI API key, which makes OpenAI available alongside other providers. Do not also set `AI_API_KEY` for OpenAI. |
 | `AI_OPENAI_BASE_URL` | *(unset)* | An optional OpenAI endpoint override. Requires `AI_OPENAI_API_KEY`. |
 | `AI_ANTHROPIC_API_KEY` | *(unset)* | An Anthropic API key, which makes Anthropic available alongside other providers. Do not also set `AI_API_KEY` for Anthropic. |
@@ -64,7 +64,7 @@ All configuration comes from environment variables. They are validated at startu
 | `AI_EFFORT` | *(unset)* | Reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. Unset uses the model's default. A level the model does not support is adjusted or dropped by the provider library, with a logged warning, not an error. See [controlling cost](#choosing-a-model-and-controlling-cost). |
 | `AI_PROMPT_CACHE` | `true` | Ask the provider to cache the unchanged start of each request (Anthropic). Set `false` to turn it off. OpenAI and Google cache on their own and ignore this. |
 | `AI_PRICES` | *(unset)* | Price overrides for the cost estimates shown in conversations, as JSON in USD per million tokens: `{"my-model": {"input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75}}`. `cacheRead` and `cacheWrite` are optional and default to the input price. Entries add to or replace the built-in Anthropic prices. |
-| `AI_PREPROCESS_MODEL` | `AI_MODEL` | The model used for book preprocessing. A cheaper model is usually enough. Requires `AI_PROVIDER`. See [book preprocessing](#book-preprocessing). |
+| `AI_PREPROCESS_MODEL` | `AI_MODEL` | The default model for book preprocessing, from `AI_PROVIDER`. A cheaper model is usually enough. Requires `AI_PROVIDER`. A preprocessing default saved in Settings takes precedence. See [book preprocessing](#book-preprocessing). |
 | `AI_PREPROCESS_AUTO` | `false` | Preprocess each book automatically after import. Off by default because it sends whole books to the provider and costs money. Requires credentials for at least one provider. |
 | `MARGINALIA_MIGRATIONS_DIR` | `/app/drizzle` (in the image) | Location of the database migrations. Only change this if you build your own image layout. |
 | `NODE_ENV` | `production` (in the image) | Runtime mode. Leave as is. |
@@ -73,7 +73,7 @@ Database migrations run automatically at startup, before the server accepts requ
 
 ## AI conversations
 
-Conversations let you discuss a book with a language model that searches and quotes the actual text. They are off until you choose a provider. Configuration is by environment variables only; if a provider is set but its model, key, or base URL is missing, Marginalia refuses to start and names the variable (it never prints the key).
+Conversations let you discuss a book with a language model that searches and quotes the actual text. They are off until at least one provider has credentials. Credentials are set in the environment only: API keys are never entered in the app or stored in the database. If a value is missing or contradictory, for example a provider chosen with `AI_PROVIDER` but no key, Marginalia refuses to start and names the variables (it never prints a key). Which model to use can be chosen in the app, see [several providers and the Settings page](#several-providers-and-the-settings-page).
 
 **Hosted provider** (in `.env`, then `docker compose up -d`):
 
@@ -97,6 +97,29 @@ Small local models vary in how well they call tools and follow the citation form
 **What is sent to the provider.** Each message you send, the earlier messages of that conversation, and every passage the assistant reads or searches for are sent to the configured provider to produce a reply. With a hosted provider, that text leaves your instance. Use a local endpoint if that is not acceptable. Each conversation is limited to the scope you choose for each book, so the assistant reads nothing past it. Your [reading position](#reading-position) only suggests that scope. If the assistant looks up your [reader notes](#corrections-and-notes), the notes within scope are sent too.
 
 Conversations are stored in your PostgreSQL database. Deleting a book deletes the conversations about it.
+
+### Several providers and the Settings page
+
+Each provider has its own credential variables, so several can be available at once:
+
+| Provider | Key | Endpoint |
+| --- | --- | --- |
+| OpenAI | `AI_OPENAI_API_KEY` | `AI_OPENAI_BASE_URL` (optional) |
+| Anthropic | `AI_ANTHROPIC_API_KEY` | `AI_ANTHROPIC_BASE_URL` (optional) |
+| Google | `AI_GOOGLE_API_KEY` | `AI_GOOGLE_BASE_URL` (optional) |
+| OpenAI-compatible | `AI_OPENAI_COMPATIBLE_API_KEY` (optional) | `AI_OPENAI_COMPATIBLE_BASE_URL` (required) |
+
+**The existing variables keep working.** `AI_API_KEY` and `AI_BASE_URL` are the credentials of the provider named by `AI_PROVIDER`: `AI_PROVIDER=anthropic` with `AI_API_KEY=sk-ant-...` is the same as `AI_ANTHROPIC_API_KEY=sk-ant-...`. Give each provider's credentials one way only. Setting both `AI_API_KEY` (or `AI_BASE_URL`) and that provider's own variables is a startup error naming both, so there is never a question of which key wins. `AI_PROVIDER` with `AI_MODEL`, and `AI_PREPROCESS_MODEL`, now only set the environment's default models (see below). An existing deployment needs no changes and uses the same models after upgrading.
+
+**Adding a second provider.** With Anthropic configured through `AI_PROVIDER`, add `AI_OPENAI_API_KEY=sk-...` to `.env` and run `docker compose up -d` again. The Settings page and every model picker then offer OpenAI models too. Your existing defaults do not change until you choose otherwise.
+
+**Settings.** The **Settings** page (linked in the header) shows which providers have credentials, by name only, and sets two defaults: the **chat default**, used by conversations without a model of their own, and the **preprocessing default**, used by preprocessing runs started without a choice and by automatic runs (`AI_PREPROCESS_AUTO`). The preprocessing default may use a different provider from chat, or follow the chat default. Each default is a provider and a model. Pickers list the provider's models from its API, reused for a few minutes with a refresh button, and with prices where Marginalia knows them. A model id can always be typed instead, which local and OpenAI-compatible endpoints often need. A typed id that does not exist fails on its first use with the provider's error.
+
+**Which default applies.** Until a default is saved in Settings, the environment's applies: `AI_PROVIDER` with `AI_MODEL` for chat, and `AI_PREPROCESS_MODEL` (with `AI_PROVIDER`) for preprocessing, which otherwise follows the chat default. A default saved in Settings takes precedence over the environment, applies to replies and runs started after it is saved, and needs no restart. Each card shows where its value comes from ("Saved in Settings" or "From the environment"). **Reset** removes the saved value, so the environment default applies again. To change an environment default, edit `.env` and restart; it takes effect only where nothing is saved in Settings. If a saved default's provider loses its credentials, Settings marks it unavailable and nothing else is used in its place until you choose another model or restore the credentials. With credentials but no default at all, conversations ask you to choose a model in Settings.
+
+**Per conversation and per run.** A conversation can use its own model, chosen when it is started or later with **Change model** in its header. It keeps that model for every later reply until changed again or set back to the default, and an unpinned conversation follows the current chat default. Each reply's usage line names the model that wrote it. If a conversation's own model loses its provider's credentials, the conversation says so instead of switching models. Changing the model only costs a prompt-cache miss on the next reply. A book's preprocessing card preselects the preprocessing default and can start a run with another model. A queued or retried run keeps the model it was started with, and the card shows the last run's model next to the default a new run would use.
+
+**Everyone who signs in shares the defaults.** There is one shared password and no per-reader settings, so anyone with the password can change the instance's defaults, as they can delete books or start preprocessing.
 
 ### Choosing a model and controlling cost
 
@@ -309,4 +332,4 @@ Preprocessing reads a whole book once, unit by unit, and stores a short summary 
 
 - **Privacy:** preprocessing sends the full text of the book to your AI provider, not only passages. Use a local `openai-compatible` endpoint if that is not acceptable.
 - **Cost:** it is one-time per book, billed as the input of the whole book plus a small output per unit, so a typical novel costs roughly the price of reading it once with your model. Spend is shown on the book page and is an estimate (see above). Re-importing a changed file regenerates it.
-- **Recommendations:** set `AI_PREPROCESS_MODEL` to a cheaper model, try one book manually from its page to check the cost, and enable `AI_PREPROCESS_AUTO` only once you are comfortable with it.
+- **Recommendations:** choose a cheaper preprocessing default in Settings (or set `AI_PREPROCESS_MODEL`), try one book manually from its page to check the cost, and enable `AI_PREPROCESS_AUTO` only once you are comfortable with it.
