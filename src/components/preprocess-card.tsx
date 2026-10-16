@@ -1,13 +1,22 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
+import {
+	ModelChoice,
+	replyModelLabel,
+	selectionLabel,
+} from "#/components/model-picker";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
+import { getAiStatusFn } from "#/fns/conversations";
 import {
 	cancelPreprocessFn,
 	getPreprocessStatusFn,
 	startPreprocessFn,
 } from "#/fns/preprocess";
+import type { AiDefault } from "#/modules/settings";
+import type { AiProviderName, AiSelection } from "#/server/config";
 
 export interface PreprocessView {
 	status:
@@ -21,10 +30,13 @@ export interface PreprocessView {
 	totalUnits: number;
 	doneUnits: number;
 	failedUnits: number;
+	/** Of the queued, running, or last run. */
+	provider: string | null;
 	model: string | null;
 	lastError: string | null;
 	aiEnabled: boolean;
-	configuredModel: string | null;
+	/** What a new run preselects. */
+	preprocessDefault: Pick<AiDefault, "selection" | "available">;
 	spendUsd: number | null;
 	hasSpend: boolean;
 	/** Null when unreported. */
@@ -51,12 +63,20 @@ const LABELS: Record<PreprocessView["status"], string> = {
 /** Presentational card; the container below wires data and actions. */
 export function PreprocessCardView({
 	view,
+	providers,
+	choice = null,
+	onChoiceChange,
 	busy = false,
 	error = null,
 	onStart,
 	onCancel,
 }: {
 	view: PreprocessView;
+	/** Providers a run's model can use; the change control waits for them. */
+	providers?: AiProviderName[];
+	/** The model chosen for the next run; null uses the default. */
+	choice?: AiSelection | null;
+	onChoiceChange?: (choice: AiSelection | null) => void;
 	busy?: boolean;
 	error?: string | null;
 	onStart?: () => void;
@@ -79,6 +99,12 @@ export function PreprocessCardView({
 					: view.status === "cancelled"
 						? "Resume"
 						: "Retry";
+	const runModel = replyModelLabel(view.provider, view.model);
+	const fallback = view.preprocessDefault.available
+		? view.preprocessDefault.selection
+		: null;
+	// A run needs a model: the default, or one chosen here.
+	const startable = choice ? choice.model.trim() !== "" : fallback !== null;
 	return (
 		<section className="mt-8" aria-labelledby="preprocess">
 			<h2 id="preprocess" className="font-medium">
@@ -95,7 +121,11 @@ export function PreprocessCardView({
 						</span>
 					)}
 				</div>
-				{view.model && <p>Model: {view.model}</p>}
+				{runModel && (
+					<p data-testid="preprocess-run-model">
+						{active ? "Model" : "Last run"}: {runModel}
+					</p>
+				)}
 				{view.hasSpend && (
 					<p>
 						Spend:{" "}
@@ -146,12 +176,43 @@ export function PreprocessCardView({
 							Preprocessing sends the whole book text to your AI provider, and
 							it can cost real money on long books.
 						</p>
+						<div className="space-y-1" data-testid="preprocess-model">
+							<p className="font-medium">Model for this run</p>
+							{providers ? (
+								<ModelChoice
+									providers={providers}
+									fallback={fallback}
+									value={choice}
+									onChange={(next) => onChoiceChange?.(next)}
+									disabled={busy}
+								/>
+							) : (
+								fallback && <p>{selectionLabel(fallback)} (default)</p>
+							)}
+							{choice === null && !fallback && (
+								<p className="text-muted-foreground">
+									{view.preprocessDefault.selection
+										? `The default, ${selectionLabel(view.preprocessDefault.selection)}, is unavailable because its provider has no credentials.`
+										: "No preprocessing default is set."}{" "}
+									Choose a model for this run, or set a default in{" "}
+									<Link to="/settings" className="underline underline-offset-2">
+										Settings
+									</Link>
+									.
+								</p>
+							)}
+						</div>
 						{error && (
 							<p role="alert" className="text-destructive-foreground">
 								{error}
 							</p>
 						)}
-						<Button type="button" size="sm" disabled={busy} onClick={onStart}>
+						<Button
+							type="button"
+							size="sm"
+							disabled={busy || !startable}
+							onClick={onStart}
+						>
 							{action}
 						</Button>
 					</>
@@ -166,9 +227,16 @@ export function PreprocessCard({ editionId }: { editionId: string }) {
 	const load = useServerFn(getPreprocessStatusFn);
 	const start = useServerFn(startPreprocessFn);
 	const cancel = useServerFn(cancelPreprocessFn);
+	const loadStatus = useServerFn(getAiStatusFn);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// This run's model only; the default is left unchanged.
+	const [choice, setChoice] = useState<AiSelection | null>(null);
 	const key = ["preprocess", editionId];
+	const aiStatus = useQuery({
+		queryKey: ["ai-status"],
+		queryFn: () => loadStatus(),
+	});
 	const { data } = useQuery({
 		queryKey: key,
 		queryFn: () => load({ data: { editionId } }),
@@ -191,13 +259,18 @@ export function PreprocessCard({ editionId }: { editionId: string }) {
 	return (
 		<PreprocessCardView
 			view={data}
+			providers={aiStatus.data?.providers}
+			choice={choice}
+			onChoiceChange={setChoice}
 			busy={busy}
 			error={error}
 			onStart={() =>
-				act(
-					() => start({ data: { editionId } }),
-					"Preprocessing could not be started.",
-				)
+				act(async () => {
+					await start({
+						data: { editionId, ...(choice && { selection: choice }) },
+					});
+					setChoice(null);
+				}, "Preprocessing could not be started.")
 			}
 			onCancel={() =>
 				act(

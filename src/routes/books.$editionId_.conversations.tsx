@@ -6,10 +6,12 @@ import {
 } from "@tanstack/react-router";
 import { MessageSquarePlus } from "lucide-react";
 import { z } from "zod";
+import { AiSetupNotice, modelInEffect } from "#/components/chat";
 import {
 	DeleteConversation,
 	RenameConversation,
 } from "#/components/conversation-controls";
+import { selectionLabel } from "#/components/model-picker";
 import { NewConversationDialog, scopeText } from "#/components/scope";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn, listConversationsFn } from "#/fns/conversations";
@@ -25,10 +27,7 @@ export const Route = createFileRoute("/books/$editionId_/conversations")({
 			getAiStatusFn(),
 		]);
 		if (!book) throw notFound();
-		// New conversations use the chat default.
-		const chat = status.chat.available ? status.chat.selection : null;
-		const ai = { enabled: chat !== null, ...chat };
-		return { edition: book.edition, conversations, ai };
+		return { edition: book.edition, conversations, status };
 	},
 	head: ({ loaderData }) => ({
 		meta: [
@@ -43,9 +42,11 @@ export const Route = createFileRoute("/books/$editionId_/conversations")({
 });
 
 function ConversationsPage() {
-	const { edition, conversations, ai } = Route.useLoaderData();
+	const { edition, conversations, status } = Route.useLoaderData();
 	const router = useRouter();
 	const ready = edition.status === "ready";
+	// New conversations use the chat default unless one is chosen when starting.
+	const chatDefault = modelInEffect(status, null);
 
 	return (
 		<main className="mx-auto max-w-3xl px-4 py-8">
@@ -63,12 +64,17 @@ function ConversationsPage() {
 				About <em>{edition.title}</em>
 			</p>
 
-			{ai.enabled ? (
+			{chatDefault.status !== "disabled" ? (
 				<div className="mt-6 space-y-3">
-					<p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-						Passages the assistant reads and your messages are sent to{" "}
-						{ai.provider} ({ai.model}).
-					</p>
+					{chatDefault.status === "ok" ? (
+						<p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+							Passages the assistant reads and your messages are sent to{" "}
+							{selectionLabel(chatDefault.selection)}, the chat default. You can
+							choose another model when you start a conversation.
+						</p>
+					) : (
+						<AiSetupNotice effect={chatDefault} />
+					)}
 					{ready ? (
 						<NewConversationDialog editionId={edition.id}>
 							<Button type="button">
@@ -88,7 +94,9 @@ function ConversationsPage() {
 					)}
 				</div>
 			) : (
-				<AiSetupGuidance />
+				<div className="mt-6">
+					<AiSetupNotice effect={chatDefault} />
+				</div>
 			)}
 
 			<section className="mt-8" aria-labelledby="existing">
@@ -136,27 +144,5 @@ function ConversationsPage() {
 				)}
 			</section>
 		</main>
-	);
-}
-
-function AiSetupGuidance() {
-	return (
-		<section
-			className="mt-6 rounded-md border bg-muted/40 p-4 text-sm"
-			aria-labelledby="ai-setup"
-		>
-			<h2 id="ai-setup" className="font-medium">
-				AI is not configured
-			</h2>
-			<p className="mt-1">
-				Conversations need a language model. Set <code>AI_PROVIDER</code>,{" "}
-				<code>AI_MODEL</code>, and (for hosted providers){" "}
-				<code>AI_API_KEY</code> in the server's environment, then restart
-				Marginalia. For a local model, use{" "}
-				<code>AI_PROVIDER=openai-compatible</code> with <code>AI_BASE_URL</code>
-				. Reading and search work without it. See the deployment guide for
-				examples.
-			</p>
-		</section>
 	);
 }

@@ -219,3 +219,87 @@ export function ModelPicker(props: {
 		/>
 	);
 }
+
+/** A draft for the picker: `selection` when its provider is offered, else the first provider. */
+export function initialDraft(
+	providers: AiProviderName[],
+	selection: AiSelection | null,
+): AiSelection {
+	return selection && providers.includes(selection.provider)
+		? selection
+		: { provider: providers[0] ?? "openai", model: "" };
+}
+
+/**
+ * The default model or one of the reader's own: `value` null follows
+ * `fallback` (the default, when available). Shows the default with a change
+ * button, or the picker with a way back to the default. Without a default
+ * the picker is shown and a model must be typed.
+ */
+export function ModelChoice({
+	providers,
+	fallback,
+	value,
+	onChange,
+	disabled = false,
+}: {
+	providers: AiProviderName[];
+	/** The default in effect; null when none is set or its provider is unavailable. */
+	fallback: AiSelection | null;
+	value: AiSelection | null;
+	onChange: (value: AiSelection | null) => void;
+	disabled?: boolean;
+}) {
+	if (value === null && fallback) {
+		return (
+			<div className="flex flex-wrap items-center gap-2 text-sm">
+				<span data-testid="model-choice">
+					{selectionLabel(fallback)}{" "}
+					<span className="text-muted-foreground">(default)</span>
+				</span>
+				<Button
+					type="button"
+					variant="outline"
+					size="xs"
+					disabled={disabled}
+					onClick={() => onChange(initialDraft(providers, fallback))}
+				>
+					Change
+				</Button>
+			</div>
+		);
+	}
+	return (
+		<div className="space-y-2">
+			<ModelPicker
+				providers={providers}
+				value={value ?? initialDraft(providers, null)}
+				onChange={onChange}
+				disabled={disabled}
+			/>
+			{fallback && (
+				<Button
+					type="button"
+					variant="ghost"
+					size="xs"
+					disabled={disabled}
+					onClick={() => onChange(null)}
+				>
+					Use default ({selectionLabel(fallback)})
+				</Button>
+			)}
+		</div>
+	);
+}
+
+/** A stored reply's or run's model for display; the provider is missing on older rows. */
+export function replyModelLabel(
+	provider: string | null,
+	model: string | null,
+): string | null {
+	if (!model) return null;
+	const known = (Object.keys(PROVIDER_LABELS) as AiProviderName[]).find(
+		(p) => p === provider,
+	);
+	return known ? selectionLabel({ provider: known, model }) : model;
+}

@@ -14,8 +14,11 @@ import {
 } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { selectionLabel } from "#/components/model-picker";
 import { parseCitationMarkers } from "#/lib/citations";
 import type { CitationRecord } from "#/modules/conversation";
+import type { AiStatus } from "#/modules/settings";
+import type { AiSelection } from "#/server/config";
 
 /** Message metadata attached to stored messages. */
 export interface ChatMeta {
@@ -486,5 +489,121 @@ export function SourcesList({ sources }: { sources: VerifiedCitation[] }) {
 				</ol>
 			</Collapsible.Content>
 		</Collapsible.Root>
+	);
+}
+
+/** Credential variables, one per provider; `AI_PROVIDER` with `AI_API_KEY` works for one. */
+export const AI_CREDENTIAL_VARS = [
+	"AI_ANTHROPIC_API_KEY",
+	"AI_OPENAI_API_KEY",
+	"AI_GOOGLE_API_KEY",
+	"AI_OPENAI_COMPATIBLE_BASE_URL",
+];
+
+/** What the next reply would use: a model, or why there is none. */
+export type ModelInEffect =
+	| { status: "ok" | "unavailable"; selection: AiSelection; own: boolean }
+	| { status: "no_default" }
+	| { status: "disabled" };
+
+/**
+ * The conversation's own model, else the chat default. A model whose provider
+ * has no credentials is unavailable; no other model is used in its place.
+ */
+export function modelInEffect(
+	status: Pick<AiStatus, "enabled" | "providers" | "chat">,
+	own: AiSelection | null,
+): ModelInEffect {
+	if (!status.enabled) return { status: "disabled" };
+	if (own)
+		return {
+			status: status.providers.includes(own.provider) ? "ok" : "unavailable",
+			selection: own,
+			own: true,
+		};
+	const fallback = status.chat.selection;
+	if (!fallback) return { status: "no_default" };
+	return {
+		status: status.chat.available ? "ok" : "unavailable",
+		selection: fallback,
+		own: false,
+	};
+}
+
+const settingsLink = (
+	<Link to="/settings" className="underline underline-offset-2">
+		Settings
+	</Link>
+);
+
+/**
+ * Shown in place of the chat input when no reply can be sent: AI is not
+ * configured (the environment), no chat default is set (Settings), or the
+ * model in effect is unavailable. `actions` offers another model.
+ */
+export function AiSetupNotice({
+	effect,
+	actions,
+}: {
+	effect: Exclude<ModelInEffect, { status: "ok" }>;
+	actions?: ReactNode;
+}) {
+	const id = useId();
+	const [title, body] =
+		effect.status === "disabled"
+			? [
+					"AI is not configured",
+					<>
+						Set at least one of{" "}
+						{AI_CREDENTIAL_VARS.map((v, i) => (
+							<span key={v}>
+								{i > 0 && ", "}
+								<code>{v}</code>
+							</span>
+						))}{" "}
+						(or <code>AI_PROVIDER</code> with <code>AI_MODEL</code> and{" "}
+						<code>AI_API_KEY</code>) in the server's environment, then restart
+						Marginalia. Reading and search work without it, and earlier messages
+						stay available.
+					</>,
+				]
+			: effect.status === "no_default"
+				? [
+						"No chat model is chosen",
+						<>
+							A provider is configured, but no default chat model is set. Choose
+							one in {settingsLink}, or choose a model for a single
+							conversation.
+						</>,
+					]
+				: [
+						effect.own
+							? "This conversation's model is unavailable"
+							: "The chat default is unavailable",
+						<>
+							{selectionLabel(effect.selection)} cannot be used because its
+							provider has no credentials on this instance.{" "}
+							{effect.own ? (
+								<>Choose another model, or use the default.</>
+							) : (
+								<>
+									Choose another model for the conversation, or change the
+									default in {settingsLink}.
+								</>
+							)}
+						</>,
+					];
+	return (
+		<section
+			className="rounded-md border bg-muted/40 p-4 text-sm"
+			aria-labelledby={id}
+			data-testid="ai-setup"
+		>
+			<h2 id={id} className="font-medium">
+				{title}
+			</h2>
+			<p className="mt-1">{body}</p>
+			{actions && <div className="mt-3 flex flex-wrap gap-2">{actions}</div>}
+		</section>
 	);
 }

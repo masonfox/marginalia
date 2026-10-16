@@ -2,7 +2,9 @@ import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
+import { AI_CREDENTIAL_VARS } from "#/components/chat";
 import {
+	initialDraft,
 	ModelPicker,
 	PROVIDER_LABELS,
 	selectionLabel,
@@ -17,7 +19,7 @@ import {
 	savePreprocessDefaultFn,
 } from "#/fns/settings";
 import type { AiDefault, DefaultSource } from "#/modules/settings";
-import type { AiProviderName, AiSelection } from "#/server/config";
+import type { AiProviderName } from "#/server/config";
 
 const statusQuery = queryOptions({
 	queryKey: ["ai-status"],
@@ -35,14 +37,6 @@ const SOURCE_LABELS: Record<DefaultSource, string> = {
 	env: "From the environment",
 	none: "Not set",
 };
-
-/** Credential variables, one per provider; the legacy trio works for one. */
-const CREDENTIAL_VARS = [
-	"AI_ANTHROPIC_API_KEY",
-	"AI_OPENAI_API_KEY",
-	"AI_GOOGLE_API_KEY",
-	"AI_OPENAI_COMPATIBLE_BASE_URL",
-];
 
 function SettingsPage() {
 	const { data: status } = useQuery(statusQuery);
@@ -69,7 +63,7 @@ function SettingsPage() {
 					<p className="mt-2 text-muted-foreground">
 						Providers are configured through environment variables, not here.
 						Set at least one of{" "}
-						{CREDENTIAL_VARS.map((v, i) => (
+						{AI_CREDENTIAL_VARS.map((v, i) => (
 							<span key={v}>
 								{i > 0 && ", "}
 								<code className="text-xs">{v}</code>
@@ -83,16 +77,6 @@ function SettingsPage() {
 			)}
 		</main>
 	);
-}
-
-/** A draft for the picker: the current selection when its provider is offered. */
-function initialDraft(
-	providers: AiProviderName[],
-	selection: AiSelection | null,
-): AiSelection {
-	return selection && providers.includes(selection.provider)
-		? selection
-		: { provider: providers[0] ?? "openai", model: "" };
 }
 
 /** Saving and resetting one default, then reloading the status. */

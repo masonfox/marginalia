@@ -1,14 +1,21 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Bookmark, Pencil, Trash2 } from "lucide-react";
+import { Bookmark, Cpu, Pencil, Trash2 } from "lucide-react";
 import {
 	createContext,
 	type ReactNode,
 	useCallback,
 	useContext,
+	useEffect,
 	useState,
 } from "react";
+import type { ModelInEffect } from "#/components/chat";
+import {
+	ModelChoice,
+	PROVIDER_LABELS,
+	selectionLabel,
+} from "#/components/model-picker";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -20,16 +27,29 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "#/components/ui/alert-dialog";
+import { Badge } from "#/components/ui/badge";
 import { Button, buttonVariants } from "#/components/ui/button";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
 import {
 	deleteConversationFn,
 	renameConversationFn,
+	setConversationModelFn,
 } from "#/fns/conversations";
 import { getReadingPositionFn, setReadingPositionFn } from "#/fns/guide";
 import { clearComposerDraft } from "#/lib/composer-draft";
 import type { Scope } from "#/modules/conversation";
 import type { ReadingPosition } from "#/modules/guide";
+import type { AiStatus } from "#/modules/settings";
+import type { AiSelection } from "#/server/config";
 
 /** A scope a conversation was just widened to, offered as the book's reading position. */
 export interface PositionOffer {
@@ -302,5 +322,168 @@ export function DeleteConversation({
 				</AlertDialogFooter>
 			</AlertDialogContent>
 		</AlertDialog>
+	);
+}
+
+const sameSelection = (a: AiSelection | null, b: AiSelection | null) =>
+	a === b ||
+	(a !== null &&
+		b !== null &&
+		a.provider === b.provider &&
+		a.model.trim() === b.model.trim());
+
+/** Sets or clears (null) a conversation's own model, then reloads the page data. */
+export function useConversationModel(conversationId: string) {
+	const router = useRouter();
+	const set = useServerFn(setConversationModelFn);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const save = async (selection: AiSelection | null): Promise<boolean> => {
+		setBusy(true);
+		setError(null);
+		try {
+			const result = await set({ data: { conversationId, selection } });
+			const refusal =
+				result.status === "ok"
+					? null
+					: result.status === "busy"
+						? "A reply is being written. Change the model once it finishes."
+						: result.status === "invalid"
+							? result.message
+							: result.status === "unavailable"
+								? `${PROVIDER_LABELS[result.provider]} is not configured on this instance.`
+								: "This conversation no longer exists.";
+			if (refusal) {
+				setError(refusal);
+				return false;
+			}
+			await router.invalidate();
+			return true;
+		} catch {
+			setError("The model could not be changed. Try again.");
+			return false;
+		} finally {
+			setBusy(false);
+		}
+	};
+	return { save, busy, error, clearError: () => setError(null) };
+}
+
+/**
+ * The model the next reply uses, labelled as the default or this
+ * conversation's own, and a dialog to change it or go back to the default.
+ * Disabled while a reply is streaming; changes apply from the next turn.
+ */
+export function ConversationModelControl({
+	conversationId,
+	status,
+	own,
+	effect,
+	disabled,
+	open,
+	onOpenChange,
+}: {
+	conversationId: string;
+	status: Pick<AiStatus, "providers" | "chat">;
+	/** The conversation's own model; null when it follows the default. */
+	own: AiSelection | null;
+	effect: ModelInEffect;
+	disabled: boolean;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+}) {
+	const { save, busy, error, clearError } =
+		useConversationModel(conversationId);
+	const [draft, setDraft] = useState<AiSelection | null>(own);
+	// Each opening starts from the saved choice; a reload while open keeps the draft.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset only on opening
+	useEffect(() => {
+		if (open) setDraft(own);
+	}, [open]);
+	if (effect.status === "disabled") return null;
+	const fallback = status.chat.available ? status.chat.selection : null;
+	const blank = draft !== null && draft.model.trim() === "";
+	return (
+		<>
+			<span data-testid="provider-label">
+				{" · "}
+				{effect.status === "no_default" ? (
+					"No model chosen"
+				) : (
+					<>
+						{selectionLabel(effect.selection)}
+						{effect.status === "unavailable" && " (unavailable)"}{" "}
+						<Badge variant="outline" data-testid="model-source">
+							{effect.own ? "this conversation" : "default"}
+						</Badge>
+					</>
+				)}{" "}
+				<Button
+					type="button"
+					variant="ghost"
+					size="xs"
+					disabled={disabled}
+					onClick={() => onOpenChange(true)}
+					title={
+						disabled
+							? "The model can be changed once the reply ends"
+							: undefined
+					}
+				>
+					<Cpu aria-hidden /> Change model
+				</Button>
+			</span>
+			<Dialog
+				open={open && !disabled}
+				onOpenChange={(next) => {
+					if (busy) return;
+					clearError();
+					onOpenChange(next);
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Model for this conversation</DialogTitle>
+						<DialogDescription>
+							Applies from the next reply. Earlier replies keep the model that
+							wrote them.
+						</DialogDescription>
+					</DialogHeader>
+					<ModelChoice
+						providers={status.providers}
+						fallback={fallback}
+						value={draft}
+						onChange={setDraft}
+						disabled={busy}
+					/>
+					{error && (
+						<p role="alert" className="text-sm text-destructive-foreground">
+							{error}
+						</p>
+					)}
+					<DialogFooter>
+						<DialogClose asChild>
+							<Button type="button" variant="outline" disabled={busy}>
+								Cancel
+							</Button>
+						</DialogClose>
+						<Button
+							type="button"
+							disabled={
+								busy ||
+								blank ||
+								(draft === null && fallback === null) ||
+								sameSelection(draft, own)
+							}
+							onClick={async () => {
+								if (await save(draft)) onOpenChange(false);
+							}}
+						>
+							Save
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		</>
 	);
 }

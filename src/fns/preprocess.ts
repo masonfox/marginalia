@@ -30,7 +30,6 @@ export const getPreprocessStatusFn = createServerFn({ method: "GET" })
 		const total = totalOf({ byMessage: {}, byModel: rows, missing: 0 }, table);
 		return {
 			...overview,
-			configuredModel: overview.preprocessDefault.selection?.model ?? null,
 			spendUsd: rows.length === 0 ? 0 : total.estimatedCost,
 			hasSpend: rows.length > 0,
 			// Null when the provider never reported the count.
