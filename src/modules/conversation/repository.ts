@@ -465,3 +465,39 @@ export async function rebaseScopes(
 			),
 		);
 }
+
+/**
+ * Re-anchors the bounds replies recorded for an edition's maps after a
+ * reparse, in every conversation whatever its current scope, so a guide
+ * step read later stays within the recorded scope. Runs inside the reparse's
+ * transaction; labels, fingerprints and other books' entries are kept.
+ */
+export async function rebaseGuideContexts(
+	tx: Executor,
+	editionId: string,
+	rebase: (oldBound: number) => number,
+): Promise<void> {
+	const rows = await tx
+		.select({ id: messages.id, guideContext: messages.guideContext })
+		.from(messages)
+		.where(
+			sql`${messages.guideContext} @> ${JSON.stringify([{ editionId }])}::jsonb`,
+		);
+	for (const row of rows) {
+		const entries = row.guideContext ?? [];
+		let moved = false;
+		const next = entries.map((entry) => {
+			if (entry.editionId !== editionId || entry.maxPosition === null)
+				return entry;
+			const maxPosition = rebase(entry.maxPosition);
+			if (maxPosition === entry.maxPosition) return entry;
+			moved = true;
+			return { ...entry, maxPosition };
+		});
+		if (moved)
+			await tx
+				.update(messages)
+				.set({ guideContext: next })
+				.where(eq(messages.id, row.id));
+	}
+}

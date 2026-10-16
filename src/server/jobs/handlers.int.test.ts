@@ -8,6 +8,15 @@ import {
 	updateRun,
 } from "#/modules/analysis";
 import { getReadingUnits, ingestEdition, passages } from "#/modules/catalog";
+import {
+	appendMessage,
+	createConversation,
+	getConversationBooks,
+	getGuideStep,
+	getMessages,
+	loadBookMaps,
+	widenConversationScope,
+} from "#/modules/conversation";
 import { PARSER_VERSION, parseEpub } from "#/modules/epub";
 import {
 	createNote,
@@ -641,6 +650,116 @@ describe("reparse re-anchors corrections", () => {
 	});
 });
 
+describe("reparse rebases recorded guide steps", () => {
+	it("keeps an old reply's step within its recorded chapter after the conversation widens", async () => {
+		const bytes = await buildEpub({
+			title: "reparse-guide-step",
+			language: "en",
+			chapters: [
+				{ href: "c1.xhtml", title: "Chapter 1", body: "<p>Alpha.</p>" },
+				{ href: "c2.xhtml", title: "Chapter 2", body: "<p>Beta.</p>" },
+				{ href: "c3.xhtml", title: "Chapter 3", body: "<p>Gamma.</p>" },
+			],
+		});
+		const { sha256, edition } = await addUploadedBook(
+			t.db,
+			dataDir,
+			bytes,
+			"reparse-guide-step.epub",
+		);
+		// The older parser kept stray paragraphs before Alpha, so the reparse
+		// moves Chapter 1's end earlier than Chapter 2's new end.
+		const old = reshape(await parseEpub(bytes), OLD_VERSION, (ps) =>
+			ps.flatMap((p) =>
+				p.text === "Alpha."
+					? [1, 2, 3].map((n) => ({ ...p, text: `Stray ${n}.` })).concat(p)
+					: [p],
+			),
+		);
+		await ingestEdition(
+			{
+				db: t.db,
+				dataDir,
+				log: silentLog,
+				parse: async () => old,
+				parserVersion: OLD_VERSION,
+			},
+			sha256,
+			{ finalAttempt: true },
+		);
+		const summarize = async () => {
+			const units = await getReadingUnits(t.db, edition.id);
+			for (const [i, u] of units.entries())
+				await saveUnitResult(t.db, edition.id, {
+					unitOrdinal: i,
+					unitLabel: u.label,
+					endPosition: u.endPosition,
+					summary: `Summary of ${u.label}.`,
+					summaryCitations: [],
+					observations: [],
+					model: "m",
+				});
+			return units;
+		};
+		const [first] = await summarize();
+		if (!first) throw new Error("expected units");
+		const { id: conversationId } = await createConversation(t.db, {
+			editionIds: [edition.id],
+			scopes: {
+				[edition.id]: {
+					maxPosition: first.endPosition,
+					scopeLabel: first.label,
+				},
+			},
+		});
+		const [book] = await getConversationBooks(t.db, conversationId);
+		if (!book) throw new Error("expected the book");
+		const scoped = await loadBookMaps(t.db, [book]);
+		const whole = await loadBookMaps(t.db, [
+			{ ...book, maxPosition: null, scopeLabel: null },
+		]);
+		const [recorded] = scoped.guideContext ?? [];
+		if (!recorded) throw new Error("expected guide context");
+		for (const guideContext of [scoped.guideContext, whole.guideContext])
+			await appendMessage(t.db, {
+				conversationId,
+				role: "assistant",
+				parts: [],
+				guideContext,
+			});
+		const widened = await widenConversationScope(t.db, {
+			conversationId,
+			editionId: edition.id,
+			scope: { kind: "whole" },
+		});
+		expect(widened).toEqual({ widened: true });
+
+		await jobHandlers()["catalog.reparse"]?.({ editionId: edition.id }, ctx);
+		const [now, second] = await summarize();
+		if (!now || !second) throw new Error("expected units");
+		expect(now.endPosition).toBeLessThan(first.endPosition);
+		// Without the rebase, the old bound would reach Chapter 2.
+		expect(second.endPosition).toBeLessThanOrEqual(first.endPosition);
+
+		const [scopedReply, wholeReply] = await getMessages(t.db, conversationId);
+		expect(scopedReply?.guideContext).toEqual([
+			{ ...recorded, maxPosition: now.endPosition },
+		]);
+		expect(wholeReply?.guideContext).toEqual(whole.guideContext);
+		const [stored] = scopedReply?.guideContext ?? [];
+		if (!stored) throw new Error("expected the recorded entry");
+		const step = await getGuideStep(t.db, {
+			conversationId,
+			editionId: edition.id,
+			maxPosition: stored.maxPosition,
+			mapFingerprint: stored.mapFingerprint,
+		});
+		if (step.status !== "ok") throw new Error("expected ok");
+		expect(step.summaries.map((s) => s.unitLabel)).toEqual([now.label]);
+		expect(stored.scopeLabel).toBe(first.label);
+	});
+});
+
 describe("reparse invalidates preprocessing", () => {
 	it("hides derived rows after a reparse under a new parser version", async () => {
 		const { sha256, editionId } = await preprocessedEdition("reparse-stale");
@@ -708,6 +827,22 @@ describe("reparse invalidates preprocessing", () => {
 			attachment: { kind: "unit", unitLocator: unit.startLocator },
 		});
 		if (!made.ok) throw new Error(made.reason);
+		const { id: conversationId } = await createConversation(t.db, {
+			editionIds: [editionId],
+		});
+		await appendMessage(t.db, {
+			conversationId,
+			role: "assistant",
+			parts: [],
+			guideContext: [
+				{
+					editionId,
+					scopeLabel: unit.label,
+					maxPosition: unit.endPosition,
+					mapFingerprint: "recorded",
+				},
+			],
+		});
 		const readerRows = async () => ({
 			position: await t.db
 				.select()
@@ -725,6 +860,9 @@ describe("reparse invalidates preprocessing", () => {
 				.select()
 				.from(readerNotes)
 				.where(eq(readerNotes.editionId, editionId)),
+			guideContexts: (await getMessages(t.db, conversationId)).map(
+				(m) => m.guideContext,
+			),
 		});
 		const before = await readerRows();
 		expect(before.position).toHaveLength(1);
@@ -764,7 +902,13 @@ describe("reparse invalidates preprocessing", () => {
 			PARSER_VERSION,
 		);
 		const after = await readerRows();
-		for (const rows of ["position", "aliases", "corrections", "notes"] as const)
+		for (const rows of [
+			"position",
+			"aliases",
+			"corrections",
+			"notes",
+			"guideContexts",
+		] as const)
 			expect(after[rows]).not.toEqual(before[rows]);
 	});
 });

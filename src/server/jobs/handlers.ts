@@ -5,7 +5,7 @@ import {
 	ingestEdition,
 	reparseEdition,
 } from "#/modules/catalog";
-import { rebaseScopes } from "#/modules/conversation";
+import { rebaseGuideContexts, rebaseScopes } from "#/modules/conversation";
 import { reanchor, rebaseReadingPositions } from "#/modules/guide";
 import { scanLibraries } from "#/modules/library";
 import { appContext } from "../context";
@@ -36,10 +36,11 @@ export function jobHandlers(): JobHandlers {
 			db,
 			dataDir: config.dataDir,
 			log,
-			// Keeps conversation bounds, the reading position and the guide's
+			// Keeps conversation and reply bounds, the reading position and the guide's
 			// reader anchors on the same text when a reparse shifts positions.
 			onReplaced: async (tx, { editionId, rebase, forward }) => {
 				await rebaseScopes(tx, editionId, rebase);
+				await rebaseGuideContexts(tx, editionId, rebase);
 				await rebaseReadingPositions(tx, editionId, rebase);
 				await reanchor(tx, editionId, forward);
 				// Derived summaries describe the old structure.
