@@ -11,7 +11,6 @@ const run = (auto: boolean, enabled: boolean) => {
 			config: { preprocessAuto: auto },
 			ai: {
 				available: async () => (enabled ? ["openai"] : []),
-				envDefaults: { chat: { provider: "openai", model: "m" } },
 			},
 			enqueue,
 			log: { warn: vi.fn() },

@@ -80,7 +80,6 @@ function runtime(
 	maxSteps = 5,
 	providerOptions: ProviderOptions = {},
 ): AiRuntime {
-	const chat = { provider: "openai", model: "mock-1" } as const;
 	return {
 		available: async () => ["openai"],
 		resolve: async (selection) => ({
@@ -89,7 +88,6 @@ function runtime(
 			providerOptions,
 			selection,
 		}),
-		envDefaults: { chat },
 		maxSteps,
 		temperature: undefined,
 		reasoning: undefined,
@@ -163,6 +161,9 @@ async function run(
 
 beforeAll(async () => {
 	t = await createTestDb();
+	await t.pool.query(
+		"insert into ai_settings (id, chat_provider, chat_model) values (1, 'openai', 'mock-1')",
+	);
 	const dataDir = await tempDataDir();
 	const book = await ingestBook(
 		t.db,

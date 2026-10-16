@@ -54,8 +54,6 @@ export interface AiRuntime {
 	available(): Promise<AiProviderName[]>;
 	/** Builds a model for a selection with its provider's credentials. */
 	resolve(selection: AiSelection): Promise<ResolvedModel>;
-	/** Defaults from AI_PROVIDER with AI_MODEL and AI_PREPROCESS_MODEL. */
-	envDefaults: { chat?: AiSelection; preprocess?: AiSelection };
 	maxSteps: number;
 	temperature: number | undefined;
 	/** Reasoning effort for every call; undefined leaves the provider default. */
@@ -100,7 +98,6 @@ export function createAi(
 			return AI_PROVIDERS.filter((p) => credentials[p] !== undefined);
 		},
 		resolve,
-		envDefaults: {},
 		maxSteps: config?.maxSteps ?? 8,
 		temperature: config?.temperature,
 		reasoning: config?.effort,

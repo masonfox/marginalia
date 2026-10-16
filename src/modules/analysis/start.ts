@@ -12,7 +12,7 @@ import type { Enqueue, PendingJobDetail } from "#/server/jobs/kinds";
 import { getPreprocessStatus, type PreprocessStatus } from "./queries";
 import { preprocessRuns } from "./schema";
 
-type AiSource = Pick<AiRuntime, "available" | "envDefaults">;
+type AiSource = Pick<AiRuntime, "available">;
 
 /** The model a new run would use, or why there is none. */
 export type PreprocessChoice =

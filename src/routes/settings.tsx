@@ -9,16 +9,15 @@ import {
 	PROVIDER_LABELS,
 	selectionLabel,
 } from "#/components/model-picker";
-import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn } from "#/fns/conversations";
 import {
-	resetChatDefaultFn,
-	resetPreprocessDefaultFn,
+	clearChatDefaultFn,
+	clearPreprocessDefaultFn,
 	saveChatDefaultFn,
 	savePreprocessDefaultFn,
 } from "#/fns/settings";
-import type { AiDefault, DefaultSource } from "#/modules/settings";
+import type { AiDefault } from "#/modules/settings";
 import type { AiProviderName } from "#/server/config";
 
 const statusQuery = queryOptions({
@@ -31,12 +30,6 @@ export const Route = createFileRoute("/settings")({
 	head: () => ({ meta: [{ title: "Settings · Marginalia" }] }),
 	component: SettingsPage,
 });
-
-const SOURCE_LABELS: Record<DefaultSource, string> = {
-	settings: "Saved in Settings",
-	env: "From the environment",
-	none: "Not set",
-};
 
 function SettingsPage() {
 	const { data: status } = useQuery(statusQuery);
@@ -122,12 +115,7 @@ function CurrentDefault({
 			<div className="flex flex-wrap items-center justify-between gap-2">
 				<h2 className="font-medium">{title}</h2>
 				<div className="flex items-center gap-2">
-					<Badge
-						variant={value.source === "settings" ? "default" : "secondary"}
-					>
-						{SOURCE_LABELS[value.source]}
-					</Badge>
-					{value.source === "settings" && (
+					{value.selection && !sameAsChat && (
 						<Button
 							type="button"
 							variant="ghost"
@@ -135,7 +123,7 @@ function CurrentDefault({
 							disabled={busy}
 							onClick={onReset}
 						>
-							Reset
+							Clear
 						</Button>
 					)}
 				</div>
@@ -162,7 +150,7 @@ function ChatDefaultCard({
 	value: AiDefault;
 }) {
 	const save = useServerFn(saveChatDefaultFn);
-	const reset = useServerFn(resetChatDefaultFn);
+	const reset = useServerFn(clearChatDefaultFn);
 	const { busy, error, run } = useDefaultActions();
 	const [draft, setDraft] = useState(() =>
 		initialDraft(providers, value.selection),
@@ -212,7 +200,7 @@ function PreprocessDefaultCard({
 	value: AiDefault & { sameAsChat: boolean };
 }) {
 	const save = useServerFn(savePreprocessDefaultFn);
-	const reset = useServerFn(resetPreprocessDefaultFn);
+	const reset = useServerFn(clearPreprocessDefaultFn);
 	const { busy, error, run } = useDefaultActions();
 	const [sameAsChat, setSameAsChat] = useState(value.sameAsChat);
 	const [draft, setDraft] = useState(() =>

@@ -46,8 +46,8 @@ import {
 } from "#/modules/guide";
 import { getEdition } from "#/modules/library";
 import {
-	resetChatDefault,
-	resetPreprocessDefault,
+	clearChatDefault,
+	clearPreprocessDefault,
 	saveChatDefault,
 	savePreprocessDefault,
 } from "#/modules/settings";
@@ -82,7 +82,7 @@ beforeAll(async () => {
 		db: t.db,
 		config: { dataDir, preprocessAuto: false },
 		log: silentLog,
-		ai: { available: async () => [], envDefaults: {} },
+		ai: { available: async () => [] },
 		enqueue: async () => null,
 	} as unknown as AppContext);
 });
@@ -1370,10 +1370,21 @@ describe("preprocessing model selection", () => {
 	const big: AiSelection = { provider: "openai", model: "big" };
 
 	/** An AI runtime with credentials for `available` whose models always fail. */
-	function fakeAi(
+	async function fakeAi(
 		available: AiProviderName[],
-		envDefaults: { chat?: AiSelection; preprocess?: AiSelection } = {},
+		defaults: { chat?: AiSelection; preprocess?: AiSelection } = {},
 	) {
+		await t.pool.query("delete from ai_settings");
+		await t.pool.query(
+			"insert into ai_settings (id,chat_provider,chat_model,preprocess_mode,preprocess_provider,preprocess_model) values (1,$1,$2,$3,$4,$5)",
+			[
+				defaults.chat?.provider ?? null,
+				defaults.chat?.model ?? null,
+				defaults.preprocess ? "model" : null,
+				defaults.preprocess?.provider ?? null,
+				defaults.preprocess?.model ?? null,
+			],
+		);
 		const calls: string[] = [];
 		const model = new MockLanguageModelV4({
 			doGenerate: async () => {
@@ -1384,7 +1395,6 @@ describe("preprocessing model selection", () => {
 		return {
 			calls,
 			available: async () => available,
-			envDefaults,
 			resolve: vi.fn(async (selection: AiSelection) =>
 				available.includes(selection.provider)
 					? { ok: true as const, model, providerOptions: {}, selection }
@@ -1439,7 +1449,7 @@ describe("preprocessing model selection", () => {
 
 	/** Runs the job handler under `ai`, as the worker would. */
 	async function handle(
-		ai: ReturnType<typeof fakeAi>,
+		ai: Awaited<ReturnType<typeof fakeAi>>,
 		payload: { editionId: string } & Partial<AiSelection>,
 	) {
 		setAppContext({
@@ -1455,8 +1465,8 @@ describe("preprocessing model selection", () => {
 	}
 
 	it("enqueues the reader's choice, which leaves the default alone", async () => {
-		await resetPreprocessDefault(t.db);
-		const ai = fakeAi(["openai"], { chat: big });
+		await clearPreprocessDefault(t.db);
+		const ai = await fakeAi(["openai"], { chat: big });
 		const q = queue();
 		const editionId = crypto.randomUUID();
 		expect(
@@ -1471,7 +1481,7 @@ describe("preprocessing model selection", () => {
 	});
 
 	it("enqueues the preprocessing default when no model is chosen", async () => {
-		const ai = fakeAi(["openai", "anthropic"], { chat: big });
+		const ai = await fakeAi(["openai", "anthropic"], { chat: big });
 		await savePreprocessDefault(t.db, ai, {
 			provider: "anthropic",
 			model: "a",
@@ -1487,12 +1497,12 @@ describe("preprocessing model selection", () => {
 				{ editionId, provider: "anthropic", model: "a" },
 			]);
 		} finally {
-			await resetPreprocessDefault(t.db);
+			await clearPreprocessDefault(t.db);
 		}
 	});
 
 	it("a deduplicated request reports the pending run's model", async () => {
-		const ai = fakeAi(["openai"], { chat: big });
+		const ai = await fakeAi(["openai"], { chat: big });
 		const q = queue(small);
 		expect(
 			await startPreprocess({ db: t.db, ai, ...q }, crypto.randomUUID(), big),
@@ -1506,22 +1516,25 @@ describe("preprocessing model selection", () => {
 	});
 
 	it("enqueues nothing without a usable model", async () => {
-		await resetPreprocessDefault(t.db);
+		await clearPreprocessDefault(t.db);
 		const editionId = crypto.randomUUID();
 		const q = queue();
 		expect(
-			await startPreprocess({ db: t.db, ai: fakeAi([]), ...q }, editionId),
+			await startPreprocess(
+				{ db: t.db, ai: await fakeAi([]), ...q },
+				editionId,
+			),
 		).toEqual({ status: "disabled" });
 		expect(
 			await startPreprocess(
-				{ db: t.db, ai: fakeAi(["openai"]), ...q },
+				{ db: t.db, ai: await fakeAi(["openai"]), ...q },
 				editionId,
 			),
 		).toEqual({ status: "no_model" });
 		const choice: AiSelection = { provider: "google", model: "g" };
 		expect(
 			await startPreprocess(
-				{ db: t.db, ai: fakeAi(["openai"]), ...q },
+				{ db: t.db, ai: await fakeAi(["openai"]), ...q },
 				editionId,
 				choice,
 			),
@@ -1530,9 +1543,9 @@ describe("preprocessing model selection", () => {
 	});
 
 	it("the auto-trigger enqueues the default, and skips with a warning when none resolves", async () => {
-		await resetPreprocessDefault(t.db);
+		await clearPreprocessDefault(t.db);
 		const editionId = crypto.randomUUID();
-		const auto = (ai: ReturnType<typeof fakeAi>) => {
+		const auto = (ai: Awaited<ReturnType<typeof fakeAi>>) => {
 			const q = queue();
 			const warn = vi.fn();
 			const deps = {
@@ -1544,11 +1557,11 @@ describe("preprocessing model selection", () => {
 			};
 			return { q, warn, deps };
 		};
-		const ok = auto(fakeAi(["openai"], { preprocess: small }));
+		const ok = auto(await fakeAi(["openai"], { preprocess: small }));
 		expect(await enqueueAutoPreprocess(ok.deps, editionId)).toBe(true);
 		expect(ok.q.enqueued).toEqual([{ editionId, ...small }]);
 
-		const unset = auto(fakeAi(["openai"]));
+		const unset = auto(await fakeAi(["openai"]));
 		expect(await enqueueAutoPreprocess(unset.deps, editionId)).toBe(false);
 		expect(unset.q.enqueued).toEqual([]);
 		expect(unset.warn).toHaveBeenCalledWith(
@@ -1557,7 +1570,9 @@ describe("preprocessing model selection", () => {
 		);
 
 		const lost = auto(
-			fakeAi(["anthropic"], { preprocess: { provider: "google", model: "g" } }),
+			await fakeAi(["anthropic"], {
+				preprocess: { provider: "google", model: "g" },
+			}),
 		);
 		expect(await enqueueAutoPreprocess(lost.deps, editionId)).toBe(false);
 		expect(lost.q.enqueued).toEqual([]);
@@ -1569,7 +1584,7 @@ describe("preprocessing model selection", () => {
 
 	it("every attempt uses the job's model, even after the default changes", async () => {
 		const editionId = await readyEdition("Retry");
-		const ai = fakeAi(["openai"], { chat: big });
+		const ai = await fakeAi(["openai"], { chat: big });
 		await expect(handle(ai, { editionId, ...small })).rejects.toThrow(/failed/);
 		await saveChatDefault(t.db, ai, big);
 		await savePreprocessDefault(t.db, ai, big);
@@ -1578,8 +1593,8 @@ describe("preprocessing model selection", () => {
 				/failed/,
 			);
 		} finally {
-			await resetChatDefault(t.db);
-			await resetPreprocessDefault(t.db);
+			await clearChatDefault(t.db);
+			await clearPreprocessDefault(t.db);
 		}
 		expect(ai.resolve.mock.calls.map(([s]) => s)).toEqual([small, small]);
 		expect(await runRow(editionId)).toMatchObject({
@@ -1591,7 +1606,7 @@ describe("preprocessing model selection", () => {
 
 	it("a job queued without a model uses the current preprocessing default", async () => {
 		const editionId = await readyEdition("Legacy");
-		const ai = fakeAi(["openai", "anthropic"], { chat: big });
+		const ai = await fakeAi(["openai", "anthropic"], { chat: big });
 		await savePreprocessDefault(t.db, ai, {
 			provider: "anthropic",
 			model: "a",
@@ -1599,7 +1614,7 @@ describe("preprocessing model selection", () => {
 		try {
 			await expect(handle(ai, { editionId })).rejects.toThrow(/failed/);
 		} finally {
-			await resetPreprocessDefault(t.db);
+			await clearPreprocessDefault(t.db);
 		}
 		expect(ai.resolve.mock.calls.map(([s]) => s)).toEqual([
 			{ provider: "anthropic", model: "a" },
@@ -1612,7 +1627,7 @@ describe("preprocessing model selection", () => {
 
 	it("fails without retry or another model when the job's provider lost its credentials", async () => {
 		const editionId = await readyEdition("Unavailable");
-		const ai = fakeAi(["openai"], { chat: big });
+		const ai = await fakeAi(["openai"], { chat: big });
 		await expect(
 			handle(ai, { editionId, provider: "anthropic", model: "a" }),
 		).rejects.toMatchObject({
@@ -1634,7 +1649,7 @@ describe("preprocessing model selection", () => {
 
 	it("status shows the last run's model apart from the default a new run preselects", async () => {
 		const editionId = await readyEdition("Status");
-		const ai = fakeAi(["openai"], { preprocess: big });
+		const ai = await fakeAi(["openai"], { preprocess: big });
 		await updateRun(t.db, editionId, {
 			status: "complete",
 			totalUnits: 1,
@@ -1647,7 +1662,6 @@ describe("preprocessing model selection", () => {
 		expect(idle).toMatchObject({ provider: "openai", model: "small" });
 		expect(idle.preprocessDefault).toMatchObject({
 			selection: big,
-			source: "env",
 			available: true,
 		});
 		expect(JSON.stringify(idle)).not.toMatch(/apiKey|baseUrl/);

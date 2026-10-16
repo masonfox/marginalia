@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { AiRuntime } from "#/modules/ai";
 import { deleteEdition, ensureEdition } from "#/modules/library";
-import { resetChatDefault, saveChatDefault } from "#/modules/settings";
+import { clearChatDefault, saveChatDefault } from "#/modules/settings";
 import { aiUsage, priceTable, recordUsage } from "#/modules/usage";
 import {
 	AI_PROVIDERS,
@@ -69,7 +69,6 @@ const replying = (text: string, gate: Promise<void> = Promise.resolve()) =>
 /** Providers with credentials are the keys of `models`; each resolves to its own model. */
 function runtime(
 	models: Partial<Record<AiProviderName, MockLanguageModelV4>>,
-	chat?: AiSelection,
 ): AiRuntime {
 	return {
 		available: async () => AI_PROVIDERS.filter((p) => models[p]),
@@ -79,7 +78,6 @@ function runtime(
 				? { ok: true, model, providerOptions: {}, selection }
 				: { ok: false, reason: "unavailable" };
 		},
-		envDefaults: { chat },
 		maxSteps: 4,
 		temperature: undefined,
 		reasoning: undefined,
@@ -127,6 +125,7 @@ beforeAll(async () => {
 describe("conversation operations behind the server functions", () => {
 	it("returns per-reply usage with estimates and a total, without secrets", async () => {
 		const config = loadConfig({
+			MARGINALIA_SECRET_KEY: Buffer.alloc(32).toString("base64"),
 			DATABASE_URL: "postgres://u:dbsecret@localhost:5432/m",
 			AUTH_PASSWORD: "pw-secret",
 			AI_PROVIDER: "anthropic",
@@ -278,13 +277,14 @@ describe("conversation model", () => {
 		);
 
 	afterEach(async () => {
-		await resetChatDefault(t.db);
+		await clearChatDefault(t.db);
 	});
 
 	it("uses the conversation's own model and records it on the reply and its usage", async () => {
 		const gpt = replying("From GPT.");
 		const claude = replying("From Claude.");
-		const ai = runtime({ openai: gpt, anthropic: claude }, GPT);
+		const ai = runtime({ openai: gpt, anthropic: claude });
+		await saveChatDefault(t.db, ai, GPT);
 		const own = await newConversation(CLAUDE);
 		const other = await newConversation();
 
@@ -315,7 +315,8 @@ describe("conversation model", () => {
 	it("follows the chat default as it changes", async () => {
 		const gpt = replying("From GPT.");
 		const claude = replying("From Claude.");
-		const ai = runtime({ openai: gpt, anthropic: claude }, GPT);
+		const ai = runtime({ openai: gpt, anthropic: claude });
+		await saveChatDefault(t.db, ai, GPT);
 		const id = await newConversation();
 
 		await send(ai, id, "one");
@@ -341,7 +342,8 @@ describe("conversation model", () => {
 
 	it("refuses a turn whose model is unavailable, storing nothing and calling no model", async () => {
 		const gpt = replying("From GPT.");
-		const ai = runtime({ openai: gpt }, GPT);
+		const ai = runtime({ openai: gpt });
+		await saveChatDefault(t.db, ai, GPT);
 		const own = await newConversation(CLAUDE);
 		expect(
 			await startChat(deps(ai), { conversationId: own, message: "Hello?" }),
@@ -381,7 +383,8 @@ describe("conversation model", () => {
 			},
 		});
 		const claude = replying("Recovered.");
-		const ai = runtime({ openai: failing, anthropic: claude }, GPT);
+		const ai = runtime({ openai: failing, anthropic: claude });
+		await saveChatDefault(t.db, ai, GPT);
 		const id = await newConversation();
 
 		await send(ai, id, "Hello?");
@@ -407,7 +410,7 @@ describe("conversation model", () => {
 });
 
 describe("setConversationModel", () => {
-	const ai = runtime({ openai: replying("x"), anthropic: replying("y") }, GPT);
+	const ai = runtime({ openai: replying("x"), anthropic: replying("y") });
 
 	it("sets and clears a conversation's model", async () => {
 		const { id } = await createConversation(t.db, { editionIds: [readyId] });
@@ -459,7 +462,8 @@ describe("setConversationModel", () => {
 			release = r;
 		});
 		const slow = replying("Slow.", gate);
-		const busyAi = runtime({ openai: slow, anthropic: replying("y") }, GPT);
+		const busyAi = runtime({ openai: slow, anthropic: replying("y") });
+		await saveChatDefault(t.db, busyAi, GPT);
 		const { id } = await createConversation(t.db, { editionIds: [readyId] });
 		const r = await startChat(deps(busyAi), {
 			conversationId: id,

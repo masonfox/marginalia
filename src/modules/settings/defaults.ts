@@ -1,16 +1,12 @@
-// The instance's AI defaults: saved in Settings, otherwise from the environment.
+// The instance's AI defaults, saved only in Settings.
 import { eq, sql } from "drizzle-orm";
 import { type AiRuntime, selectionSchema } from "#/modules/ai";
 import type { AiProviderName, AiSelection } from "#/server/config";
 import type { Executor } from "#/server/db";
 import { aiSettings } from "./schema";
 
-/** Where a default comes from; `none` means there is no default. */
-export type DefaultSource = "settings" | "env" | "none";
-
 export interface AiDefault {
 	selection: AiSelection | null;
-	source: DefaultSource;
 	/** Whether the selection's provider has credentials. False without a selection. */
 	available: boolean;
 }
@@ -19,7 +15,7 @@ export interface AiDefaults {
 	chat: AiDefault;
 	/**
 	 * `sameAsChat` when preprocessing follows the chat default, whose
-	 * selection it then carries. Its source is where that choice comes from.
+	 * selection it then carries.
 	 */
 	preprocess: AiDefault & { sameAsChat: boolean };
 }
@@ -36,61 +32,28 @@ export type SaveResult =
 	| { status: "invalid"; message: string }
 	| { status: "unavailable"; provider: AiProviderName };
 
-type AiSource = Pick<AiRuntime, "available" | "envDefaults">;
+type AiSource = Pick<AiRuntime, "available">;
 
-/**
- * Each effective default with its source. Chat: saved, then `AI_PROVIDER`
- * with `AI_MODEL`. Preprocessing: saved (a selection or same as chat), then
- * `AI_PREPROCESS_MODEL`, then the chat default. Read on every call, so
- * several instances on one database agree.
- */
+/** Reads the current saved defaults on every call. */
 export async function getAiDefaults(
 	db: Executor,
 	ai: AiSource,
 ): Promise<AiDefaults> {
 	const [row] = await db.select().from(aiSettings).where(eq(aiSettings.id, 1));
-	const available = await ai.available();
-	const withAvailability = (
-		selection: AiSelection | null,
-		source: DefaultSource,
-	): AiDefault => ({
+	const providers = await ai.available();
+	const withAvailability = (selection: AiSelection | null): AiDefault => ({
 		selection,
-		source: selection ? source : "none",
-		available: selection !== null && available.includes(selection.provider),
+		available: !!selection && providers.includes(selection.provider),
 	});
-
-	const savedChat = pair(row?.chatProvider, row?.chatModel);
-	const chat = savedChat
-		? withAvailability(savedChat, "settings")
-		: withAvailability(ai.envDefaults.chat ?? null, "env");
-
-	const savedPreprocess = pair(row?.preprocessProvider, row?.preprocessModel);
-	let preprocess: AiDefaults["preprocess"];
-	if (row?.preprocessMode === "model" && savedPreprocess) {
-		preprocess = {
-			...withAvailability(savedPreprocess, "settings"),
-			sameAsChat: false,
-		};
-	} else if (
-		row?.preprocessMode !== "same-as-chat" &&
-		ai.envDefaults.preprocess
-	) {
-		preprocess = {
-			...withAvailability(ai.envDefaults.preprocess, "env"),
-			sameAsChat: false,
-		};
-	} else {
-		// Saved as same-as-chat, or unset everywhere so it follows chat. A saved
-		// choice reports `settings` even while chat has no default, so it stays resettable.
-		const saved = row?.preprocessMode === "same-as-chat";
-		preprocess = {
-			selection: chat.selection,
-			available: chat.available,
-			source: saved ? "settings" : chat.selection ? "env" : "none",
-			sameAsChat: true,
-		};
-	}
-	return { chat, preprocess };
+	const chat = withAvailability(pair(row?.chatProvider, row?.chatModel));
+	const own =
+		row?.preprocessMode === "model"
+			? pair(row.preprocessProvider, row.preprocessModel)
+			: null;
+	return {
+		chat,
+		preprocess: { ...(own ? withAvailability(own) : chat), sameAsChat: !own },
+	};
 }
 
 /** Defaults plus the available providers, for the UI. */
@@ -145,13 +108,13 @@ export async function savePreprocessDefault(
 	return checked;
 }
 
-/** Removes the saved chat default, so the environment's applies again. */
-export async function resetChatDefault(db: Executor): Promise<void> {
+/** Removes the saved chat default, leaving no chat default. */
+export async function clearChatDefault(db: Executor): Promise<void> {
 	await upsert(db, { chatProvider: null, chatModel: null });
 }
 
-/** Removes the saved preprocessing default, so the environment's applies again. */
-export async function resetPreprocessDefault(db: Executor): Promise<void> {
+/** Clears the preprocessing default to same as chat. */
+export async function clearPreprocessDefault(db: Executor): Promise<void> {
 	await upsert(db, {
 		preprocessMode: null,
 		preprocessProvider: null,

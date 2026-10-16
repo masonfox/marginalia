@@ -2,9 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { listModels, type ModelList } from "#/modules/ai";
 import {
+	clearChatDefault,
+	clearPreprocessDefault,
 	loadCredentials,
-	resetChatDefault,
-	resetPreprocessDefault,
 	type SaveResult,
 	saveChatDefault,
 	savePreprocessDefault,
@@ -64,17 +64,17 @@ export const savePreprocessDefaultFn = createServerFn({ method: "POST" })
 	});
 
 /** Removes the saved chat default, so the environment's applies again. */
-export const resetChatDefaultFn = createServerFn({ method: "POST" }).handler(
+export const clearChatDefaultFn = createServerFn({ method: "POST" }).handler(
 	async () => {
-		await resetChatDefault(appContext().db);
+		await clearChatDefault(appContext().db);
 	},
 );
 
 /** Removes the saved preprocessing default, so the environment's applies again. */
-export const resetPreprocessDefaultFn = createServerFn({
+export const clearPreprocessDefaultFn = createServerFn({
 	method: "POST",
 }).handler(async () => {
-	await resetPreprocessDefault(appContext().db);
+	await clearPreprocessDefault(appContext().db);
 });
 
 function saveOutcome(result: SaveResult): { error: string | null } {

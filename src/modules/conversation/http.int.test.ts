@@ -22,7 +22,10 @@ import {
 let t: TestDb;
 let editionId: string;
 
-const config = loadConfig({ DATABASE_URL: "postgres://unused" });
+const config = loadConfig({
+	MARGINALIA_SECRET_KEY: Buffer.alloc(32).toString("base64"),
+	DATABASE_URL: "postgres://unused",
+});
 const usage = {
 	inputTokens: {
 		total: 1,
@@ -59,7 +62,6 @@ function modelWith(
 }
 
 const enabled = (model: MockLanguageModelV4): AiRuntime => {
-	const chat = { provider: "openai", model: "mock" } as const;
 	return {
 		available: async () => ["openai"],
 		resolve: async (selection) => ({
@@ -68,7 +70,6 @@ const enabled = (model: MockLanguageModelV4): AiRuntime => {
 			providerOptions: {},
 			selection,
 		}),
-		envDefaults: { chat },
 		maxSteps: 4,
 		temperature: undefined,
 		reasoning: undefined,
@@ -95,6 +96,9 @@ const newConversation = () =>
 
 beforeAll(async () => {
 	t = await createTestDb();
+	await t.pool.query(
+		"insert into ai_settings (id, chat_provider, chat_model) values (1, 'openai', 'mock')",
+	);
 	const book = await ingestBook(
 		t.db,
 		await tempDataDir(),

@@ -27,7 +27,7 @@ export async function enqueueAutoPreprocess(
 	deps: {
 		db: Executor;
 		config: { preprocessAuto: boolean };
-		ai: Pick<AiRuntime, "available" | "envDefaults">;
+		ai: Pick<AiRuntime, "available">;
 		enqueue: Enqueue;
 		log: { warn(o: object, m: string): void };
 	},
