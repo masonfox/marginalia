@@ -103,17 +103,15 @@ export function jobHandlers(): JobHandlers {
 			if (!selection)
 				throw new NonRetryableError("No preprocessing model is set.");
 			// No fallback: an unavailable model fails the run without retry.
-			const resolved = await ai.resolve(selection);
-			const ok = resolved.ok ? resolved : undefined;
 			await preprocessEdition(
 				{
 					db,
-					model: ok?.model ?? null,
+					model: null,
+					resolveModel: () => ai.resolve(selection),
 					modelName: selection.model,
 					provider: selection.provider,
 					log,
 					reasoning: ai.reasoning,
-					providerOptions: ok?.providerOptions,
 				},
 				editionId,
 				{ id: ctx.id, signal: ctx.signal },

@@ -4,7 +4,11 @@ import { describeError } from "#/modules/ai";
 import { getReadingUnits } from "#/modules/catalog";
 import type { Database } from "#/server/db";
 import { NonRetryableError } from "#/server/jobs/kinds";
-import { type ProcessDeps, processUnit } from "./process";
+import {
+	ModelUnavailableError,
+	type ProcessDeps,
+	processUnit,
+} from "./process";
 import {
 	claimRun,
 	getBookMap,
@@ -21,6 +25,7 @@ export interface PreprocessDeps {
 	db: Database;
 	/** Null when the provider has no credentials. */
 	model: LanguageModel | null;
+	resolveModel?: ProcessDeps["resolveModel"];
 	modelName: string;
 	provider: string;
 	log: { info(o: object, m: string): void; warn(o: object, m: string): void };
@@ -49,7 +54,7 @@ export async function preprocessEdition(
 	ctx: { id?: string; signal?: AbortSignal } = {},
 ): Promise<void> {
 	const { db, log } = deps;
-	if (!deps.model) {
+	if (!deps.model && !deps.resolveModel) {
 		const reason = `Model ${deps.provider}/${deps.modelName} is unavailable.`;
 		// Through the claim, so a cancelled job leaves its cancellation shown.
 		const claimed = await claimRun(
@@ -115,6 +120,7 @@ export async function preprocessEdition(
 	const processDeps: ProcessDeps = {
 		db,
 		model: deps.model,
+		resolveModel: deps.resolveModel,
 		modelName: deps.modelName,
 		provider: deps.provider,
 		editionId,
@@ -141,7 +147,11 @@ export async function preprocessEdition(
 				previous = result.summary;
 				done += 1;
 			} catch (err) {
-				if (ctx.signal?.aborted || err instanceof StructureChangedError) {
+				if (
+					ctx.signal?.aborted ||
+					err instanceof StructureChangedError ||
+					err instanceof ModelUnavailableError
+				) {
 					throw err;
 				}
 				failed += 1;
