@@ -301,4 +301,4 @@ Preprocessing reads a whole book once, unit by unit, and stores a short summary 
 
 - **Privacy:** preprocessing sends the full text of the book to your AI provider, not only passages. Use a local `openai-compatible` endpoint if that is not acceptable.
 - **Cost:** it is one-time per book, billed as the input of the whole book plus a small output per unit, so a typical novel costs roughly the price of reading it once with your model. Spend is shown on the book page and is an estimate (see above). Re-importing a changed file regenerates it.
-- **Recommendations:** choose a cheaper preprocessing default in Settings (or set `AI_PREPROCESS_MODEL`), try one book manually from its page to check the cost, and enable `AI_PREPROCESS_AUTO` only once you are comfortable with it.
+- **Recommendations:** choose a cheaper preprocessing default in Settings, try one book manually from its page to check the cost, and enable `AI_PREPROCESS_AUTO` only once you are comfortable with it.
