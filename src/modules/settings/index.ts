@@ -3,6 +3,7 @@ export {
 	type AiDefault,
 	type AiDefaults,
 	type AiStatus,
+	checkSelection,
 	type DefaultSource,
 	getAiDefaults,
 	getAiStatus,

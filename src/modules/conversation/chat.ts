@@ -28,7 +28,13 @@ import {
 	type ResolvedModel,
 } from "#/modules/ai";
 import { createRetrieval } from "#/modules/retrieval";
+import {
+	checkSelection,
+	getAiDefaults,
+	type SaveResult,
+} from "#/modules/settings";
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
+import type { AiSelection } from "#/server/config";
 import type { Database } from "#/server/db";
 import type { Logger } from "#/server/logger";
 import { loadBookMaps } from "./guide-context";
@@ -44,6 +50,7 @@ import {
 	getConversation,
 	type StoredMessage,
 	setProvisionalTitle,
+	updateConversationModel,
 } from "./repository";
 import {
 	type CitationRecord,
@@ -85,6 +92,8 @@ export type ChatStart =
 	| { status: "invalid_passage"; reason: PassageRefInvalid | "no_message" }
 	| { status: "passage_out_of_scope"; unitLabel: string | null }
 	| { status: "disabled" }
+	/** The model the turn would use has a provider without credentials. */
+	| { status: "model_unavailable"; selection: AiSelection }
 	| { status: "not_found" }
 	| { status: "busy" }
 	| { status: "nothing_to_retry" }
@@ -103,11 +112,16 @@ export async function startChat(
 	input: ChatInput,
 ): Promise<ChatStart> {
 	const { db, ai } = deps;
-	// The env chat default until per-conversation models and Settings exist.
-	const resolved = ai.envDefaults.chat && ai.resolve(ai.envDefaults.chat);
-	if (!resolved || !resolved.ok) return { status: "disabled" };
+	if (ai.available().length === 0) return { status: "disabled" };
 	const conversation = await getConversation(db, input.conversationId);
 	if (!conversation) return { status: "not_found" };
+	// Resolved per turn, before anything is stored: the conversation's own
+	// model, else the chat default now. Never falls back to another model.
+	const selection =
+		conversation.model ?? (await getAiDefaults(db, ai)).chat.selection;
+	if (!selection) return { status: "disabled" };
+	const resolved = ai.resolve(selection);
+	if (!resolved.ok) return { status: "model_unavailable", selection };
 	if (input.replyContext && input.passageRef)
 		return { status: "invalid_context" };
 	// Re-checked here whatever the composer saw: the snapshot is replayed as book evidence.
@@ -159,6 +173,36 @@ export async function startChat(
 	}
 }
 
+export type SetModelResult =
+	| SaveResult
+	| { status: "not_found" }
+	| { status: "busy" };
+
+/**
+ * Sets a conversation's own model, or clears it with null so it follows the
+ * chat default. Applies from the next turn; refused while a reply is being
+ * generated, so a running reply keeps the model it started with.
+ */
+export async function setConversationModel(
+	deps: Pick<ChatDeps, "db" | "ai">,
+	conversationId: string,
+	input: unknown,
+): Promise<SetModelResult> {
+	let selection: AiSelection | null = null;
+	if (input !== null) {
+		const checked = checkSelection(deps.ai, input);
+		if (checked.status !== "ok") return checked;
+		selection = checked.selection;
+	}
+	if (inFlight.has(conversationId)) return { status: "busy" };
+	const updated = await updateConversationModel(
+		deps.db,
+		conversationId,
+		selection,
+	);
+	return updated ? { status: "ok", selection } : { status: "not_found" };
+}
+
 /** Appends the new user message (or prepares a retry) and returns the messages to send the model. */
 async function prepareHistory(
 	db: Database,
@@ -203,6 +247,7 @@ async function prepareHistory(
 		parts,
 		citations: [],
 		finishReason: null,
+		provider: null,
 		model: null,
 		promptVersion: null,
 		error: null,
@@ -331,6 +376,7 @@ function generate(
 						: aborted
 							? "aborted"
 							: (finishReason ?? "stop"),
+					provider: selection.provider,
 					model: modelName,
 					promptVersion: PROMPT_VERSION,
 					error: failure,

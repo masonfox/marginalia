@@ -23,6 +23,7 @@ import {
 	getConversation,
 	messages,
 	PROMPT_VERSION,
+	setConversationModel,
 	startChat,
 	widenConversationScope,
 } from ".";
@@ -630,6 +631,53 @@ describe("request prefix", () => {
 		expect(JSON.stringify(turn2.slice(0, lastOfTurn1.length))).toBe(
 			JSON.stringify(lastOfTurn1),
 		);
+	});
+
+	it("keeps the system prompt, tools and replayed history byte-identical across a model change", async () => {
+		const id = await newConversation();
+		const before = scripted(
+			toolCall("c1", { query: "green light" }),
+			textReply("First answer."),
+			textReply("Second answer."),
+		);
+		const after = scripted(textReply("Third answer."));
+		const ai: AiRuntime = {
+			...runtime(before),
+			available: () => ["openai", "anthropic"],
+			resolve: (selection) => ({
+				ok: true,
+				model: selection.provider === "anthropic" ? after : before,
+				providerOptions: {},
+				selection,
+			}),
+		};
+		await (await run(ai, id, "one")).text();
+		await saved(id, 2);
+		await (await run(ai, id, "two")).text();
+		await saved(id, 4);
+		expect(
+			await setConversationModel({ db: t.db, ai }, id, {
+				provider: "anthropic",
+				model: "other-model",
+			}),
+		).toMatchObject({ status: "ok" });
+		await (await run(ai, id, "three")).text();
+		const conv = await saved(id, 6);
+
+		const last = before.doStreamCalls.at(-1);
+		const next = after.doStreamCalls[0];
+		if (!last || !next) throw new Error("expected calls to both models");
+		const system = (call: typeof last) =>
+			JSON.stringify(call.prompt.filter((m) => m.role === "system"));
+		expect(system(next)).toBe(system(last));
+		expect(JSON.stringify(next.tools)).toBe(JSON.stringify(last.tools));
+		// Everything the previous model was sent, earlier replies included, is replayed unchanged.
+		expect(JSON.stringify(next.prompt.slice(0, last.prompt.length))).toBe(
+			JSON.stringify(last.prompt),
+		);
+		expect(
+			conv.messages.filter((m) => m.role === "assistant").map((m) => m.model),
+		).toEqual(["mock-1", "mock-1", "other-model"]);
 	});
 });
 

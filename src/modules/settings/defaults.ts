@@ -159,7 +159,8 @@ export async function resetPreprocessDefault(db: Executor): Promise<void> {
 	});
 }
 
-function checkSelection(
+/** Validates a selection and requires its provider to have credentials. */
+export function checkSelection(
 	ai: AiSource,
 	input: unknown,
 ):

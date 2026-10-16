@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { selectionSchema } from "#/modules/ai";
 import { getReadingUnits } from "#/modules/catalog";
 import {
 	checkPassageRef,
@@ -13,6 +14,7 @@ import {
 	type PassageCheck,
 	passageRefSchema,
 	renameConversation,
+	setConversationModel,
 	widenConversationScope,
 } from "#/modules/conversation";
 import { getAiStatus } from "#/modules/settings";
@@ -47,14 +49,46 @@ export const getReadingUnitsFn = createServerFn({ method: "GET" })
 	.handler(({ data }) => getReadingUnits(appContext().db, data.editionId));
 
 /**
- * Starts a single-book conversation with the reader's chosen scope. Returns
- * null when the book is missing or not ready, and `stale_scope` when the
- * chosen unit no longer exists (reload the units and choose again).
+ * Starts a single-book conversation with the reader's chosen scope and,
+ * optionally, its own model. Returns null when the book is missing or not
+ * ready, `stale_scope` when the chosen unit no longer exists (reload the
+ * units and choose again), and `model_unavailable` when the model's provider
+ * has no credentials.
  */
 export const createConversationFn = createServerFn({ method: "POST" })
-	.validator(z.object({ editionId: z.uuid(), scope: scopeSchema }))
+	.validator(
+		z.object({
+			editionId: z.uuid(),
+			scope: scopeSchema,
+			selection: selectionSchema.optional(),
+		}),
+	)
+	.handler(({ data }) => {
+		const { db, ai } = appContext();
+		if (data.selection && !ai.available().includes(data.selection.provider))
+			return { error: "model_unavailable" as const };
+		return createConversationForEdition(
+			db,
+			data.editionId,
+			data.scope,
+			data.selection,
+		);
+	});
+
+/**
+ * Sets a conversation's own model, or clears it with null so it follows the
+ * chat default. Refused (`busy`) while a reply is being generated, and
+ * `unavailable` when the provider has no credentials.
+ */
+export const setConversationModelFn = createServerFn({ method: "POST" })
+	.validator(
+		z.object({
+			conversationId: z.uuid(),
+			selection: selectionSchema.nullable(),
+		}),
+	)
 	.handler(({ data }) =>
-		createConversationForEdition(appContext().db, data.editionId, data.scope),
+		setConversationModel(appContext(), data.conversationId, data.selection),
 	);
 
 /** Widens one book's scope in a conversation; never narrows it. */

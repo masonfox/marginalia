@@ -119,6 +119,26 @@ describe("POST /api/chat", () => {
 		expect((await getConversation(t.db, id))?.messages).toEqual([]);
 	});
 
+	it("returns 503 naming the model when the conversation's model is unavailable", async () => {
+		const model = modelWith(() => []);
+		const { id } = await createConversation(t.db, {
+			editionIds: [editionId],
+			model: { provider: "google", model: "gemini-pro" },
+		});
+		const ai: AiRuntime = {
+			...enabled(model),
+			resolve: () => ({ ok: false, reason: "unavailable" }),
+		};
+		const res = await chat(ai, post({ conversationId: id, message: "hi" }));
+		expect(res.status).toBe(503);
+		expect(await res.json()).toEqual({
+			error: "Model google/gemini-pro is unavailable",
+			selection: { provider: "google", model: "gemini-pro" },
+		});
+		expect((await getConversation(t.db, id))?.messages).toEqual([]);
+		expect(model.doStreamCalls).toHaveLength(0);
+	});
+
 	it("returns 404 for an unknown conversation", async () => {
 		const model = modelWith(() => []);
 		const res = await chat(

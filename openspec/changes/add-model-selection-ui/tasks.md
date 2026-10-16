@@ -18,9 +18,9 @@
 
 ## 4. Conversations
 
-- [ ] 4.1 Make `startChat` resolve the model per turn (conversation override → defaults), return `model_unavailable` or `disabled` before persisting anything, and record `provider` and `model` on the assistant message and on usage. Map `model_unavailable` to a 503 naming the model in `/api/chat`. Verify with `service.int.test.ts` cases: override used, default followed after a change, unavailable override refused with nothing stored, and a retry using the model in effect when it starts.
-- [ ] 4.2 Add `setConversationModelFn` (set or clear; refuses while a reply is in flight) and an optional selection on `createConversationFn`. Verify with integration tests for set, clear, an unavailable provider rejected, and the busy refusal.
-- [ ] 4.3 Add a test asserting that the system prompt, tool definitions, and replayed history are byte-identical before and after a model change (stable-prefix requirement). Verify that it passes.
+- [x] 4.1 Make `startChat` resolve the model per turn (conversation override → defaults), return `model_unavailable` or `disabled` before persisting anything, and record `provider` and `model` on the assistant message and on usage. Map `model_unavailable` to a 503 naming the model in `/api/chat`. Verify with `service.int.test.ts` cases: override used, default followed after a change, unavailable override refused with nothing stored, and a retry using the model in effect when it starts.
+- [x] 4.2 Add `setConversationModelFn` (set or clear; refuses while a reply is in flight) and an optional selection on `createConversationFn`. Verify with integration tests for set, clear, an unavailable provider rejected, and the busy refusal.
+- [x] 4.3 Add a test asserting that the system prompt, tool definitions, and replayed history are byte-identical before and after a model change (stable-prefix requirement). Verify that it passes.
 
 ## 5. Preprocessing
 

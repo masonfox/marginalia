@@ -47,6 +47,14 @@ export async function handleChatRequest(
 			return result.response;
 		case "disabled":
 			return json(503, "AI is not configured on this instance");
+		case "model_unavailable":
+			return Response.json(
+				{
+					error: `Model ${result.selection.provider}/${result.selection.model} is unavailable`,
+					selection: result.selection,
+				},
+				{ status: 503 },
+			);
 		case "not_found":
 			return json(404, "Conversation not found");
 		case "busy":
