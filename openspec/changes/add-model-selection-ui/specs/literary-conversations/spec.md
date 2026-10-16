@@ -27,7 +27,7 @@ A conversation SHALL either have its own model selection or follow the chat defa
 When the model a conversation would use names a provider that no longer has credentials, the system SHALL NOT send the turn and SHALL NOT silently use another model. The conversation view SHALL say that the model is unavailable, name it, and offer to choose another model or clear the override, and the chat endpoint SHALL refuse the turn with a response that says so.
 
 #### Scenario: Provider removed
-- **WHEN** a conversation's own model uses OpenAI and the OpenAI key is removed from the environment
+- **WHEN** a conversation's own model uses OpenAI and the OpenAI credentials are removed in Settings
 - **THEN** opening the conversation shows that its model is unavailable with a way to change it, and sending a message is refused without calling any model
 
 ### Requirement: Model in effect shown
