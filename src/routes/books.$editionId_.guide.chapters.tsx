@@ -6,7 +6,6 @@ import {
 	GuideCitations,
 	GuideEmpty,
 	GuideError,
-	provenanceText,
 	useGuide,
 } from "#/components/guide";
 import {
@@ -14,7 +13,7 @@ import {
 	ShowHiddenToggle,
 } from "#/components/guide-corrections";
 import { AddNoteLink, AttachedNotes } from "#/components/guide-notes";
-import { getGuideChaptersFn, getGuideProvenanceFn } from "#/fns/guide";
+import { getGuideChaptersFn } from "#/fns/guide";
 
 export const Route = createFileRoute("/books/$editionId_/guide/chapters")({
 	component: ChaptersView,
@@ -33,17 +32,8 @@ function ChaptersView() {
 			}),
 		enabled: preprocessed && bound !== null,
 	});
-	const provenance = useQuery({
-		queryKey: ["guide", editionId, "provenance", key],
-		queryFn: () =>
-			getGuideProvenanceFn({
-				data: { editionId, bound: bound?.choice ?? { kind: "whole" } },
-			}),
-		enabled: preprocessed && bound !== null,
-	});
 	const stale =
-		(chapters.data?.ok === false && chapters.data.reason === "stale_bound") ||
-		(provenance.data?.ok === false && provenance.data.reason === "stale_bound");
+		chapters.data?.ok === false && chapters.data.reason === "stale_bound";
 	useEffect(() => {
 		if (stale) onStaleBound();
 	}, [stale, onStaleBound]);
@@ -59,16 +49,7 @@ function ChaptersView() {
 	).length;
 	return (
 		<section aria-label="Chapters">
-			<div className="mb-4 flex flex-wrap items-start justify-between gap-2">
-				{provenance.data?.ok && (
-					<p
-						className="text-xs text-muted-foreground"
-						data-testid="guide-provenance"
-					>
-						{provenanceText(provenance.data.provenance)}. Summaries are a guide,
-						not the text.
-					</p>
-				)}
+			<div className="mb-4 flex flex-wrap items-start justify-end gap-2">
 				<ShowHiddenToggle
 					count={hiddenCount}
 					shown={showHidden}

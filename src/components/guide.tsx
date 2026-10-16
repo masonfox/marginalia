@@ -1,6 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
 import { Badge } from "#/components/ui/badge";
+import { getGuideProvenanceFn } from "#/fns/guide";
 import type { DerivedCitation, ObservationKind } from "#/modules/analysis";
 import type { ReadingUnit } from "#/modules/catalog";
 import type {
@@ -125,6 +127,43 @@ export function provenanceText(p: GuideProvenance): string {
 	].filter((part) => part !== null);
 	const text = parts.join(" · ");
 	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * The provenance of the derived data at the visit's bound, shown once by the
+ * Guide layout for every view. Nothing until the book is preprocessed and a
+ * bound is chosen.
+ */
+export function GuideProvenanceLine() {
+	const { editionId, bound, preprocessed, onStaleBound } = useGuide();
+	const provenance = useQuery({
+		queryKey: [
+			"guide",
+			editionId,
+			"provenance",
+			bound ? boundKey(bound) : null,
+		],
+		queryFn: () =>
+			getGuideProvenanceFn({
+				data: { editionId, bound: bound?.choice ?? { kind: "whole" } },
+			}),
+		enabled: preprocessed && bound !== null,
+	});
+	const stale =
+		provenance.data?.ok === false && provenance.data.reason === "stale_bound";
+	useEffect(() => {
+		if (stale) onStaleBound();
+	}, [stale, onStaleBound]);
+	if (!preprocessed || !provenance.data?.ok) return null;
+	return (
+		<p
+			className="mb-4 text-xs text-muted-foreground"
+			data-testid="guide-provenance"
+		>
+			{provenanceText(provenance.data.provenance)}. Summaries and the index are
+			a guide, not the text.
+		</p>
+	);
 }
 
 /** Observation kinds in display order, with their labels. */

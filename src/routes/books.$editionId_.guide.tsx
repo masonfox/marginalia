@@ -12,6 +12,7 @@ import {
 	boundEnd,
 	type GuideBound,
 	GuideContext,
+	GuideProvenanceLine,
 	positionBound,
 } from "#/components/guide";
 import { CorrectionReviewPanel } from "#/components/guide-corrections";
@@ -223,6 +224,7 @@ function GuideLayout() {
 							position,
 						}}
 					>
+						<GuideProvenanceLine />
 						<CorrectionReviewPanel />
 						<Outlet />
 					</GuideContext.Provider>
