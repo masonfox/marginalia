@@ -1,4 +1,8 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	type QueryClient,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
 	Check,
@@ -234,6 +238,26 @@ function CorrectedMark() {
 }
 
 /**
+ * Refreshes every read of a book's guide after a correction: the Guide's,
+ * and each guide step and observation lookup in any trail, whatever scope
+ * or map it recorded.
+ */
+async function invalidateGuideReads(
+	queryClient: QueryClient,
+	editionId: string,
+): Promise<void> {
+	await Promise.all([
+		queryClient.invalidateQueries({ queryKey: ["guide", editionId] }),
+		queryClient.invalidateQueries({
+			predicate: ({ queryKey: [kind, , target] }) =>
+				(kind === "guide-step" &&
+					(target as GuideContextLike | undefined)?.editionId === editionId) ||
+				(kind === "trail-observations" && target === editionId),
+		}),
+	]);
+}
+
+/**
  * A guide step expanded: the summaries now within the scope the reply
  * recorded, with corrections applied, each correctable while its book is
  * still in the library. Says when the guide changed since the reply.
@@ -260,12 +284,7 @@ function GuideStepDetails({ guide }: { guide: GuideContextLike }) {
 	if (step.isError)
 		return <p className="mt-1 ml-5">Could not load the summaries.</p>;
 	if (!step.data) return <p className="mt-1 ml-5">Loading…</p>;
-	const refresh = async () => {
-		await step.refetch();
-		await queryClient.invalidateQueries({
-			queryKey: ["guide", guide.editionId],
-		});
-	};
+	const refresh = () => invalidateGuideReads(queryClient, guide.editionId);
 	return (
 		<div className="mt-1 ml-5 space-y-2" data-testid="guide-step">
 			{step.data.changed && (
@@ -336,11 +355,7 @@ function ObservationList({ step }: { step: Step }) {
 		enabled: !!context && !!book && !!step.lookedUp,
 	});
 	const refresh = async () => {
-		await current.refetch();
-		if (book)
-			await queryClient.invalidateQueries({
-				queryKey: ["guide", book.editionId],
-			});
+		if (book) await invalidateGuideReads(queryClient, book.editionId);
 	};
 	const lookedUp = step.lookedUp?.toLowerCase();
 	return (
