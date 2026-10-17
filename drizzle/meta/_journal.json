@@ -78,6 +78,41 @@
       "when": 1792075165243,
       "tag": "0010_preprocess_cancelled_job",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792091540312,
+      "tag": "0011_reading_positions",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792093760170,
+      "tag": "0012_guide_subjects",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792095382744,
+      "tag": "0013_guide_corrections",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792101002657,
+      "tag": "0014_reader_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1792104626972,
+      "tag": "0015_guide_context",
+      "breakpoints": true
     }
   ]
 }

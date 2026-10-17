@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	describeStep,
 	groupParts,
+	guideSteps,
 	type StepKind,
 	summarizeTrail,
 } from "./research-trail";
@@ -361,5 +362,290 @@ describe("groupParts / summarizeTrail", () => {
 			"Researched · 25 passages read",
 		);
 		expect(summarizeTrail([step("read", 0)])).toBe("Researched");
+	});
+});
+
+describe("guideSteps", () => {
+	const entry = {
+		editionId: "e1",
+		scopeLabel: "Chapter 12",
+		maxPosition: 120,
+		mapFingerprint: "f".repeat(64),
+	};
+	const books = [{ editionId: "e1", title: "Hyperion" }];
+
+	it("describes the map a reply used, through its scope", () => {
+		const [step, ...rest] = guideSteps([entry], books);
+		expect(rest).toEqual([]);
+		expect(step).toMatchObject({
+			kind: "guide",
+			status: "ok",
+			label: "Used chapter summaries through Chapter 12",
+			guide: entry,
+			passages: [],
+		});
+	});
+
+	it("describes a whole-book map", () => {
+		expect(
+			guideSteps([{ ...entry, scopeLabel: null, maxPosition: null }], books)[0]
+				?.label,
+		).toBe("Used chapter summaries for the whole book");
+	});
+
+	it("names the book in a multi-book conversation, and a removed one", () => {
+		const two = [...books, { editionId: "e2", title: "Endymion" }];
+		expect(
+			guideSteps([entry, { ...entry, editionId: "e2" }], two).map(
+				(s) => s.label,
+			),
+		).toEqual([
+			"Used chapter summaries of Hyperion through Chapter 12",
+			"Used chapter summaries of Endymion through Chapter 12",
+		]);
+		expect(guideSteps([entry], [])[0]?.label).toBe(
+			"Used chapter summaries of a removed book through Chapter 12",
+		);
+	});
+
+	it("shows no guide step for older messages without context", () => {
+		expect(guideSteps(null, books)).toEqual([]);
+		expect(guideSteps(undefined, books)).toEqual([]);
+		expect(guideSteps([], books)).toEqual([]);
+		expect(guideSteps([{ editionId: 5 }, "x", null], books)).toEqual([]);
+	});
+
+	it("is excluded from the searches and passages counted", () => {
+		const [guide] = guideSteps([entry], books);
+		if (!guide) throw new Error("expected a guide step");
+		const search = describeStep(
+			done(
+				"tool-searchBooks",
+				{ query: "x" },
+				{ status: "ok", count: 1, results: [{ locator: "a:v1:1", text: "" }] },
+			),
+		);
+		expect(summarizeTrail([guide, search])).toBe("Researched · 1 search");
+		expect(summarizeTrail([guide])).toBe("Used the book guide");
+	});
+});
+
+describe("describeStep: lookupObservations", () => {
+	const output = {
+		status: "ok",
+		book: "b1",
+		subject: "Aragorn",
+		message: "guide, not evidence",
+		count: 4,
+		truncated: false,
+		results: [
+			{
+				unitLabel: "Chapter 1",
+				observedAs: "Strider",
+				kind: "character",
+				source: "reader correction",
+				note: "The reader's note.",
+				citations: [],
+			},
+			{
+				unitLabel: "Chapter 2",
+				observedAs: "Aragorn",
+				kind: "character",
+				source: "generated",
+				note: "Crowned.",
+				citations: [],
+			},
+			{
+				unitLabel: "Chapter 3",
+				observedAs: "Strider",
+				kind: "character",
+				source: "generated",
+				note: "Walks.",
+				citations: [],
+			},
+			{
+				unitLabel: "Chapter 3",
+				observedAs: "Aragorn",
+				kind: "character",
+				source: "generated",
+				note: "Rides.",
+				citations: [],
+			},
+		],
+	};
+
+	it("reads as looking up the name, with the subject it resolved to and the count", () => {
+		const s = describeStep(
+			done("tool-lookupObservations", { book: "b1", name: "Strider" }, output),
+		);
+		expect(s).toMatchObject({
+			kind: "observations",
+			status: "ok",
+			label: "Looked up “Strider” (Aragorn)",
+			detail: "4 results",
+			book: "b1",
+			lookedUp: "Strider",
+		});
+		expect(s.observations).toEqual([
+			{
+				unitLabel: "Chapter 1",
+				observedAs: "Strider",
+				note: "The reader's note.",
+				corrected: true,
+			},
+			{
+				unitLabel: "Chapter 2",
+				observedAs: "Aragorn",
+				note: "Crowned.",
+				corrected: false,
+			},
+			expect.objectContaining({ unitLabel: "Chapter 3", corrected: false }),
+			expect.objectContaining({ observedAs: "Aragorn", note: "Rides." }),
+		]);
+	});
+
+	it("omits the subject when it is the name looked up", () => {
+		const s = describeStep(
+			done(
+				"tool-lookupObservations",
+				{ book: "b1", name: "aragorn" },
+				{ ...output, count: 1, results: output.results.slice(1, 2) },
+			),
+		);
+		expect(s).toMatchObject({
+			label: "Looked up “aragorn”",
+			detail: "1 result",
+		});
+	});
+
+	it("reads results stored before guide integration", () => {
+		const s = describeStep(
+			done(
+				"tool-lookupObservations",
+				{ book: "b1", name: "Lantern" },
+				{
+					status: "ok",
+					count: 1,
+					results: [{ unitLabel: "One", name: "Lantern", note: "Appears." }],
+				},
+			),
+		);
+		expect(s.label).toBe("Looked up “Lantern”");
+		expect(s.observations).toEqual([
+			{
+				unitLabel: "One",
+				observedAs: "Lantern",
+				note: "Appears.",
+				corrected: false,
+			},
+		]);
+	});
+
+	it("reports not found, unavailable, unknown books, progress and errors", () => {
+		const step = (out: unknown) =>
+			describeStep(
+				done("tool-lookupObservations", { book: "b1", name: "Nobody" }, out),
+			);
+		expect(step({ status: "not_found", message: "none" })).toMatchObject({
+			status: "empty",
+			detail: "no matches",
+		});
+		expect(step({ status: "unavailable", message: "no" })).toMatchObject({
+			status: "unavailable",
+		});
+		expect(
+			step({ status: "unknown_book", message: "No book b9." }),
+		).toMatchObject({ status: "failed", detail: "No book b9." });
+		expect(
+			describeStep({
+				type: "tool-lookupObservations",
+				state: "input-available",
+				input: { name: "Nobody" },
+			}),
+		).toMatchObject({ status: "running", label: "Looking up “Nobody”…" });
+		expect(
+			describeStep({
+				type: "tool-lookupObservations",
+				state: "output-error",
+				input: { name: "Nobody" },
+				errorText: "boom",
+			}),
+		).toMatchObject({
+			status: "failed",
+			label: "Looked up “Nobody”",
+			detail: "boom",
+		});
+	});
+});
+
+describe("describeStep: lookupNotes", () => {
+	it("reads as checking the reader's notes, with the count and linkable titles", () => {
+		const s = describeStep(
+			done(
+				"tool-lookupNotes",
+				{ book: "b1" },
+				{
+					status: "ok",
+					mode: "list",
+					book: "b1",
+					attribution: "the reader's own notes",
+					count: 2,
+					truncated: false,
+					notes: [
+						{ id: 7, title: "A theory", attachedTo: null, asOf: "Chapter 1" },
+						{ id: 9, title: "Another", attachedTo: null, asOf: "Chapter 2" },
+					],
+				},
+			),
+		);
+		expect(s).toMatchObject({
+			kind: "notes",
+			status: "ok",
+			label: "Checked your notes",
+			detail: "2 notes",
+			book: "b1",
+			notes: [
+				{ id: 7, title: "A theory" },
+				{ id: 9, title: "Another" },
+			],
+		});
+	});
+
+	it("names the query or subject and reports no notes", () => {
+		expect(
+			describeStep(
+				done(
+					"tool-lookupNotes",
+					{ book: "b1", query: "villain" },
+					{ status: "not_found", message: "No notes match within the scope." },
+				),
+			),
+		).toMatchObject({
+			label: "Checked your notes for “villain”",
+			status: "empty",
+			detail: "no notes",
+		});
+		expect(
+			describeStep(
+				done(
+					"tool-lookupNotes",
+					{ book: "b1", subject: "Shrike" },
+					{
+						status: "ok",
+						count: 1,
+						notes: [{ id: 1, title: "On the Shrike", body: "…" }],
+					},
+				),
+			),
+		).toMatchObject({
+			label: "Checked your notes on “Shrike”",
+			detail: "1 note",
+		});
+	});
+
+	it("never throws on malformed lookup output", () => {
+		for (const output of [null, "x", 5, [], { results: "no" }, { notes: [1] }])
+			for (const type of ["tool-lookupObservations", "tool-lookupNotes"])
+				expect(() => describeStep(done(type, null, output))).not.toThrow();
 	});
 });

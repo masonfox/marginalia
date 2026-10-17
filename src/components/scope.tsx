@@ -3,7 +3,7 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { cn } from "cn";
 import { BookOpenCheck, ChevronDown, TriangleAlert } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
 	Dialog,
@@ -20,26 +20,45 @@ import {
 	getReadingUnitsFn,
 	widenScopeFn,
 } from "#/fns/conversations";
+import { getReadingPositionFn } from "#/fns/guide";
 import type { PassageRef } from "#/lib/passage-ref";
 import type { ReadingUnit } from "#/modules/catalog";
 import type { ConversationBook, Scope } from "#/modules/conversation";
+import type { ReadingPosition } from "#/modules/guide";
+import { usePositionOffer } from "./conversation-controls";
 
 /** "Through Chapter 22" or "Whole book". */
 export const scopeText = (label: string | null) =>
 	label === null ? "Whole book" : `Through ${label}`;
 
-type Choice = "whole" | `unit:${number}`;
+export type Choice = "whole" | `unit:${number}`;
 
-const toScope = (choice: Choice): Scope =>
+export const toScope = (choice: Choice): Scope =>
 	choice === "whole"
 		? { kind: "whole" }
 		: { kind: "unit", endPosition: Number(choice.slice(5)) };
 
-const STALE =
+export const STALE =
 	"This book's chapters changed since the list was loaded. Please choose again.";
 
+/**
+ * The choice matching the reading position among the offered units: whole
+ * book when finished, or the unit it ends at. Null when the position is
+ * unset or its unit is not offered.
+ */
+export function positionChoice(
+	position: ReadingPosition | null | undefined,
+	units: ReadingUnit[],
+): Choice | null {
+	if (!position) return null;
+	if (position.kind === "finished") return "whole";
+	return units.some((u) => u.endPosition === position.maxPosition)
+		? `unit:${position.maxPosition}`
+		: null;
+}
+
 /** Consecutive units sharing a parent path, for grouped display. */
-function groupUnits(units: ReadingUnit[]) {
+export function groupUnits(units: ReadingUnit[]) {
 	const groups: { parent: string; units: ReadingUnit[] }[] = [];
 	for (const unit of units) {
 		const parent = unit.path.slice(0, -1).join(" › ");
@@ -73,37 +92,46 @@ const optionClass =
 function Option({
 	choice,
 	label,
+	name,
 	value,
 	onChange,
 	read,
+	mine,
 	className,
 	children,
 }: {
 	choice: Choice;
+	/** The radio group's name, unique per group on the page. */
+	name: string;
 	/** Accessible name, when it differs from what is shown. */
 	label: string;
 	value: Choice | null;
 	onChange: (choice: Choice) => void;
 	/** Shade as read: at or before the chosen unit. */
 	read?: boolean;
+	/** Mark as the reader's position, without selecting it. */
+	mine?: boolean;
 	className?: string;
 	children: ReactNode;
 }) {
+	const accessibleName = mine ? `${label} (your reading position)` : label;
 	return (
 		<label
-			title={label}
+			title={accessibleName}
+			data-reading-position={mine ? "" : undefined}
 			className={cn(
 				optionClass,
 				read && "bg-accent/60 text-foreground",
+				mine && "ring-2 ring-primary/60 ring-inset",
 				className,
 			)}
 		>
 			<input
 				type="radio"
-				name="scope"
+				name={name}
 				className="absolute inset-0 cursor-pointer appearance-none opacity-0"
 				value={choice}
-				aria-label={label}
+				aria-label={accessibleName}
 				checked={value === choice}
 				onChange={() => onChange(choice)}
 			/>
@@ -112,49 +140,75 @@ function Option({
 	);
 }
 
+/** What ScopeChoices calls its whole-book choice and its unit list. */
+export interface ChoiceLabels {
+	whole: string;
+	wholeHint: string;
+	partway: string;
+}
+
+const CHOICE_LABELS: ChoiceLabels = {
+	whole: "Whole book",
+	wholeHint: "I've finished it. Later events are fair game.",
+	partway: "I'm partway through",
+};
+
 /**
  * "Whole book", then a collapsed "partway through" section that opens to the
  * units grouped by parent, shown as a grid of numbers when a group is plainly
  * numbered. Units up to the chosen one are shaded as read. Nothing is
- * preselected.
+ * preselected; the reader's position, when given, is only marked.
  */
-function ScopeChoices({
+export function ScopeChoices({
 	units,
 	value,
 	onChange,
+	position = null,
+	legend = "How far you have read",
+	labels = CHOICE_LABELS,
 }: {
 	units: ReadingUnit[];
 	value: Choice | null;
 	onChange: (choice: Choice) => void;
+	/** The choice to mark as the reader's position (see positionChoice). */
+	position?: Choice | null;
+	legend?: string;
+	/** What the two kinds of choice are called, when not "how far you have read". */
+	labels?: ChoiceLabels;
 }) {
+	const name = useId();
+	const listId = `${name}-units`;
 	const chosenEnd =
 		value === null
 			? -1
 			: value === "whole"
 				? Number.POSITIVE_INFINITY
 				: Number(value.slice(5));
-	const shared = { value, onChange };
+	const shared = { value, onChange, name };
 	const [expanded, setExpanded] = useState(false);
 	const chosen = units.find((u) => `unit:${u.endPosition}` === value);
+	const mine = units.find((u) => `unit:${u.endPosition}` === position);
 	return (
 		<fieldset className="space-y-3">
-			<legend className="sr-only">How far you have read</legend>
+			<legend className="sr-only">{legend}</legend>
 			<Option
 				{...shared}
 				choice="whole"
-				label="Whole book"
+				label={labels.whole}
+				mine={position === "whole"}
 				className="flex flex-col border px-3 py-2"
 			>
-				<span>Whole book</span>
+				<span>{labels.whole}</span>
 				<span className="text-xs font-normal opacity-70">
-					I've finished it. Later events are fair game.
+					{labels.wholeHint}
 				</span>
+				{position === "whole" && <YourPosition />}
 			</Option>
 			{units.length > 0 && (
 				<button
 					type="button"
 					aria-expanded={expanded}
-					aria-controls="scope-units"
+					aria-controls={listId}
 					onClick={() => setExpanded((e) => !e)}
 					className={cn(
 						"flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -162,12 +216,17 @@ function ScopeChoices({
 					)}
 				>
 					<span className="flex flex-1 flex-col">
-						<span>I'm partway through</span>
+						<span>{labels.partway}</span>
 						<span className="text-xs text-muted-foreground">
 							{chosen
 								? `Through ${chosen.label}`
 								: "Choose the last chapter you finished."}
 						</span>
+						{mine && (
+							<span className="text-xs text-muted-foreground">
+								Your reading position: {mine.label}
+							</span>
+						)}
 					</span>
 					<ChevronDown
 						className={cn(
@@ -180,7 +239,7 @@ function ScopeChoices({
 			)}
 			{units.length > 0 && expanded && (
 				<div
-					id="scope-units"
+					id={listId}
 					className="max-h-[40vh] overflow-y-auto rounded-md border"
 				>
 					{groupUnits(units).map((group) => {
@@ -208,6 +267,7 @@ function ScopeChoices({
 											choice={`unit:${u.endPosition}`}
 											label={short(u)}
 											read={u.endPosition <= chosenEnd}
+											mine={`unit:${u.endPosition}` === position}
 											className={
 												numbers
 													? "flex h-9 items-center justify-center tabular-nums"
@@ -215,6 +275,9 @@ function ScopeChoices({
 											}
 										>
 											{numbers ? numbers[i] : short(u)}
+											{!numbers && `unit:${u.endPosition}` === position && (
+												<YourPosition />
+											)}
 										</Option>
 									))}
 								</div>
@@ -224,6 +287,15 @@ function ScopeChoices({
 				</div>
 			)}
 		</fieldset>
+	);
+}
+
+/** The marker on the choice matching the reader's position. */
+function YourPosition() {
+	return (
+		<span className="block text-xs font-normal opacity-70">
+			Your reading position
+		</span>
 	);
 }
 
@@ -310,6 +382,11 @@ export function NewConversationDialog({
 		queryFn: () => getReadingUnitsFn({ data: { editionId } }),
 		enabled: open,
 	});
+	const position = useQuery({
+		queryKey: ["reading-position", editionId],
+		queryFn: () => getReadingPositionFn({ data: { editionId } }),
+		enabled: open,
+	});
 	const chosenLabel =
 		choice === null
 			? undefined
@@ -354,6 +431,10 @@ export function NewConversationDialog({
 					<ScopeChoices
 						units={offered?.units ?? units.data}
 						value={choice}
+						position={positionChoice(
+							position.data,
+							offered?.units ?? units.data,
+						)}
 						onChange={(c) => {
 							setChoice(c);
 							setError(null);
@@ -438,6 +519,7 @@ export function WidenScope({
 }) {
 	const router = useRouter();
 	const widen = useServerFn(widenScopeFn);
+	const offerPosition = usePositionOffer();
 	const [open, setOpen] = useState(false);
 	const [choice, setChoice] = useState<Choice | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -527,6 +609,15 @@ export function WidenScope({
 									await router.invalidate();
 									setOpen(false);
 									setChoice(null);
+									if (result.widened)
+										offerPosition?.({
+											editionId: book.editionId,
+											title: book.title,
+											choice: toScope(choice),
+											label:
+												later.find((u) => `unit:${u.endPosition}` === choice)
+													?.label ?? null,
+										});
 								} else if (result.reason === "stale_scope") {
 									setChoice(null);
 									setError(STALE);

@@ -23,11 +23,11 @@ import {
 	type StoredReplyContext,
 } from "#/lib/reply-context";
 import { type AiRuntime, describeError } from "#/modules/ai";
-import { getBookMap } from "#/modules/analysis";
 import { createRetrieval } from "#/modules/retrieval";
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
 import type { Database } from "#/server/db";
 import type { Logger } from "#/server/logger";
+import { loadBookMaps } from "./guide-context";
 import { checkPassageRef, type PassageRefInvalid } from "./passage-ref";
 import {
 	buildBookMapMessage,
@@ -41,8 +41,13 @@ import {
 	type StoredMessage,
 	setProvisionalTitle,
 } from "./repository";
-import { type CitationRecord, type Json, messages } from "./schema";
-import { bookHandle, createConversationTools } from "./tools";
+import {
+	type CitationRecord,
+	type GuideContextEntry,
+	type Json,
+	messages,
+} from "./schema";
+import { createConversationTools } from "./tools";
 import { verifyCitations } from "./verify";
 
 /** The UI message shape: text and tool parts plus a data part carrying verified citations. */
@@ -189,6 +194,7 @@ async function prepareHistory(
 		model: null,
 		promptVersion: null,
 		error: null,
+		guideContext: null,
 		createdAt: new Date(),
 	});
 	return stored;
@@ -218,22 +224,19 @@ function generate(
 	// Summed per completed step: totalUsage is unavailable after a stop.
 	let usage = NO_USAGE;
 	let steps = 0;
+	// The maps this reply was sent, recorded on it for the research trail.
+	let guideContext: GuideContextEntry[] | null = null;
 	const warned = new Set<string>();
 
 	const stream = createUIMessageStream<ChatUIMessage>({
 		onError: describeError,
 		execute: async ({ writer }) => {
-			// Load once per turn; stored summaries and scope alone determine the cached prefix.
-			const bookMaps = Object.fromEntries(
-				await Promise.all(
-					conversation.books.map(async (book) => [
-						bookHandle(book),
-						await getBookMap(db, book.editionId, book.maxPosition),
-					]),
-				),
-			);
+			// Load once per turn; scope, stored summaries and the summary
+			// corrections within scope alone determine the cached prefix.
+			const bookMaps = await loadBookMaps(db, conversation.books);
+			guideContext = bookMaps.guideContext;
 			// Untrusted derived data goes in a message after the instructions, never in them.
-			const map = buildBookMapMessage(conversation.books, bookMaps);
+			const map = buildBookMapMessage(conversation.books, bookMaps.maps);
 			const result = streamText({
 				// `model` is non-null: startChat checked.
 				model: ai.model as NonNullable<AiRuntime["model"]>,
@@ -319,6 +322,7 @@ function generate(
 					model: modelName,
 					promptVersion: PROMPT_VERSION,
 					error: failure,
+					guideContext,
 				});
 				try {
 					await recordUsage(db, {

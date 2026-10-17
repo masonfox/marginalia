@@ -6,10 +6,17 @@ import {
 	useNavigate,
 } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { MessageSquare, MessageSquarePlus, Search, Trash2 } from "lucide-react";
+import {
+	BookOpenText,
+	MessageSquare,
+	MessageSquarePlus,
+	Search,
+	Trash2,
+} from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
 import { PreprocessCard } from "#/components/preprocess-card";
+import { ReadingPositionCard } from "#/components/reading-position";
 import { NewConversationDialog } from "#/components/scope";
 import {
 	AlertDialog,
@@ -25,8 +32,10 @@ import {
 import { Badge } from "#/components/ui/badge";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
+import { countReaderContentFn } from "#/fns/guide";
 import { deleteEditionFn, getEditionFn } from "#/fns/library";
 import { searchPassagesFn } from "#/fns/retrieval";
+import { readerContentWarning } from "#/lib/reader-content";
 import type { TocNode } from "#/modules/catalog";
 import type { SnippetPart } from "#/modules/retrieval";
 
@@ -159,6 +168,10 @@ function BookPage() {
 				/>
 			</section>
 
+			{edition.status === "ready" && (
+				<ReadingPositionCard editionId={edition.id} />
+			)}
+
 			{edition.status === "ready" && <PreprocessCard editionId={edition.id} />}
 
 			{edition.status === "ready" && <BookSearch editionId={edition.id} />}
@@ -194,6 +207,13 @@ function ConversationActions({ editionId }: { editionId: string }) {
 			>
 				<MessageSquare aria-hidden /> Conversations
 			</Link>
+			<Link
+				to="/books/$editionId/guide/chapters"
+				params={{ editionId }}
+				className={buttonVariants({ variant: "outline", size: "sm" })}
+			>
+				<BookOpenText aria-hidden /> Guide
+			</Link>
 		</div>
 	);
 }
@@ -212,8 +232,25 @@ function DeleteBook({
 	const remove = useServerFn(deleteEditionFn);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [open, setOpen] = useState(false);
+	// Fresh on every opening: notes and guide edits may change in another tab.
+	const content = useQuery({
+		queryKey: ["reader-content", editionId],
+		queryFn: () => countReaderContentFn({ data: { editionId } }),
+		enabled: open,
+		staleTime: 0,
+	});
+	const warning = content.data ? readerContentWarning(content.data) : null;
+	// Delete waits for this opening's count, so the warning is never skipped.
+	const counted = content.isSuccess && !content.isFetching;
 	return (
-		<AlertDialog onOpenChange={() => setError(null)}>
+		<AlertDialog
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				setError(null);
+			}}
+		>
 			<AlertDialogTrigger asChild>
 				<Button size="sm" variant="outline" className="mt-4">
 					<Trash2 />
@@ -227,11 +264,34 @@ function DeleteBook({
 						This removes the book, its passages, its cover, and every
 						conversation about it from Marginalia. This cannot be undone.
 					</AlertDialogDescription>
+					{warning && (
+						<AlertDialogDescription
+							className="font-medium text-foreground"
+							data-testid="delete-reader-content"
+						>
+							{warning}
+						</AlertDialogDescription>
+					)}
 					{inLibraryFolder && (
 						<AlertDialogDescription>
 							The file in your library folder is not removed. Scans will skip it
 							until you upload the same file again.
 						</AlertDialogDescription>
+					)}
+					{content.isError && !content.isFetching && (
+						<div
+							className="flex items-center gap-2 text-sm text-destructive-foreground"
+							data-testid="delete-reader-content-error"
+						>
+							<span>Could not check for your notes and guide edits.</span>
+							<Button
+								size="xs"
+								variant="outline"
+								onClick={() => void content.refetch()}
+							>
+								Try again
+							</Button>
+						</div>
 					)}
 					{error && (
 						<p className="text-sm text-destructive-foreground">{error}</p>
@@ -241,7 +301,7 @@ function DeleteBook({
 					<AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
 					<AlertDialogAction
 						className={buttonVariants({ variant: "destructive" })}
-						disabled={busy}
+						disabled={busy || !counted}
 						onClick={async (event) => {
 							// Keep the dialog open until the delete finishes.
 							event.preventDefault();

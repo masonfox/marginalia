@@ -25,15 +25,22 @@ import {
 } from "#/components/composer/use-composer";
 import {
 	DeleteConversation,
+	PositionOfferProvider,
+	PositionUpdateOffer,
 	RenameConversation,
 } from "#/components/conversation-controls";
 import { PassageQuote } from "#/components/passage-quote";
-import { ReplyQuote, ReplySelection } from "#/components/reply-selection";
-import { ResearchTrail } from "#/components/research-trail";
+import {
+	ReplyQuote,
+	ReplySelection,
+	SaveNoteBookDialog,
+} from "#/components/reply-selection";
+import { ResearchTrail, type TrailContext } from "#/components/research-trail";
 import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
+import { excerptNoteDraft } from "#/lib/note-prefill";
 import {
 	attachmentKey,
 	type PassageRef,
@@ -42,11 +49,12 @@ import {
 	type StoredPassageContext,
 } from "#/lib/passage-ref";
 import {
+	type ReplyContext,
 	replyContextOf,
 	replyContextPart,
 	type StoredReplyContext,
 } from "#/lib/reply-context";
-import { groupParts } from "#/lib/research-trail";
+import { groupParts, guideSteps, type Step } from "#/lib/research-trail";
 import { exactUsage, replyUsageLine, totalUsageLine } from "#/lib/usage-format";
 import type {
 	CitationRecord,
@@ -277,264 +285,318 @@ function ConversationPage() {
 		}
 	};
 
+	// "Save as note": the excerpt waiting for the reader to choose its book.
+	const [noteExcerpt, setNoteExcerpt] = useState<string | null>(null);
+	/** Opens the note editor for a book with the excerpt prefilled; nothing is saved yet. */
+	const openNoteDraft = (excerpt: string, editionId: string) => {
+		const book = conversation.books.find((b) => b.editionId === editionId);
+		if (!book) return;
+		void router.navigate({
+			to: "/books/$editionId/guide/notes/new",
+			params: { editionId },
+			state: (prev) => ({
+				...prev,
+				noteDraft: excerptNoteDraft({
+					excerpt,
+					conversation: { id: conversation.id, title: conversation.title },
+					book,
+				}),
+			}),
+		});
+	};
+	const saveAsNote = (quote: ReplyContext) => {
+		const [only] = conversation.books;
+		if (conversation.books.length === 1 && only)
+			openNoteDraft(quote.text, only.editionId);
+		else setNoteExcerpt(quote.text);
+	};
+	const trailContext = useMemo(
+		() => ({
+			conversationId,
+			books: conversation.books.map((b) => ({
+				editionId: b.editionId,
+				ordinal: b.ordinal,
+				title: b.title,
+			})),
+		}),
+		[conversationId, conversation.books],
+	);
+	const guideContexts = useMemo(
+		() => new Map(conversation.messages.map((m) => [m.id, m.guideContext])),
+		[conversation.messages],
+	);
+
 	return (
-		<main className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-3xl flex-col px-4 py-6">
-			{ai.enabled && (
+		<PositionOfferProvider>
+			<main className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-3xl flex-col px-4 py-6">
 				<ReplySelection
 					key={conversationId}
-					onAttach={composer.attachQuote}
+					onAttach={ai.enabled ? composer.attachQuote : undefined}
 					onTooLong={composer.rejectLongQuote}
+					onSaveAsNote={conversation.books.length > 0 ? saveAsNote : undefined}
 				/>
-			)}
-			<header className="border-b pb-4">
-				<p className="text-sm">
-					<Link
-						to="/books/$editionId/conversations"
-						params={{ editionId: conversation.books[0]?.editionId ?? "" }}
-						className="text-muted-foreground hover:underline"
-					>
-						← Conversations
-					</Link>
-				</p>
-				<h1 className="mt-2 font-serif text-2xl font-semibold">
-					{conversation.title}
-				</h1>
-				<p className="mt-1 text-sm text-muted-foreground">
-					{conversation.books.length === 0
-						? "No book"
-						: conversation.books.map((b, i) => (
-								<span key={b.editionId}>
-									{i > 0 && ", "}
-									<Link
-										to="/books/$editionId"
-										params={{ editionId: b.editionId }}
-										className="hover:underline"
-									>
-										{b.title}
-									</Link>
-								</span>
-							))}
-					{ai.enabled && (
-						<span data-testid="provider-label">
-							{" "}
-							· {ai.provider} · {ai.model}
-						</span>
-					)}
-					<UsageTotal total={conversation.usageTotal} />
-				</p>
-				{conversation.books.length > 0 && (
-					<ul className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-						{conversation.books.map((b) => (
-							<li key={b.editionId} className="flex items-center gap-1">
-								<Badge variant="secondary" data-testid="scope-chip">
-									{conversation.books.length > 1 && `${b.title}: `}
-									{scopeText(b.scopeLabel)}
-								</Badge>
-								<WidenScope
-									conversationId={conversationId}
-									book={b}
-									disabled={busy}
-								/>
-							</li>
-						))}
-					</ul>
-				)}
-				<div className="mt-3">
-					<ScopeNotice labels={conversation.books.map((b) => b.scopeLabel)} />
-				</div>
-				<div className="mt-2 flex flex-wrap items-center gap-1">
-					<RenameConversation
-						conversationId={conversationId}
-						title={conversation.title}
-					/>
-					<DeleteConversation
-						conversationId={conversationId}
-						title={conversation.title}
-						onDeleted={() => {
-							composer.clear();
-							return router.navigate({
-								to: "/books/$editionId/conversations",
-								params: { editionId: conversation.books[0]?.editionId ?? "" },
-							});
-						}}
-					/>
-				</div>
-			</header>
-
-			<ol className="flex-1 space-y-5 py-6" aria-live="polite">
-				{messages.length === 0 && (
-					<li className="space-y-3 text-sm text-muted-foreground">
+				<SaveNoteBookDialog
+					books={noteExcerpt === null ? null : conversation.books}
+					onChoose={(editionId) => {
+						if (noteExcerpt) openNoteDraft(noteExcerpt, editionId);
+						setNoteExcerpt(null);
+					}}
+					onCancel={() => setNoteExcerpt(null)}
+				/>
+				<header className="border-b pb-4">
+					<p className="text-sm">
+						<Link
+							to="/books/$editionId/conversations"
+							params={{ editionId: conversation.books[0]?.editionId ?? "" }}
+							className="text-muted-foreground hover:underline"
+						>
+							← Conversations
+						</Link>
+					</p>
+					<h1 className="mt-2 font-serif text-2xl font-semibold">
+						{conversation.title}
+					</h1>
+					<p className="mt-1 text-sm text-muted-foreground">
+						{conversation.books.length === 0
+							? "No book"
+							: conversation.books.map((b, i) => (
+									<span key={b.editionId}>
+										{i > 0 && ", "}
+										<Link
+											to="/books/$editionId"
+											params={{ editionId: b.editionId }}
+											className="hover:underline"
+										>
+											{b.title}
+										</Link>
+									</span>
+								))}
 						{ai.enabled && (
-							<p data-testid="provider-notice">
-								Your messages and the passages the assistant reads are sent to{" "}
-								{ai.provider} ({ai.model}).
+							<span data-testid="provider-label">
+								{" "}
+								· {ai.provider} · {ai.model}
+							</span>
+						)}
+						<UsageTotal total={conversation.usageTotal} />
+					</p>
+					{conversation.books.length > 0 && (
+						<ul className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+							{conversation.books.map((b) => (
+								<li key={b.editionId} className="flex items-center gap-1">
+									<Badge variant="secondary" data-testid="scope-chip">
+										{conversation.books.length > 1 && `${b.title}: `}
+										{scopeText(b.scopeLabel)}
+									</Badge>
+									<WidenScope
+										conversationId={conversationId}
+										book={b}
+										disabled={busy}
+									/>
+								</li>
+							))}
+						</ul>
+					)}
+					<div className="mt-3">
+						<ScopeNotice labels={conversation.books.map((b) => b.scopeLabel)} />
+					</div>
+					<PositionUpdateOffer />
+					<div className="mt-2 flex flex-wrap items-center gap-1">
+						<RenameConversation
+							conversationId={conversationId}
+							title={conversation.title}
+						/>
+						<DeleteConversation
+							conversationId={conversationId}
+							title={conversation.title}
+							onDeleted={() => {
+								composer.clear();
+								return router.navigate({
+									to: "/books/$editionId/conversations",
+									params: { editionId: conversation.books[0]?.editionId ?? "" },
+								});
+							}}
+						/>
+					</div>
+				</header>
+
+				<ol className="flex-1 space-y-5 py-6" aria-live="polite">
+					{messages.length === 0 && (
+						<li className="space-y-3 text-sm text-muted-foreground">
+							{ai.enabled && (
+								<p data-testid="provider-notice">
+									Your messages and the passages the assistant reads are sent to{" "}
+									{ai.provider} ({ai.model}).
+								</p>
+							)}
+							<p>
+								Ask about a scene, a character, or a theory you are forming. The
+								assistant will search the book and push back where the text does
+								not support you.
 							</p>
-						)}
-						<p>
-							Ask about a scene, a character, or a theory you are forming. The
-							assistant will search the book and push back where the text does
-							not support you.
-						</p>
-					</li>
-				)}
-				{messages.map((m) => (
-					<li key={m.id}>
-						{m.role === "user" ? (
-							<div className="ml-auto w-fit max-w-[85%] break-words rounded-lg bg-secondary px-3 py-2">
-								<AttachmentPreview attachment={attachmentOf(m.parts)} />
-								<UserMarkdown text={textOf(m)} />
-							</div>
-						) : (
-							<AssistantMessage
-								message={m}
-								eligible={
-									ai.enabled &&
-									savedAssistantIds.has(m.id) &&
-									!(busy && m.id === last?.id)
-								}
-								remainingBookIds={remainingBookIds}
-								stopped={m.id === stoppedId}
-								streaming={busy && m.id === last?.id}
-								usage={conversation.usage[m.id]}
-							/>
-						)}
-					</li>
-				))}
-				{status === "submitted" && (
-					<li className="text-sm text-muted-foreground">Thinking…</li>
-				)}
-				{failed && (
-					<li
-						role="alert"
-						className="rounded-md border border-destructive-foreground/40 px-3 py-2 text-sm"
-					>
-						<p className="text-destructive-foreground">{failureText}</p>
-						{recoveryError && <p>{recoveryError}</p>}
-						{submission.current && (
-							<Button
-								type="button"
-								onClick={async () => {
-									if (composer.draft || composer.attachment) {
-										setRecoveryError(
-											"Your newer draft is preserved. Clear it before editing the failed message.",
-										);
-										return;
+						</li>
+					)}
+					{messages.map((m) => (
+						<li key={m.id}>
+							{m.role === "user" ? (
+								<div className="ml-auto w-fit max-w-[85%] break-words rounded-lg bg-secondary px-3 py-2">
+									<AttachmentPreview attachment={attachmentOf(m.parts)} />
+									<UserMarkdown text={textOf(m)} />
+								</div>
+							) : (
+								<AssistantMessage
+									message={m}
+									eligible={
+										savedAssistantIds.has(m.id) && !(busy && m.id === last?.id)
 									}
-									try {
-										const snapshot = submission.current;
-										const saved = await getConversationFn({
-											data: { conversationId },
-										});
-										if (!saved || !snapshot)
-											throw new Error(
-												"Could not reload the submitted message.",
-											);
-										if (
-											saved.messages.slice(submissionBase.current).some(
-												(m) =>
-													m.role === "user" &&
-													textOf({
-														...m,
-														parts: m.parts as Msg["parts"],
-													} as Msg) === textOf(snapshot) &&
-													attachmentKey(m.parts) ===
-														attachmentKey(snapshot.parts),
-											)
-										) {
+									guideSteps={guideSteps(
+										guideContexts.get(m.id),
+										conversation.books,
+									)}
+									trailContext={trailContext}
+									remainingBookIds={remainingBookIds}
+									stopped={m.id === stoppedId}
+									streaming={busy && m.id === last?.id}
+									usage={conversation.usage[m.id]}
+								/>
+							)}
+						</li>
+					))}
+					{status === "submitted" && (
+						<li className="text-sm text-muted-foreground">Thinking…</li>
+					)}
+					{failed && (
+						<li
+							role="alert"
+							className="rounded-md border border-destructive-foreground/40 px-3 py-2 text-sm"
+						>
+							<p className="text-destructive-foreground">{failureText}</p>
+							{recoveryError && <p>{recoveryError}</p>}
+							{submission.current && (
+								<Button
+									type="button"
+									onClick={async () => {
+										if (composer.draft || composer.attachment) {
 											setRecoveryError(
-												"This message is already saved. Use Retry to continue its reply.",
+												"Your newer draft is preserved. Clear it before editing the failed message.",
 											);
 											return;
 										}
-										chat.setMessages(
-											messages.filter((m) => m.id !== snapshot.id),
-										);
-										chat.clearError();
-										composer.restore(
-											textOf(snapshot),
-											attachmentOf(snapshot.parts),
-										);
-									} catch (err) {
-										setRecoveryError(
-											err instanceof Error
-												? err.message
-												: "Could not recover the message.",
-										);
-									}
-								}}
+										try {
+											const snapshot = submission.current;
+											const saved = await getConversationFn({
+												data: { conversationId },
+											});
+											if (!saved || !snapshot)
+												throw new Error(
+													"Could not reload the submitted message.",
+												);
+											if (
+												saved.messages.slice(submissionBase.current).some(
+													(m) =>
+														m.role === "user" &&
+														textOf({
+															...m,
+															parts: m.parts as Msg["parts"],
+														} as Msg) === textOf(snapshot) &&
+														attachmentKey(m.parts) ===
+															attachmentKey(snapshot.parts),
+												)
+											) {
+												setRecoveryError(
+													"This message is already saved. Use Retry to continue its reply.",
+												);
+												return;
+											}
+											chat.setMessages(
+												messages.filter((m) => m.id !== snapshot.id),
+											);
+											chat.clearError();
+											composer.restore(
+												textOf(snapshot),
+												attachmentOf(snapshot.parts),
+											);
+										} catch (err) {
+											setRecoveryError(
+												err instanceof Error
+													? err.message
+													: "Could not recover the message.",
+											);
+										}
+									}}
+								>
+									Edit failed message
+								</Button>
+							)}
+							<Button
+								type="button"
+								size="sm"
+								variant="outline"
+								className="mt-2"
+								onClick={retry}
 							>
-								Edit failed message
+								Retry
 							</Button>
-						)}
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							className="mt-2"
-							onClick={retry}
-						>
-							Retry
-						</Button>
-					</li>
-				)}
-				<div ref={bottom} />
-			</ol>
+						</li>
+					)}
+					<div ref={bottom} />
+				</ol>
 
-			{ai.enabled ? (
-				// The page background below the card and a fade above it, so messages
-				// scroll under the composer. Only the card itself takes the pointer.
-				<div
-					ref={dock}
-					className="pointer-events-none sticky bottom-0 z-10 -mx-2 bg-gradient-to-t from-background from-75% to-transparent px-2 pt-8 pb-3 *:pointer-events-auto"
-				>
-					<Composer
-						composer={composer}
-						conversationId={conversationId}
-						books={conversation.books}
-						busy={busy}
-						onStop={() => {
-							setStoppedId(messages.at(-1)?.id ?? null);
-							void chat.stop();
-						}}
-						onSend={() => {
-							const text = composer.draft;
-							const attachment = composer.attachment;
-							const parts: Msg["parts"] = [
-								...(attachment?.kind === "quote"
-									? [replyContextPart(attachment.quote)]
-									: []),
-								...(attachment?.kind === "passage"
-									? [passageContextPart(attachment.snapshot)]
-									: []),
-								{ type: "text", text },
-							];
-							submissionBase.current = conversation.messages.length;
-							submission.current = {
-								id: crypto.randomUUID(),
-								role: "user",
-								parts,
-							};
-							composer.clear();
-							void chat.sendMessage({ id: submission.current.id, parts });
-						}}
-					/>
-				</div>
-			) : (
-				<section
-					className="rounded-md border bg-muted/40 p-4 text-sm"
-					aria-labelledby="ai-off"
-				>
-					<h2 id="ai-off" className="font-medium">
-						AI is not configured
-					</h2>
-					<p className="mt-1">
-						Set <code>AI_PROVIDER</code>, <code>AI_MODEL</code>, and{" "}
-						<code>AI_API_KEY</code> in the server's environment and restart to
-						continue this conversation. Earlier messages stay available.
-					</p>
-				</section>
-			)}
-		</main>
+				{ai.enabled ? (
+					// The page background below the card and a fade above it, so messages
+					// scroll under the composer. Only the card itself takes the pointer.
+					<div
+						ref={dock}
+						className="pointer-events-none sticky bottom-0 z-10 -mx-2 bg-gradient-to-t from-background from-75% to-transparent px-2 pt-8 pb-3 *:pointer-events-auto"
+					>
+						<Composer
+							composer={composer}
+							conversationId={conversationId}
+							books={conversation.books}
+							busy={busy}
+							onStop={() => {
+								setStoppedId(messages.at(-1)?.id ?? null);
+								void chat.stop();
+							}}
+							onSend={() => {
+								const text = composer.draft;
+								const attachment = composer.attachment;
+								const parts: Msg["parts"] = [
+									...(attachment?.kind === "quote"
+										? [replyContextPart(attachment.quote)]
+										: []),
+									...(attachment?.kind === "passage"
+										? [passageContextPart(attachment.snapshot)]
+										: []),
+									{ type: "text", text },
+								];
+								submissionBase.current = conversation.messages.length;
+								submission.current = {
+									id: crypto.randomUUID(),
+									role: "user",
+									parts,
+								};
+								composer.clear();
+								void chat.sendMessage({ id: submission.current.id, parts });
+							}}
+						/>
+					</div>
+				) : (
+					<section
+						className="rounded-md border bg-muted/40 p-4 text-sm"
+						aria-labelledby="ai-off"
+					>
+						<h2 id="ai-off" className="font-medium">
+							AI is not configured
+						</h2>
+						<p className="mt-1">
+							Set <code>AI_PROVIDER</code>, <code>AI_MODEL</code>, and{" "}
+							<code>AI_API_KEY</code> in the server's environment and restart to
+							continue this conversation. Earlier messages stay available.
+						</p>
+					</section>
+				)}
+			</main>
+		</PositionOfferProvider>
 	);
 }
 
@@ -575,13 +637,19 @@ function citationsOf(message: Msg): CitationRecord[] {
 function AssistantMessage({
 	message,
 	eligible,
+	guideSteps,
+	trailContext,
 	remainingBookIds,
 	stopped,
 	streaming,
 	usage,
 }: {
 	message: Msg;
+	/** Whether the reader can select from the reply to quote or save it. */
 	eligible: boolean;
+	/** The guide steps its trail starts with; none for older replies. */
+	guideSteps: Step[];
+	trailContext: TrailContext;
 	remainingBookIds: Set<string>;
 	stopped: boolean;
 	streaming: boolean;
@@ -607,10 +675,23 @@ function AssistantMessage({
 			: undefined;
 	const blocks = groupParts(message.parts);
 	const hasReply = blocks.some((b) => b.type === "text");
+	// The guide steps start the reply's trail: the first run of tool calls, or one of their own.
+	const ownGuideTrail = guideSteps.length > 0 && blocks[0]?.type !== "trail";
 	return (
 		<SourcesScope>
 			<div className="space-y-2">
-				{blocks.map((block) =>
+				{ownGuideTrail && (
+					<div data-reply-excluded>
+						<ResearchTrail
+							parts={[]}
+							leading={guideSteps}
+							context={trailContext}
+							hasReply={hasReply}
+							streaming={streaming}
+						/>
+					</div>
+				)}
+				{blocks.map((block, i) =>
 					block.type === "text" ? (
 						<AssistantText
 							sourceMessageId={eligible ? message.id : undefined}
@@ -624,6 +705,8 @@ function AssistantMessage({
 						<div key={block.index} data-reply-excluded>
 							<ResearchTrail
 								parts={block.parts}
+								leading={i === 0 ? guideSteps : []}
+								context={trailContext}
 								hasReply={hasReply}
 								streaming={streaming}
 							/>

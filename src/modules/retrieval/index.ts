@@ -22,7 +22,7 @@ export {
 	type SectionPassage,
 	type SectionView,
 } from "./section";
-export { findQuote, type VerifyResult } from "./verify";
+export { findQuote, type VerifyResult, verifyAgainst } from "./verify";
 
 /** The retrieval service other server-side modules use; the UI goes through the same functions. */
 export interface Retrieval {

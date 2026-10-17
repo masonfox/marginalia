@@ -17,6 +17,7 @@ import {
 	type CitationRecord,
 	conversationEditions,
 	conversations,
+	type GuideContextEntry,
 	type Json,
 	messages,
 } from "./schema";
@@ -61,6 +62,8 @@ export interface StoredMessage {
 	model: string | null;
 	promptVersion: string | null;
 	error: string | null;
+	/** The book maps an assistant reply was generated with; null when none, and for older replies. */
+	guideContext: GuideContextEntry[] | null;
 	createdAt: Date;
 }
 
@@ -176,6 +179,7 @@ export async function getMessages(
 			model: messages.model,
 			promptVersion: messages.promptVersion,
 			error: messages.error,
+			guideContext: messages.guideContext,
 			createdAt: messages.createdAt,
 		})
 		.from(messages)
@@ -286,6 +290,7 @@ export interface NewMessage {
 	model?: string | null;
 	promptVersion?: string | null;
 	error?: string | null;
+	guideContext?: GuideContextEntry[] | null;
 }
 
 /** Appends a message with the next sequence number and bumps the conversation's activity time. */
@@ -318,6 +323,7 @@ export async function appendMessage(
 				model: m.model ?? null,
 				promptVersion: m.promptVersion ?? null,
 				error: m.error ?? null,
+				guideContext: m.guideContext ?? null,
 			})
 			.returning({ id: messages.id, seq: messages.seq });
 		if (!row) throw new Error("could not append message");
@@ -458,4 +464,44 @@ export async function rebaseScopes(
 				),
 			),
 		);
+}
+
+/**
+ * Re-anchors the bounds replies recorded for an edition's maps after a
+ * reparse, in every conversation whatever its current scope, so a guide
+ * step read later stays within the recorded scope. Runs inside the reparse's
+ * transaction; labels, fingerprints and other books' entries are kept.
+ */
+export async function rebaseGuideContexts(
+	tx: Executor,
+	editionId: string,
+	rebase: (oldBound: number) => number,
+): Promise<void> {
+	// Reparses of different books can share a reply; lock in id order so each
+	// reads the other's committed entries instead of overwriting them.
+	const rows = await tx
+		.select({ id: messages.id, guideContext: messages.guideContext })
+		.from(messages)
+		.where(
+			sql`${messages.guideContext} @> ${JSON.stringify([{ editionId }])}::jsonb`,
+		)
+		.orderBy(messages.id)
+		.for("update");
+	for (const row of rows) {
+		const entries = row.guideContext ?? [];
+		let moved = false;
+		const next = entries.map((entry) => {
+			if (entry.editionId !== editionId || entry.maxPosition === null)
+				return entry;
+			const maxPosition = rebase(entry.maxPosition);
+			if (maxPosition === entry.maxPosition) return entry;
+			moved = true;
+			return { ...entry, maxPosition };
+		});
+		if (moved)
+			await tx
+				.update(messages)
+				.set({ guideContext: next })
+				.where(eq(messages.id, row.id));
+	}
 }

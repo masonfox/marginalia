@@ -28,7 +28,8 @@ export interface ReplaceOptions {
 	batchSize?: number;
 	/**
 	 * Called inside the transaction after a reparse under a new parser
-	 * version, so dependents (conversation bounds) can re-anchor atomically.
+	 * version, once the new structure is written, so dependents (conversation
+	 * bounds, reader anchors) can re-anchor atomically.
 	 */
 	onReplaced?: ReplacedHook;
 }
@@ -40,9 +41,23 @@ export interface ReplaceOptions {
  */
 export type Rebase = (oldBound: number) => number;
 
+/** A current passage and its reveal position: where a reader anchor now points. */
+export interface ForwardedAnchor {
+	locator: string;
+	position: number;
+}
+
+/**
+ * Maps an old passage locator to the new passage holding its text or, when
+ * the passage was removed, to the next surviving one. Null when nothing at or
+ * after it survives, or the locator is unknown: the anchor then belongs at
+ * the end of the book. Never moves an anchor earlier than the text it covered.
+ */
+export type Forward = (oldLocator: string) => ForwardedAnchor | null;
+
 export type ReplacedHook = (
 	tx: Executor,
-	change: { editionId: string; rebase: Rebase },
+	change: { editionId: string; rebase: Rebase; forward: Forward },
 ) => Promise<void>;
 
 /**
@@ -95,11 +110,14 @@ export async function replaceEditionStructure(
 	const oldVersion = old[0]
 		? parseLocator(old[0].locator)?.parserVersion
 		: undefined;
-	let rebase: Rebase | null = null;
+	let remap: { rebase: Rebase; forward: Forward } | null = null;
 	if (oldVersion !== undefined && oldVersion !== parsed.parserVersion) {
 		const matches = matchLocators(old, newPassages);
 		await writeAliases(tx, edition.id, matches, batchSize);
-		rebase = buildRebase(old, matches, newPassages);
+		remap = {
+			rebase: buildRebase(old, matches, newPassages),
+			forward: buildForward(old, matches, newPassages),
+		};
 	}
 
 	// Sections cascade to passages and note links; TOC entries go first (they reference passages).
@@ -163,8 +181,8 @@ export async function replaceEditionStructure(
 
 	await insertToc(tx, edition.id, parsed.toc, null, idOf);
 
-	if (rebase && options.onReplaced) {
-		await options.onReplaced(tx, { editionId: edition.id, rebase });
+	if (remap && options.onReplaced) {
+		await options.onReplaced(tx, { editionId: edition.id, ...remap });
 	}
 
 	await markEditionReady(tx, edition.id, {
@@ -236,6 +254,61 @@ export function buildRebase(
 			else firstLater = Math.min(firstLater, to);
 		}
 		return Math.min(bound, firstLater - 1);
+	};
+}
+
+/**
+ * Builds the reader-anchor mapping from the old-to-new passage match: the
+ * sibling of buildRebase, for floors rather than ceilings (guide design D2).
+ * An anchor follows its passage's text. A split passage's text runs on into
+ * the unclaimed new passages after its target, so its anchor moves to the
+ * last of them. An anchor also never lands before where the next surviving
+ * old passage's text starts: the passage before an exact match, or an
+ * inexact match's own target, since a merge or split may hold the anchored
+ * text's end too. This may hide one passage too many, never too few. A
+ * removed passage's anchor moves to where the next surviving old passage's
+ * text starts. Both inputs must be in reading (spine, block) order.
+ */
+export function buildForward(
+	old: { locator: string }[],
+	matches: Map<string, LocatorMatch>,
+	newPassages: { locator: string; revealPosition: number }[],
+): Forward {
+	const newIndex = new Map(newPassages.map((p, i) => [p.locator, i]));
+	const claimed = new Set<string>();
+	for (const m of matches.values()) if (m.target) claimed.add(m.target);
+	const isUnclaimed = (i: number) =>
+		i < newPassages.length &&
+		!claimed.has((newPassages[i] as { locator: string }).locator);
+
+	// Old locator -> new passage index, filled from the end so a removed
+	// passage can take the start of the next survivor's text.
+	const forwarded = new Map<string, number | null>();
+	let nextStart: number | null = null;
+	let nextFloor = -1;
+	for (let i = old.length - 1; i >= 0; i--) {
+		const locator = (old[i] as { locator: string }).locator;
+		const match = matches.get(locator);
+		const start = match?.target ? newIndex.get(match.target) : undefined;
+		if (start === undefined) {
+			forwarded.set(locator, nextStart);
+			continue;
+		}
+		let end = start;
+		if (match?.kind === "split") while (isUnclaimed(end + 1)) end++;
+		forwarded.set(
+			locator,
+			Math.min(Math.max(end, nextFloor), newPassages.length - 1),
+		);
+		nextStart = start;
+		nextFloor = match?.kind === "exact" ? start - 1 : start;
+	}
+
+	return (oldLocator) => {
+		const i = forwarded.get(oldLocator);
+		if (i == null) return null;
+		const p = newPassages[i] as (typeof newPassages)[number];
+		return { locator: p.locator, position: p.revealPosition };
 	};
 }
 

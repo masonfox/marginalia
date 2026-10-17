@@ -4,6 +4,8 @@ import { asc, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { AiRuntime } from "#/modules/ai";
 import { preprocessEdition, saveUnitResult } from "#/modules/analysis";
+import { getReadingUnits } from "#/modules/catalog";
+import { saveCorrection } from "#/modules/guide";
 import {
 	aiUsage,
 	priceTable,
@@ -617,6 +619,15 @@ describe("request prefix", () => {
 			"readSection",
 			"getOutline",
 			"lookupObservations",
+			"lookupNotes",
+		]);
+		// No map was sent, so the replies record no guide context.
+		const stored = await getConversation(t.db, id);
+		expect(stored?.messages.map((m) => m.guideContext)).toEqual([
+			null,
+			null,
+			null,
+			null,
 		]);
 
 		// Turn 2 starts with exactly what turn 1's last step sent.
@@ -786,8 +797,25 @@ describe("scope during chat", () => {
 			},
 		});
 		expect(JSON.stringify(part?.output)).not.toContain("Vanishes");
+		// The reply records the map it was sent, not the map's text.
+		expect(stored.messages[0]?.guideContext).toBeNull();
+		expect(stored.messages[1]?.guideContext).toEqual([
+			{
+				editionId: edition.id,
+				scopeLabel: "One",
+				maxPosition: 1,
+				mapFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+			},
+		]);
+		expect(JSON.stringify(stored.messages[1]?.guideContext)).not.toContain(
+			"lantern",
+		);
 		await (await run(runtime(model), id, "Again")).text();
-		await saved(id, 4);
+		const again = await saved(id, 4);
+		// Unchanged guide, unchanged fingerprint.
+		expect(again.messages[3]?.guideContext).toEqual(
+			stored.messages[1]?.guideContext,
+		);
 		const first = mapOf(model.doStreamCalls[0] as never);
 		const system = systemOf(model.doStreamCalls[0] as never);
 		expect(first).toContain("One: The lantern appears.");
@@ -806,6 +834,70 @@ describe("scope during chat", () => {
 		await saved(id, 6);
 		expect(mapOf(model.doStreamCalls[3] as never)).toContain(
 			"Two: The lantern vanishes.",
+		);
+	});
+
+	it("applies a correction to later replies only, leaving stored results unchanged", async () => {
+		const edition = await mappedBook([
+			"The lantern appears.",
+			"The lantern vanishes.",
+		]);
+		const [first] = await getReadingUnits(t.db, edition.id);
+		if (!first) throw new Error("expected a unit");
+		const { id } = await createConversation(t.db, {
+			editionIds: [edition.id],
+			scopes: { [edition.id]: { maxPosition: 1, scopeLabel: "One" } },
+		});
+		const lookup = toolCall("o1", { book: "b1", name: "Lantern" }).map((c) =>
+			c.type === "tool-call" ? { ...c, toolName: "lookupObservations" } : c,
+		);
+		const model = scripted(
+			lookup,
+			textReply("Before."),
+			lookup,
+			textReply("After."),
+		);
+		await (await run(runtime(model), id, "Lantern?")).text();
+		const before = await saved(id, 2);
+		const outputOf = (m: (typeof before.messages)[number] | undefined) =>
+			(m?.parts as { type: string; output?: unknown }[]).find(
+				(p) => p.type === "tool-lookupObservations",
+			)?.output;
+		const earlier = JSON.stringify(outputOf(before.messages[1]));
+		expect(earlier).toContain("Appears.");
+
+		for (const target of ["observation", "summary"] as const) {
+			const corrected = await saveCorrection(t.db, edition.id, {
+				unitLocator: first.startLocator,
+				...(target === "observation"
+					? { target, nameKey: "lantern" }
+					: { target }),
+				action: "replace",
+				text: `Reader's ${target}.`,
+			});
+			expect(corrected.ok).toBe(true);
+		}
+		await (await run(runtime(model), id, "And now?")).text();
+		const after = await saved(id, 4);
+		expect(outputOf(after.messages[3])).toMatchObject({
+			results: [
+				{
+					note: "Reader's observation.",
+					source: "reader correction",
+				},
+			],
+		});
+		// The earlier reply's stored result, and what is replayed, are unchanged.
+		expect(JSON.stringify(outputOf(after.messages[1]))).toBe(earlier);
+		const replayed = JSON.stringify(model.doStreamCalls[2]?.prompt);
+		expect(replayed).toContain("Appears.");
+		// The corrected summary changes the map, and so the recorded fingerprint.
+		const map = mapOf(model.doStreamCalls[2] as never);
+		expect(map).toContain(
+			`- One [source="reader correction"]: Reader's summary.`,
+		);
+		expect(after.messages[3]?.guideContext?.[0]?.mapFingerprint).not.toBe(
+			before.messages[1]?.guideContext?.[0]?.mapFingerprint,
 		);
 	});
 
