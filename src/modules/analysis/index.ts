@@ -39,3 +39,12 @@ export {
 	updateRun,
 } from "./queries";
 export * from "./schema";
+export {
+	choosePreprocessModel,
+	getPreprocessOverview,
+	type PreprocessChoice,
+	type PreprocessOverview,
+	type StartPreprocessDeps,
+	type StartPreprocessResult,
+	startPreprocess,
+} from "./start";

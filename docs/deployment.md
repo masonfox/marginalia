@@ -18,7 +18,8 @@ Marginalia runs as one container next to one PostgreSQL database. Everything sta
 mkdir marginalia && cd marginalia
 curl -O https://raw.githubusercontent.com/OWNER/marginalia/main/compose.yaml
 curl -o .env https://raw.githubusercontent.com/OWNER/marginalia/main/.env.example
-# Edit .env: set AUTH_PASSWORD and POSTGRES_PASSWORD, point MARGINALIA_LIBRARY_DIR at your EPUBs.
+# Generate MARGINALIA_SECRET_KEY with: openssl rand -base64 32
+# Edit .env: set that key, AUTH_PASSWORD and POSTGRES_PASSWORD, and point MARGINALIA_LIBRARY_DIR at your EPUBs.
 docker compose up -d
 ```
 
@@ -28,10 +29,11 @@ Images are published for `linux/amd64` and `linux/arm64` as `ghcr.io/OWNER/margi
 
 ## Configuration
 
-All configuration comes from environment variables. They are validated at startup. An invalid or missing value stops the container with a message naming the variable and the expected format. Empty values count as unset.
+Runtime configuration comes from environment variables; AI providers and model defaults are configured in Settings. They are validated at startup. An invalid or missing value stops the container with a message naming the variable and the expected format. Empty values count as unset.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `MARGINALIA_SECRET_KEY` | *(required)* | Base64 encoding of at least 32 random bytes. Generate with `openssl rand -base64 32`. Encrypts saved provider keys; keep the same value on web and worker processes and back it up separately with the database. |
 | `DATABASE_URL` | *(required)* | PostgreSQL connection string, e.g. `postgres://user:pass@host:5432/marginalia`. PostgreSQL 16 or newer. |
 | `AUTH_PASSWORD` | *(unset)* | The instance password. Set and non-empty: a login is required. Unset or empty: the instance is open to anyone who can reach it. See [Setting a password](#setting-a-password). |
 | `PORT` | `3000` | HTTP port inside the container. |
@@ -47,17 +49,12 @@ All configuration comes from environment variables. They are validated at startu
 | `MARGINALIA_TRUST_PROXY` | `false` | Trust `X-Forwarded-For` and `X-Forwarded-Proto` from a reverse proxy. See [the proxy section](#trusting-the-proxy). |
 | `MARGINALIA_SESSION_DAYS` | `30` | How long a login lasts. |
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, or `silent`. Logs are JSON on stdout. |
-| `AI_PROVIDER` | *(unset)* | `openai`, `anthropic`, `google`, or `openai-compatible`. Unset disables AI: the library, search, and reading work as before, and conversations show setup guidance. See [AI conversations](#ai-conversations). |
-| `AI_MODEL` | *(unset)* | The model name, e.g. `claude-sonnet-5-5`, `gpt-5`, `gemini-2.5-pro`, or `llama3.1`. Required when `AI_PROVIDER` is set. See [choosing a model](#choosing-a-model-and-controlling-cost). |
-| `AI_API_KEY` | *(unset)* | The provider API key. Required for every provider except `openai-compatible`, where it is optional. Never logged or shown in the UI. |
-| `AI_BASE_URL` | *(unset)* | The provider endpoint. Required for `openai-compatible` (e.g. `http://ollama:11434/v1`), and an optional override for the others (for example a proxy). |
 | `AI_MAX_STEPS` | `8` | The most tool calls (search, read, outline) the assistant may chain while answering one message. |
 | `AI_TEMPERATURE` | *(unset)* | Sampling temperature from 0 to 2. Unset uses the provider default. **Ignored by current Anthropic models** (Claude Sonnet 5.5, Opus 5.5, Haiku 5.5), which reject sampling settings: the request goes ahead without it and a warning is logged. Unset it for those models. |
 | `AI_EFFORT` | *(unset)* | Reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. Unset uses the model's default. A level the model does not support is adjusted or dropped by the provider library, with a logged warning, not an error. See [controlling cost](#choosing-a-model-and-controlling-cost). |
 | `AI_PROMPT_CACHE` | `true` | Ask the provider to cache the unchanged start of each request (Anthropic). Set `false` to turn it off. OpenAI and Google cache on their own and ignore this. |
 | `AI_PRICES` | *(unset)* | Price overrides for the cost estimates shown in conversations, as JSON in USD per million tokens: `{"my-model": {"input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75}}`. `cacheRead` and `cacheWrite` are optional and default to the input price. Entries add to or replace the built-in Anthropic prices. |
-| `AI_PREPROCESS_MODEL` | `AI_MODEL` | The model used for book preprocessing. A cheaper model is usually enough. Requires `AI_PROVIDER`. See [book preprocessing](#book-preprocessing). |
-| `AI_PREPROCESS_AUTO` | `false` | Preprocess each book automatically after import. Off by default because it sends whole books to the provider and costs money. Requires `AI_PROVIDER`. |
+| `AI_PREPROCESS_AUTO` | `false` | Preprocess each book automatically after import. Off by default because it sends whole books to the provider and costs money. If no model resolves at import time, it skips with a warning. |
 | `MARGINALIA_MIGRATIONS_DIR` | `/app/drizzle` (in the image) | Location of the database migrations. Only change this if you build your own image layout. |
 | `NODE_ENV` | `production` (in the image) | Runtime mode. Leave as is. |
 
@@ -65,30 +62,33 @@ Database migrations run automatically at startup, before the server accepts requ
 
 ## AI conversations
 
-Conversations let you discuss a book with a language model that searches and quotes the actual text. They are off until you choose a provider. Configuration is by environment variables only; if a provider is set but its model, key, or base URL is missing, Marginalia refuses to start and names the variable (it never prints the key).
+Conversations let you discuss a book with a language model that searches and quotes the actual text. Add at least one provider in **Settings**, then choose a chat default. No restart is needed. The library, search, and reading work without a configured AI provider.
 
-**Hosted provider** (in `.env`, then `docker compose up -d`):
+**Hosted provider:** open Settings, choose Add provider under Anthropic, enter your API key, and save. Choose your chat model in the Chat default card. Set global effort with `AI_EFFORT=medium` if desired.
 
-```sh
-AI_PROVIDER=anthropic
-AI_MODEL=claude-sonnet-5-5
-AI_API_KEY=sk-ant-...
-AI_EFFORT=medium
-```
-
-**Local model with an OpenAI-compatible endpoint** (for example Ollama), where nothing leaves your network:
-
-```sh
-AI_PROVIDER=openai-compatible
-AI_BASE_URL=http://host.docker.internal:11434/v1
-AI_MODEL=llama3.1
-```
-
-Small local models vary in how well they call tools and follow the citation format. Citations are always checked against the book regardless, and anything that does not match is shown as unverified.
+**Local model:** add an OpenAI-compatible provider with a base URL such as `http://host.docker.internal:11434/v1` and no API key if your endpoint does not need one. Choose a local model id such as `llama3.1`. Nothing leaves your network when the endpoint runs there. Small local models vary in tool use and citation quality; citations are always checked against the book.
 
 **What is sent to the provider.** Each message you send, the earlier messages of that conversation, and every passage the assistant reads or searches for are sent to the configured provider to produce a reply. With a hosted provider, that text leaves your instance. Use a local endpoint if that is not acceptable. Each conversation is limited to the scope you choose for each book, so the assistant reads nothing past it. Your [reading position](#reading-position) only suggests that scope. If the assistant looks up your [reader notes](#corrections-and-notes), the notes within scope are sent too.
 
 Conversations are stored in your PostgreSQL database. Deleting a book deletes the conversations about it.
+
+### Several providers and the Settings page
+
+Each supported provider has one credentials slot in Settings. OpenAI, Anthropic and Google require a key and allow an optional base URL. OpenAI-compatible requires a base URL and allows an optional key. Add another provider in Settings to make its models available alongside the first, without changing existing defaults or restarting.
+
+**Keys are write-only.** The provider section shows only whether a key is set, its last four characters, and the base URL. Key fields are never pre-filled. Saving checks the model-listing endpoint: an unauthorized key is refused; other check errors offer **Save anyway** for endpoints without a working listing. Changing a base URL when a key is stored requires entering that key again. Base URLs must be absolute http(s) URLs without user info, query or fragment. Replacing or removing credentials takes effect for later calls in all processes; it does not alter a call already running.
+
+**Encrypted storage and backups.** API keys are encrypted in the database with AES-256-GCM under a key derived from `MARGINALIA_SECRET_KEY`. Startup always requires this secret. Database backups contain encrypted API keys, so keep a secure backup of the secret alongside the database backup. Changing or losing it leaves those providers unavailable until their keys are entered again; the app still starts with a valid new secret. A database dump alone cannot recover the keys.
+
+The former `AI_PROVIDER`, `AI_MODEL`, `AI_API_KEY`, `AI_BASE_URL`, `AI_PREPROCESS_MODEL` and every per-provider `AI_<KIND>_API_KEY` / `_BASE_URL` variable are no longer read. Their values are not migrated. Only the tuning variables in the configuration table remain.
+
+**Defaults.** The chat default starts unset; preprocessing initially follows chat. Save either default in Settings. Preprocessing may use its own provider and model instead. **Clear** removes the chat default or returns preprocessing to same-as-chat. Changes apply to later replies and runs, without a restart. A selection whose provider was removed stays saved and is marked unavailable; another model is never silently substituted.
+
+Pickers list the provider's models, cached for ten minutes per credentials with a refresh button, and show known prices. You may always type a model id; an invalid id fails on first use. With credentials but no chat default, conversations ask you to choose a model in Settings.
+
+**Per conversation and per run.** A conversation can use its own model, chosen when it is started or later with **Change model** in its header. It keeps that model for every later reply until changed again or set back to the default, and an unpinned conversation follows the current chat default. Each reply's usage line names the model that wrote it. If a conversation's own model loses its provider's credentials, the conversation says so instead of switching models. Changing the model only costs a prompt-cache miss on the next reply. A book's preprocessing card preselects the preprocessing default and can start a run with another model. A queued or retried run keeps the model it was started with, and the card shows the last run's model next to the default a new run would use.
+
+**Everyone who signs in shares the defaults.** There is one shared password and no per-reader settings, so anyone with the password can change providers and defaults. Without `AUTH_PASSWORD`, anyone who can reach the instance can add, replace, or remove provider keys, delete books, or start preprocessing.
 
 ### Choosing a model and controlling cost
 
@@ -275,7 +275,7 @@ docker compose exec db pg_dump -U marginalia -Fc marginalia > marginalia-$(date 
 docker run --rm -v marginalia_app-data:/data -v "$PWD":/backup busybox tar czf /backup/marginalia-data-$(date +%F).tgz -C /data .
 ```
 
-Then pull the new image and restart:
+Keep a secure copy of `MARGINALIA_SECRET_KEY` with these backups: database dumps contain encrypted provider API keys that need it. Then pull the new image and restart:
 
 ```sh
 docker compose pull && docker compose up -d
@@ -289,7 +289,7 @@ docker compose exec -T db pg_restore -U marginalia -d marginalia --clean < margi
 
 ## Running a separate worker
 
-Imports run inside the web container by default. To move them into their own container, run a second copy of the image with `MARGINALIA_ROLE=worker`, and set `MARGINALIA_ROLE=web` on the first. Both share `DATABASE_URL` and need the same `/data` and library mounts. Scheduled scans run once per interval across all workers.
+Imports run inside the web container by default. To move them into their own container, run a second copy of the image with `MARGINALIA_ROLE=worker`, and set `MARGINALIA_ROLE=web` on the first. Both share `DATABASE_URL` and `MARGINALIA_SECRET_KEY` and need the same `/data` and library mounts. Scheduled scans run once per interval across all workers.
 
 ## Health checks
 
@@ -301,4 +301,4 @@ Preprocessing reads a whole book once, unit by unit, and stores a short summary 
 
 - **Privacy:** preprocessing sends the full text of the book to your AI provider, not only passages. Use a local `openai-compatible` endpoint if that is not acceptable.
 - **Cost:** it is one-time per book, billed as the input of the whole book plus a small output per unit, so a typical novel costs roughly the price of reading it once with your model. Spend is shown on the book page and is an estimate (see above). Re-importing a changed file regenerates it.
-- **Recommendations:** set `AI_PREPROCESS_MODEL` to a cheaper model, try one book manually from its page to check the cost, and enable `AI_PREPROCESS_AUTO` only once you are comfortable with it.
+- **Recommendations:** choose a cheaper preprocessing default in Settings, try one book manually from its page to check the cost, and enable `AI_PREPROCESS_AUTO` only once you are comfortable with it.

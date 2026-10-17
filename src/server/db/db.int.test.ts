@@ -23,6 +23,8 @@ describe("database", () => {
 			"select table_name from information_schema.tables where table_schema = 'public' order by 1",
 		);
 		expect(rows.map((r) => r.table_name)).toEqual([
+			"ai_credentials",
+			"ai_settings",
 			"ai_usage",
 			"conversation_editions",
 			"conversations",
@@ -68,6 +70,49 @@ describe("database", () => {
 });
 
 describe("runMigrations", () => {
+	it("applies the db:migrate CLI to a fresh database", async () => {
+		const url = await createEmptyDatabase();
+		const result = await new Promise<{ code: number | null; output: string }>(
+			(resolve, reject) => {
+				const child = spawn(
+					process.execPath,
+					[
+						"scripts/with-dev-env.mjs",
+						"--import",
+						"tsx",
+						"src/server/db/migrate-cli.ts",
+					],
+					{
+						env: {
+							...process.env,
+							DATABASE_URL: url,
+							MARGINALIA_SECRET_KEY: Buffer.alloc(32).toString("base64"),
+						},
+					},
+				);
+				let output = "";
+				child.stdout.on("data", (d) => {
+					output += d;
+				});
+				child.stderr.on("data", (d) => {
+					output += d;
+				});
+				child.on("error", reject);
+				child.on("close", (code) => resolve({ code, output }));
+			},
+		);
+		expect(result, result.output).toMatchObject({ code: 0 });
+		const client = new pg.Client({ connectionString: url });
+		await client.connect();
+		try {
+			const { rows } = await client.query(
+				"select to_regclass('public.ai_credentials') as t",
+			);
+			expect(rows[0].t).toBe("ai_credentials");
+		} finally {
+			await client.end();
+		}
+	});
 	it("applies each migration once when two migrators run concurrently", async () => {
 		const url = await createEmptyDatabase();
 		const a = createDb(url);
@@ -120,6 +165,7 @@ describe("runMigrations", () => {
 					env: {
 						...process.env,
 						DATABASE_URL: url,
+						MARGINALIA_SECRET_KEY: Buffer.alloc(32).toString("base64"),
 						MARGINALIA_MIGRATIONS_DIR: folder,
 						LOG_LEVEL: "info",
 					},

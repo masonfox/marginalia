@@ -1,16 +1,20 @@
-// Language model selection from configuration. No database access.
+// Resolve every call from the current stored credentials.
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogle } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel, streamText } from "ai";
-import type {
-	AiConfig,
-	AiProviderName,
-	ReasoningEffort,
+import {
+	AI_PROVIDERS,
+	type AiConfig,
+	type AiCredentials,
+	type AiProviderName,
+	type AiSelection,
+	type ReasoningEffort,
 } from "#/server/config";
 
 import { registerSecret } from "./errors";
+import { credentialsFingerprint } from "./fingerprint";
 
 export {
 	clearSecrets,
@@ -20,61 +24,83 @@ export {
 	redactSecrets,
 	registerSecret,
 } from "./errors";
-
-/** What the UI may know about the AI setup. Never contains the API key. */
-export interface AiStatus {
-	enabled: boolean;
-	provider?: AiProviderName;
-	model?: string;
-	preprocessModel?: string;
-}
+export {
+	clearModelListCache,
+	type ListedModel,
+	type ListModelsOptions,
+	listModels,
+	MODEL_LIST_TTL_MS,
+	type ModelList,
+} from "./models";
+export { MAX_MODEL_ID_LENGTH, selectionSchema } from "./selection";
 
 export type ProviderOptions = NonNullable<
 	Parameters<typeof streamText>[0]["providerOptions"]
 >;
 
+/** A selection ready to call, or why it cannot be. */
+export type ResolvedModel =
+	| {
+			ok: true;
+			model: LanguageModel;
+			/** Call options for this provider, such as Anthropic prompt caching. */
+			providerOptions: ProviderOptions;
+			selection: AiSelection;
+	  }
+	| { ok: false; reason: "unavailable" };
+
 export interface AiRuntime {
-	/** The configured model, or null when AI is disabled. */
-	model: LanguageModel | null;
-	/** The model for whole-book preprocessing, or null when AI is disabled. */
-	preprocessModel: LanguageModel | null;
-	status: AiStatus;
+	/** Providers with credentials, in a fixed order. */
+	available(): Promise<AiProviderName[]>;
+	/** Builds a model for a selection with its provider's credentials. */
+	resolve(selection: AiSelection): Promise<ResolvedModel>;
 	maxSteps: number;
 	temperature: number | undefined;
 	/** Reasoning effort for every call; undefined leaves the provider default. */
 	reasoning: ReasoningEffort | undefined;
-	/** Provider-specific call options, such as Anthropic prompt caching. */
-	providerOptions: ProviderOptions;
 }
 
-/** Maps configuration to an AI SDK model. Returns a disabled runtime when no provider is set. */
-export function createAi(config: AiConfig | undefined): AiRuntime {
-	if (!config) {
+type ProviderFactory = (modelId: string) => LanguageModel;
+
+/** Resolves models from configuration. AI is disabled when no provider has credentials. */
+export function createAi(
+	config: AiConfig | undefined,
+	load: () => Promise<
+		Partial<Record<AiProviderName, AiCredentials>>
+	> = async () => ({}),
+): AiRuntime {
+	const promptCache = config?.promptCache ?? true;
+	// Provider factories hold the credentials; models are cheap, so built per call.
+	const factories = new Map<string, ProviderFactory>();
+
+	const resolve = async (selection: AiSelection): Promise<ResolvedModel> => {
+		const credentials = await load();
+		const c = credentials[selection.provider];
+		if (!c) return { ok: false, reason: "unavailable" };
+		registerSecret(c.apiKey);
+		const fingerprint = credentialsFingerprint(selection.provider, c);
+		let factory = factories.get(fingerprint);
+		if (!factory) {
+			factory = buildFactory(selection.provider, c);
+			factories.set(fingerprint, factory);
+		}
 		return {
-			model: null,
-			preprocessModel: null,
-			status: { enabled: false },
-			maxSteps: 8,
-			temperature: undefined,
-			reasoning: undefined,
-			providerOptions: {},
+			ok: true,
+			model: factory(selection.model),
+			providerOptions: buildProviderOptions(selection.provider, promptCache),
+			selection: { provider: selection.provider, model: selection.model },
 		};
-	}
-	// Providers may echo the key in errors, whatever its shape.
-	registerSecret(config.apiKey);
+	};
+
 	return {
-		model: buildModel(config),
-		preprocessModel: buildModel(config, config.preprocessModel),
-		status: {
-			enabled: true,
-			provider: config.provider,
-			model: config.model,
-			preprocessModel: config.preprocessModel,
+		available: async () => {
+			const credentials = await load();
+			return AI_PROVIDERS.filter((p) => credentials[p] !== undefined);
 		},
-		maxSteps: config.maxSteps,
-		temperature: config.temperature,
-		reasoning: config.effort,
-		providerOptions: buildProviderOptions(config),
+		resolve,
+		maxSteps: config?.maxSteps ?? 8,
+		temperature: config?.temperature,
+		reasoning: config?.effort,
 	};
 }
 
@@ -83,31 +109,32 @@ export function createAi(config: AiConfig | undefined): AiRuntime {
  * up to the last cacheable block, so each tool-loop step and the next turn
  * read the earlier prefix. OpenAI and Google cache on their own.
  */
-function buildProviderOptions(c: AiConfig): ProviderOptions {
-	if (c.provider === "anthropic" && c.promptCache) {
+export function buildProviderOptions(
+	provider: AiProviderName,
+	promptCache: boolean,
+): ProviderOptions {
+	if (provider === "anthropic" && promptCache) {
 		return { anthropic: { cacheControl: { type: "ephemeral" } } };
 	}
 	return {};
 }
 
-function buildModel(c: AiConfig, modelId: string = c.model): LanguageModel {
-	switch (c.provider) {
+function buildFactory(
+	provider: AiProviderName,
+	c: AiCredentials,
+): ProviderFactory {
+	switch (provider) {
 		case "openai":
-			return createOpenAI({ apiKey: c.apiKey, baseURL: c.baseUrl })(modelId);
+			return createOpenAI({ apiKey: c.apiKey, baseURL: c.baseUrl });
 		case "anthropic":
-			return createAnthropic({ apiKey: c.apiKey, baseURL: c.baseUrl })(modelId);
+			return createAnthropic({ apiKey: c.apiKey, baseURL: c.baseUrl });
 		case "google":
-			return createGoogle({ apiKey: c.apiKey, baseURL: c.baseUrl })(modelId);
+			return createGoogle({ apiKey: c.apiKey, baseURL: c.baseUrl });
 		case "openai-compatible":
 			return createOpenAICompatible({
 				name: "openai-compatible",
 				baseURL: c.baseUrl ?? "",
 				apiKey: c.apiKey,
-			})(modelId);
+			});
 	}
-}
-
-/** The model used for whole-book preprocessing, or null when AI is disabled. */
-export function getPreprocessModel(ai: AiRuntime): LanguageModel | null {
-	return ai.preprocessModel;
 }

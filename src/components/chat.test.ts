@@ -8,6 +8,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+	AiSetupNotice,
+	modelInEffect,
 	SourcesList,
 	SourcesScope,
 	UserMarkdown,
@@ -106,5 +108,108 @@ describe("UserMarkdown", () => {
 	it("does not treat citation markers as citations", () => {
 		const out = html('See [[cite locator="x:v1:0.0" quote="q"]]');
 		expect(out).not.toContain("data-citation-status");
+	});
+});
+
+describe("modelInEffect", () => {
+	const anthropic = { provider: "anthropic" as const, model: "claude-x" };
+	const openai = { provider: "openai" as const, model: "gpt-x" };
+	const status = (
+		providers: ("anthropic" | "openai")[],
+		chat: typeof anthropic | null,
+	) => ({
+		enabled: providers.length > 0,
+		providers,
+		chat: {
+			selection: chat,
+			available: chat !== null && providers.includes(chat.provider),
+		},
+	});
+
+	it("is disabled without any provider or saved model", () => {
+		expect(modelInEffect(status([], null), null)).toEqual({
+			status: "disabled",
+		});
+	});
+	it("names an override unavailable once the last provider is removed", () => {
+		expect(modelInEffect(status([], null), anthropic)).toEqual({
+			status: "unavailable",
+			selection: anthropic,
+			own: true,
+		});
+	});
+	it("names the default unavailable once the last provider is removed", () => {
+		expect(modelInEffect(status([], anthropic), null)).toEqual({
+			status: "unavailable",
+			selection: anthropic,
+			own: false,
+		});
+	});
+	it("follows the chat default, labelled as the default", () => {
+		expect(modelInEffect(status(["anthropic"], anthropic), null)).toEqual({
+			status: "ok",
+			selection: anthropic,
+			own: false,
+		});
+	});
+	it("uses the conversation's own model over the default", () => {
+		expect(
+			modelInEffect(status(["anthropic", "openai"], anthropic), openai),
+		).toEqual({ status: "ok", selection: openai, own: true });
+	});
+	it("reports a missing default when providers exist but none is set", () => {
+		expect(modelInEffect(status(["anthropic"], null), null)).toEqual({
+			status: "no_default",
+		});
+	});
+	it("reports an unavailable model instead of using another", () => {
+		expect(modelInEffect(status(["anthropic"], anthropic), openai)).toEqual({
+			status: "unavailable",
+			selection: openai,
+			own: true,
+		});
+	});
+});
+
+describe("AiSetupNotice", () => {
+	const notice = (effect: Parameters<typeof AiSetupNotice>[0]["effect"]) =>
+		renderToStaticMarkup(
+			createElement(RouterContextProvider, {
+				router,
+				// biome-ignore lint/correctness/noChildrenProp: no JSX in .ts tests
+				children: createElement(AiSetupNotice, { effect }),
+			}),
+		);
+
+	it("without a provider, points to Settings", () => {
+		const html = notice({ status: "disabled" });
+		expect(html).toContain("AI is not configured");
+		expect(html).toContain('href="/settings"');
+		expect(html).toContain("Add a provider");
+		expect(html).not.toContain("AI_API_KEY");
+		expect(html).not.toContain("restart");
+	});
+	it("with providers but no chat default, points to Settings", () => {
+		const html = notice({ status: "no_default" });
+		expect(html).toContain("No chat model is chosen");
+		expect(html).toContain('href="/settings"');
+		expect(html).not.toContain("AI is not configured");
+		expect(html).not.toContain("AI_ANTHROPIC_API_KEY");
+	});
+	it("names an unavailable model", () => {
+		const own = notice({
+			status: "unavailable",
+			selection: { provider: "openai", model: "gpt-x" },
+			own: true,
+		});
+		expect(own).toContain("This conversation&#x27;s model is unavailable");
+		expect(own).toContain("OpenAI / gpt-x");
+		const fallback = notice({
+			status: "unavailable",
+			selection: { provider: "openai", model: "gpt-x" },
+			own: false,
+		});
+		expect(fallback).toContain("The chat default is unavailable");
+		expect(fallback).toContain('href="/settings"');
 	});
 });

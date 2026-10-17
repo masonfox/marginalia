@@ -14,20 +14,33 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { editions } from "#/modules/library";
+import type { AiProviderName } from "#/server/config";
 
 /** A discussion. Its books are the rows of `conversation_editions`. */
-export const conversations = pgTable("conversations", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	title: text("title").notNull(),
-	/** True once the reader renamed it, so the provisional title is never overwritten. */
-	titleLocked: boolean("title_locked").notNull().default(false),
-	createdAt: timestamp("created_at", { withTimezone: true })
-		.notNull()
-		.defaultNow(),
-	updatedAt: timestamp("updated_at", { withTimezone: true })
-		.notNull()
-		.defaultNow(),
-});
+export const conversations = pgTable(
+	"conversations",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		title: text("title").notNull(),
+		/** True once the reader renamed it, so the provisional title is never overwritten. */
+		titleLocked: boolean("title_locked").notNull().default(false),
+		/** The conversation's own model; both null means it follows the chat default. */
+		aiProvider: text("ai_provider").$type<AiProviderName>(),
+		aiModel: text("ai_model"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [
+		check(
+			"conversations_ai_model_check",
+			sql`(${t.aiProvider} is null) = (${t.aiModel} is null)`,
+		),
+	],
+);
 
 /**
  * The books a conversation is scoped to. The UI creates one row per
@@ -119,6 +132,8 @@ export const messages = pgTable(
 			.notNull()
 			.default([]),
 		finishReason: text("finish_reason"),
+		/** Provider of the model that produced an assistant reply. */
+		provider: text("provider"),
 		model: text("model"),
 		promptVersion: text("prompt_version"),
 		error: text("error"),

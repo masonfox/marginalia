@@ -22,9 +22,19 @@ import {
 	replyContextSchema,
 	type StoredReplyContext,
 } from "#/lib/reply-context";
-import { type AiRuntime, describeError } from "#/modules/ai";
+import {
+	type AiRuntime,
+	describeError,
+	type ResolvedModel,
+} from "#/modules/ai";
 import { createRetrieval } from "#/modules/retrieval";
+import {
+	checkSelection,
+	getAiDefaults,
+	type SaveResult,
+} from "#/modules/settings";
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
+import type { AiSelection } from "#/server/config";
 import type { Database } from "#/server/db";
 import type { Logger } from "#/server/logger";
 import { loadBookMaps } from "./guide-context";
@@ -40,6 +50,7 @@ import {
 	getConversation,
 	type StoredMessage,
 	setProvisionalTitle,
+	updateConversationModel,
 } from "./repository";
 import {
 	type CitationRecord,
@@ -81,6 +92,9 @@ export type ChatStart =
 	| { status: "invalid_passage"; reason: PassageRefInvalid | "no_message" }
 	| { status: "passage_out_of_scope"; unitLabel: string | null }
 	| { status: "disabled" }
+	| { status: "missing_model" }
+	/** The model the turn would use has a provider without credentials. */
+	| { status: "model_unavailable"; selection: AiSelection }
 	| { status: "not_found" }
 	| { status: "busy" }
 	| { status: "nothing_to_retry" }
@@ -99,9 +113,16 @@ export async function startChat(
 	input: ChatInput,
 ): Promise<ChatStart> {
 	const { db, ai } = deps;
-	if (!ai.model) return { status: "disabled" };
+	if ((await ai.available()).length === 0) return { status: "disabled" };
 	const conversation = await getConversation(db, input.conversationId);
 	if (!conversation) return { status: "not_found" };
+	// Resolved per turn, before anything is stored: the conversation's own
+	// model, else the chat default now. Never falls back to another model.
+	const selection =
+		conversation.model ?? (await getAiDefaults(db, ai)).chat.selection;
+	if (!selection) return { status: "missing_model" };
+	const resolved = await ai.resolve(selection);
+	if (!resolved.ok) return { status: "model_unavailable", selection };
 	if (input.replyContext && input.passageRef)
 		return { status: "invalid_context" };
 	// Re-checked here whatever the composer saw: the snapshot is replayed as book evidence.
@@ -139,12 +160,48 @@ export async function startChat(
 			inFlight.delete(conversation.id);
 			return { status: "nothing_to_retry" };
 		}
-		const response = generate(deps, conversation, history, input.abortSignal);
+		const response = generate(
+			deps,
+			resolved,
+			conversation,
+			history,
+			input.abortSignal,
+		);
 		return { status: "ok", response };
 	} catch (err) {
 		inFlight.delete(conversation.id);
 		throw err;
 	}
+}
+
+export type SetModelResult =
+	| SaveResult
+	| { status: "not_found" }
+	| { status: "busy" };
+
+/**
+ * Sets a conversation's own model, or clears it with null so it follows the
+ * chat default. Applies from the next turn; refused while a reply is being
+ * generated, so a running reply keeps the model it started with.
+ */
+export async function setConversationModel(
+	deps: Pick<ChatDeps, "db" | "ai">,
+	conversationId: string,
+	input: unknown,
+): Promise<SetModelResult> {
+	let selection: AiSelection | null = null;
+	if (input !== null) {
+		const checked = await checkSelection(deps.ai, input);
+		if (checked.status !== "ok") return checked;
+		selection = checked.selection;
+	}
+	if (inFlight.has(conversationId)) return { status: "busy" };
+	const updated = await updateConversationModel(
+		deps.db,
+		conversationId,
+		selection,
+	);
+	return updated ? { status: "ok", selection } : { status: "not_found" };
 }
 
 /** Appends the new user message (or prepares a retry) and returns the messages to send the model. */
@@ -191,6 +248,7 @@ async function prepareHistory(
 		parts,
 		citations: [],
 		finishReason: null,
+		provider: null,
 		model: null,
 		promptVersion: null,
 		error: null,
@@ -202,6 +260,7 @@ async function prepareHistory(
 
 function generate(
 	deps: ChatDeps,
+	{ model, providerOptions, selection }: Extract<ResolvedModel, { ok: true }>,
 	conversation: ConversationDetail,
 	history: StoredMessage[],
 	abortSignal: AbortSignal | undefined,
@@ -214,7 +273,7 @@ function generate(
 		retrieval,
 		books: conversation.books,
 	});
-	const modelName = ai.status.model ?? null;
+	const modelName = selection.model;
 	// The reply's id from the start, so the client's message and the stored one match.
 	const replyId = randomUUID();
 
@@ -238,8 +297,7 @@ function generate(
 			// Untrusted derived data goes in a message after the instructions, never in them.
 			const map = buildBookMapMessage(conversation.books, bookMaps.maps);
 			const result = streamText({
-				// `model` is non-null: startChat checked.
-				model: ai.model as NonNullable<AiRuntime["model"]>,
+				model,
 				system: buildSystemPrompt(conversation.books, {
 					maxSteps: ai.maxSteps,
 				}),
@@ -256,7 +314,7 @@ function generate(
 					stepNumber === ai.maxSteps - 1 ? { toolChoice: "none" } : undefined,
 				temperature: ai.temperature,
 				reasoning: ai.reasoning,
-				providerOptions: ai.providerOptions,
+				providerOptions,
 				abortSignal,
 				onStepEnd: (step) => {
 					usage = addUsage(usage, step.usage);
@@ -319,6 +377,7 @@ function generate(
 						: aborted
 							? "aborted"
 							: (finishReason ?? "stop"),
+					provider: selection.provider,
 					model: modelName,
 					promptVersion: PROMPT_VERSION,
 					error: failure,
@@ -330,8 +389,8 @@ function generate(
 						purpose: "conversation",
 						conversationId: conversation.id,
 						messageId: saved.id,
-						provider: ai.status.provider ?? "unknown",
-						model: modelName ?? "unknown",
+						provider: selection.provider,
+						model: modelName,
 						steps,
 						complete: !(aborted || failure !== null),
 					});

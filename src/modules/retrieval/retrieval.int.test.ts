@@ -260,6 +260,7 @@ describe("search", () => {
 			log: silentLog,
 			enqueue: async () => null,
 			pendingJob: async () => null,
+			pendingJobDetail: async () => null,
 			cancelJob: async () => [],
 			ai: {} as never,
 			access: {} as never,

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { MockLanguageModelV4 } from "ai/test";
 import { and, eq, like } from "drizzle-orm";
-import { beforeAll, describe, expect, it } from "vitest";
-import { clearSecrets, registerSecret } from "#/modules/ai";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { clearSecrets, createAi, registerSecret } from "#/modules/ai";
 import {
 	getReadingUnits,
 	passages,
@@ -39,6 +39,14 @@ import {
 import { UNIT_OUTPUT_JSON_SCHEMA } from "./prompts";
 
 let t: TestDb;
+
+function gate() {
+	let resolve: () => void = () => {};
+	const promise = new Promise<void>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
 
 const chapters = [
 	"Anna walked to the harbour at dawn.",
@@ -149,6 +157,161 @@ const deps = (m: MockLanguageModelV4 | null): PreprocessDeps => ({
 });
 
 describe("preprocessEdition", () => {
+	it("refreshes provider options for every chunk call", async () => {
+		const id = await newEdition("Options refresh");
+		const calls: { reasoning?: string; providerOptions?: unknown }[] = [];
+		const m = model({ calls });
+		let n = 0;
+		await preprocessEdition(
+			{
+				...deps(null),
+				chunkChars: 30,
+				resolveModel: async () => ({
+					ok: true,
+					model: m,
+					selection: { provider: "openai", model: "mock-pre" },
+					providerOptions: { openai: { marker: ++n } },
+				}),
+			},
+			id,
+		);
+		expect(calls.length).toBeGreaterThan(3);
+		expect(calls.map((call) => call.providerOptions)).toEqual(
+			calls.map((_, index) => ({ openai: { marker: index + 1 } })),
+		);
+	});
+	for (const chunked of [false, true]) {
+		for (const remove of [false, true]) {
+			it(`refreshes credentials between ${chunked ? "chunks" : "units"}: ${remove ? "removal" : "replacement"}`, async () => {
+				const id = await newEdition(`Live credentials ${chunked} ${remove}`);
+				const selection = {
+					provider: "openai-compatible" as const,
+					model: "fixed-model",
+				};
+				let credentials: { apiKey: string; baseUrl: string } | undefined = {
+					apiKey: "old-key",
+					baseUrl: "https://old.example/v1",
+				};
+				const calls: { url: string; key: string | null; model: unknown }[] = [];
+				const entered = gate();
+				const release = gate();
+				const fetch = vi
+					.spyOn(globalThis, "fetch")
+					.mockImplementation(async (input, init) => {
+						const body = JSON.parse(String(init?.body));
+						calls.push({
+							url: String(input),
+							key: new Headers(init?.headers).get("authorization"),
+							model: body.model,
+						});
+						if (calls.length === 1) {
+							entered.resolve();
+							await release.promise;
+						}
+						return Response.json({
+							id: "reply",
+							object: "chat.completion",
+							created: 1,
+							model: selection.model,
+							choices: [
+								{
+									index: 0,
+									message: {
+										role: "assistant",
+										content: JSON.stringify({
+											summary: "Completed.",
+											citations: [{ locator: "x", quote: "text" }],
+											observations: [],
+										}),
+									},
+									finish_reason: "stop",
+								},
+							],
+							usage: {
+								prompt_tokens: 1,
+								completion_tokens: 1,
+								total_tokens: 2,
+							},
+						});
+					});
+				const ai = createAi(undefined, async () =>
+					credentials ? { "openai-compatible": credentials } : {},
+				);
+				const resolve = vi.spyOn(ai, "resolve");
+				try {
+					const running = preprocessEdition(
+						{
+							...deps(null),
+							provider: selection.provider,
+							modelName: selection.model,
+							chunkChars: chunked ? 30 : undefined,
+							resolveModel: () => ai.resolve(selection),
+						},
+						id,
+					);
+					// Attach rejection handling before releasing the held provider call.
+					const settled = running.then(
+						() => null,
+						(error: unknown) => error,
+					);
+					await entered.promise;
+					credentials = remove
+						? undefined
+						: { apiKey: "new-key", baseUrl: "https://new.example/v1" };
+					release.resolve();
+					const error = await settled;
+					expect(calls[0]).toEqual({
+						url: "https://old.example/v1/chat/completions",
+						key: "Bearer old-key",
+						model: "fixed-model",
+					});
+					expect(
+						resolve.mock.calls.every(
+							([value]) => JSON.stringify(value) === JSON.stringify(selection),
+						),
+					).toBe(true);
+					if (remove) {
+						expect(error).toBeInstanceOf(NonRetryableError);
+						expect(error).toMatchObject({
+							message: "Model openai-compatible/fixed-model is unavailable.",
+						});
+						expect(calls).toHaveLength(1);
+						expect(await getPreprocessStatus(t.db, id, null)).toMatchObject({
+							lastError: "Model openai-compatible/fixed-model is unavailable.",
+						});
+						const [run] = await t.db
+							.select()
+							.from(preprocessRuns)
+							.where(eq(preprocessRuns.editionId, id));
+						expect(run).toMatchObject({
+							status: "failed",
+							doneUnits: chunked ? 0 : 1,
+						});
+						expect(await getBookMap(t.db, id, null)).toHaveLength(
+							chunked ? 0 : 1,
+						);
+					} else {
+						expect(error).toBeNull();
+						expect(calls.length).toBeGreaterThan(1);
+						expect(
+							calls
+								.slice(1)
+								.every(
+									(call) =>
+										call.url === "https://new.example/v1/chat/completions" &&
+										call.key === "Bearer new-key" &&
+										call.model === "fixed-model",
+								),
+						).toBe(true);
+					}
+				} finally {
+					release.resolve();
+					fetch.mockRestore();
+				}
+			});
+		}
+	}
+
 	it("stores a summary per unit, flags unverified citations, records usage", async () => {
 		const id = await newEdition("Full");
 		await preprocessEdition(deps(model()), id);

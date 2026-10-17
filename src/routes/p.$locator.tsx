@@ -40,6 +40,7 @@ export const Route = createFileRoute("/p/$locator")({
 				replace: true,
 			});
 		}
+		// A conversation can be started with its own model even without a chat default.
 		return { view, aiEnabled: ai.enabled };
 	},
 	head: ({ loaderData }) => ({

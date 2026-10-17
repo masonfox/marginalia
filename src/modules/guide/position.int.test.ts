@@ -191,7 +191,10 @@ describe("reading position", () => {
 });
 
 describe("position server functions behind the access guard", () => {
-	const config = loadConfig({ DATABASE_URL: "postgres://unused" });
+	const config = loadConfig({
+		MARGINALIA_SECRET_KEY: Buffer.alloc(32).toString("base64"),
+		DATABASE_URL: "postgres://unused",
+	});
 
 	/**
 	 * Stand-in for the TanStack handler: server functions are routed under

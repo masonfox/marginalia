@@ -9,9 +9,11 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import {
+	AiSetupNotice,
 	AssistantText,
 	type ChatMeta,
 	citationIndex,
+	modelInEffect,
 	numberCitations,
 	SourcesList,
 	SourcesScope,
@@ -24,11 +26,14 @@ import {
 	useComposer,
 } from "#/components/composer/use-composer";
 import {
+	ConversationModelControl,
 	DeleteConversation,
 	PositionOfferProvider,
 	PositionUpdateOffer,
 	RenameConversation,
+	useConversationModel,
 } from "#/components/conversation-controls";
+import { replyModelLabel, selectionLabel } from "#/components/model-picker";
 import { PassageQuote } from "#/components/passage-quote";
 import {
 	ReplyQuote,
@@ -82,12 +87,12 @@ export const Route = createFileRoute("/c/$conversationId")({
 	}),
 	loader: async ({ params }) => {
 		if (!z.uuid().safeParse(params.conversationId).success) throw notFound();
-		const [conversation, ai] = await Promise.all([
+		const [conversation, status] = await Promise.all([
 			getConversationFn({ data: { conversationId: params.conversationId } }),
 			getAiStatusFn(),
 		]);
 		if (!conversation) throw notFound();
-		return { conversation, ai };
+		return { conversation, status };
 	},
 	head: ({ loaderData }) => ({
 		meta: [
@@ -109,9 +114,14 @@ const FINISH_NOTES: Record<string, string> = {
 };
 
 function ConversationPage() {
-	const { conversation, ai } = Route.useLoaderData();
+	const { conversation, status: aiStatus } = Route.useLoaderData();
 	const router = useRouter();
 	const conversationId = conversation.id;
+	// The model the next reply uses; without one, guidance replaces the composer.
+	const effect = modelInEffect(aiStatus, conversation.model);
+	const aiEnabled = effect.status === "ok";
+	const [modelPickerOpen, setModelPickerOpen] = useState(false);
+	const conversationModel = useConversationModel(conversationId);
 
 	const initial = useMemo<Msg[]>(
 		() =>
@@ -206,7 +216,7 @@ function ConversationPage() {
 	const composer = useComposer(conversationId, {
 		savedAssistantIds,
 		books: conversation.books,
-		aiEnabled: ai.enabled,
+		aiEnabled,
 		handoff: search,
 		clearHandoff: () => void navigate({ search: {}, replace: true }),
 	});
@@ -325,13 +335,24 @@ function ConversationPage() {
 		() => new Map(conversation.messages.map((m) => [m.id, m.guideContext])),
 		[conversation.messages],
 	);
+	// The model that wrote each stored reply, named in its usage details.
+	const producers = useMemo(
+		() =>
+			new Map(
+				conversation.messages.map((m) => [
+					m.id,
+					replyModelLabel(m.provider, m.model),
+				]),
+			),
+		[conversation.messages],
+	);
 
 	return (
 		<PositionOfferProvider>
 			<main className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-3xl flex-col px-4 py-6">
 				<ReplySelection
 					key={conversationId}
-					onAttach={ai.enabled ? composer.attachQuote : undefined}
+					onAttach={aiEnabled ? composer.attachQuote : undefined}
 					onTooLong={composer.rejectLongQuote}
 					onSaveAsNote={conversation.books.length > 0 ? saveAsNote : undefined}
 				/>
@@ -371,12 +392,15 @@ function ConversationPage() {
 										</Link>
 									</span>
 								))}
-						{ai.enabled && (
-							<span data-testid="provider-label">
-								{" "}
-								· {ai.provider} · {ai.model}
-							</span>
-						)}
+						<ConversationModelControl
+							conversationId={conversationId}
+							status={aiStatus}
+							own={conversation.model}
+							effect={effect}
+							disabled={busy}
+							open={modelPickerOpen}
+							onOpenChange={setModelPickerOpen}
+						/>
 						<UsageTotal total={conversation.usageTotal} />
 					</p>
 					{conversation.books.length > 0 && (
@@ -422,10 +446,10 @@ function ConversationPage() {
 				<ol className="flex-1 space-y-5 py-6" aria-live="polite">
 					{messages.length === 0 && (
 						<li className="space-y-3 text-sm text-muted-foreground">
-							{ai.enabled && (
+							{effect.status === "ok" && (
 								<p data-testid="provider-notice">
 									Your messages and the passages the assistant reads are sent to{" "}
-									{ai.provider} ({ai.model}).
+									{selectionLabel(effect.selection)}.
 								</p>
 							)}
 							<p>
@@ -457,6 +481,7 @@ function ConversationPage() {
 									stopped={m.id === stoppedId}
 									streaming={busy && m.id === last?.id}
 									usage={conversation.usage[m.id]}
+									producedBy={producers.get(m.id) ?? null}
 								/>
 							)}
 						</li>
@@ -541,7 +566,7 @@ function ConversationPage() {
 					<div ref={bottom} />
 				</ol>
 
-				{ai.enabled ? (
+				{effect.status === "ok" ? (
 					// The page background below the card and a fade above it, so messages
 					// scroll under the composer. Only the card itself takes the pointer.
 					<div
@@ -581,19 +606,41 @@ function ConversationPage() {
 						/>
 					</div>
 				) : (
-					<section
-						className="rounded-md border bg-muted/40 p-4 text-sm"
-						aria-labelledby="ai-off"
-					>
-						<h2 id="ai-off" className="font-medium">
-							AI is not configured
-						</h2>
-						<p className="mt-1">
-							Set <code>AI_PROVIDER</code>, <code>AI_MODEL</code>, and{" "}
-							<code>AI_API_KEY</code> in the server's environment and restart to
-							continue this conversation. Earlier messages stay available.
-						</p>
-					</section>
+					<AiSetupNotice
+						effect={effect}
+						actions={
+							effect.status !== "disabled" && (
+								<>
+									{aiStatus.providers.length > 0 && (
+										<Button
+											type="button"
+											size="sm"
+											disabled={busy}
+											onClick={() => setModelPickerOpen(true)}
+										>
+											Choose a model
+										</Button>
+									)}
+									{effect.status === "unavailable" && effect.own && (
+										<Button
+											type="button"
+											size="sm"
+											variant="outline"
+											disabled={busy || conversationModel.busy}
+											onClick={() => void conversationModel.save(null)}
+										>
+											Use the default
+										</Button>
+									)}
+									{conversationModel.error && (
+										<p role="alert" className="text-destructive-foreground">
+											{conversationModel.error}
+										</p>
+									)}
+								</>
+							)
+						}
+					/>
 				)}
 			</main>
 		</PositionOfferProvider>
@@ -643,6 +690,7 @@ function AssistantMessage({
 	stopped,
 	streaming,
 	usage,
+	producedBy,
 }: {
 	message: Msg;
 	/** Whether the reader can select from the reply to quote or save it. */
@@ -654,7 +702,10 @@ function AssistantMessage({
 	stopped: boolean;
 	streaming: boolean;
 	usage: ReplyUsage | undefined;
+	/** The stored reply's provider and model; null for a reply not reloaded yet. */
+	producedBy: string | null;
 }) {
+	const model = producedBy ?? usage?.model ?? null;
 	const citations = useMemo(
 		() => citationIndex(citationsOf(message)),
 		[message],
@@ -715,14 +766,16 @@ function AssistantMessage({
 				)}
 				<SourcesList sources={sources} />
 				{note && <p className="text-xs text-muted-foreground">{note}</p>}
-				{usage && !streaming && (
+				{(usage || model) && !streaming && (
 					<p
 						className="text-xs text-muted-foreground/70 tabular-nums"
-						title={exactUsage(usage)}
+						title={usage && exactUsage(usage)}
 						data-testid="reply-usage"
 					>
-						{replyUsageLine(usage)}
-						{!usage.complete && " · partial"}
+						{model && <span data-testid="reply-model">{model}</span>}
+						{model && usage && " · "}
+						{usage && replyUsageLine(usage)}
+						{usage && !usage.complete && " · partial"}
 					</p>
 				)}
 			</div>

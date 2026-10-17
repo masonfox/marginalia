@@ -1149,3 +1149,79 @@ test.describe("composer", () => {
 		}
 	});
 });
+
+// Requires an isolated e2e instance with MARGINALIA_SECRET_KEY configured.
+test("Settings adds a provider and a chat default used by a new conversation", async ({
+	page,
+}) => {
+	const originalCredentials = (
+		await db.query(
+			"select * from ai_credentials where provider='openai-compatible'",
+		)
+	).rows[0];
+	const originalDefaults = (
+		await db.query("select * from ai_settings where id=1")
+	).rows[0];
+	let conversationId: string | undefined;
+	try {
+		await login(page);
+		await page.goto("/settings");
+		const provider = page.getByRole("region", {
+			name: "OpenAI-compatible credentials",
+		});
+		const add = provider.getByRole("button", { name: "Add provider" });
+		if (await add.count()) await add.click();
+		else await provider.getByRole("button", { name: "Replace key" }).click();
+		await provider.getByLabel("API key").fill("disposable-e2e-provider-key");
+		await provider.getByLabel("Base URL").fill("http://127.0.0.1:1/v1");
+		await provider.getByRole("button", { name: "Save provider" }).click();
+		await provider.getByRole("button", { name: "Save anyway" }).click();
+		await expect(
+			provider.getByText("Configured", { exact: true }),
+		).toBeVisible();
+		const chatDefault = page.getByRole("region", { name: "Chat default" });
+		await chatDefault
+			.getByLabel("Provider", { exact: true })
+			.selectOption("openai-compatible");
+		await chatDefault.getByLabel("Model", { exact: true }).fill("e2e-model");
+		await chatDefault
+			.getByRole("button", { name: "Save chat default" })
+			.click();
+		await expect(
+			chatDefault.getByText("Current: OpenAI-compatible / e2e-model", {
+				exact: true,
+			}),
+		).toBeVisible();
+		const { id } = await manifesto();
+		await page.goto(`/books/${id}`);
+		await page.getByRole("button", { name: "Start conversation" }).click();
+		const dialog = page.getByTestId("new-conversation-dialog");
+		await dialog.getByRole("radio", { name: "Whole book" }).check();
+		await dialog.getByRole("button", { name: "Start", exact: true }).click();
+		await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/);
+		conversationId = page.url().split("/c/")[1];
+		await expect(page.getByTestId("provider-label")).toContainText(
+			"OpenAI-compatible / e2e-model",
+		);
+		await expect(page.getByTestId("model-source")).toHaveText("default");
+		// No message is sent, so the test never calls an AI model.
+	} finally {
+		if (conversationId)
+			await db.query("delete from conversations where id=$1", [conversationId]);
+		await db.query(
+			"delete from ai_credentials where provider='openai-compatible'",
+		);
+		await db.query("delete from ai_settings where id=1");
+		for (const [table, row] of [
+			["ai_credentials", originalCredentials],
+			["ai_settings", originalDefaults],
+		] as const) {
+			if (!row) continue;
+			const columns = Object.keys(row);
+			await db.query(
+				`insert into ${table} (${columns.join(",")}) values (${columns.map((_, i) => `$${i + 1}`).join(",")})`,
+				Object.values(row),
+			);
+		}
+	}
+});

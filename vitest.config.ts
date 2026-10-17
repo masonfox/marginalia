@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
 	resolve: { tsconfigPaths: true },
 	test: {
+		env: { MARGINALIA_SECRET_KEY: Buffer.alloc(32).toString("base64") },
 		projects: [
 			{
 				extends: true,

@@ -2,7 +2,12 @@ import type { AccessDeps } from "#/modules/access";
 import type { AiRuntime } from "#/modules/ai";
 import type { Config } from "./config";
 import type { Database } from "./db";
-import type { CancelJob, Enqueue, PendingJob } from "./jobs/kinds";
+import type {
+	CancelJob,
+	Enqueue,
+	PendingJob,
+	PendingJobDetail,
+} from "./jobs/kinds";
 import type { Logger } from "./logger";
 
 /**
@@ -16,6 +21,7 @@ export interface AppContext {
 	ai: AiRuntime;
 	enqueue: Enqueue;
 	pendingJob: PendingJob;
+	pendingJobDetail: PendingJobDetail;
 	cancelJob: CancelJob;
 	access: AccessDeps;
 }
