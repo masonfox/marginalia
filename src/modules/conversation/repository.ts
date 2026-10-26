@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm";
 import { getReadingUnits } from "#/modules/catalog";
 import { editions } from "#/modules/library";
+import type { AiSelection } from "#/server/config";
 import type { Database, Executor } from "#/server/db";
 import {
 	type CitationRecord,
@@ -59,6 +60,8 @@ export interface StoredMessage {
 	parts: Json[];
 	citations: CitationRecord[];
 	finishReason: string | null;
+	/** Provider and model of an assistant reply; null for user messages and older replies. */
+	provider: string | null;
 	model: string | null;
 	promptVersion: string | null;
 	error: string | null;
@@ -72,6 +75,8 @@ export interface ConversationDetail {
 	title: string;
 	createdAt: Date;
 	updatedAt: Date;
+	/** The conversation's own model; null when it follows the chat default. */
+	model: AiSelection | null;
 	books: ConversationBook[];
 	messages: StoredMessage[];
 }
@@ -92,6 +97,8 @@ interface NewConversation {
 	editionIds: string[];
 	title?: string;
 	scopes?: Record<string, ResolvedScope>;
+	/** The conversation's own model; omit to follow the chat default. */
+	model?: AiSelection | null;
 }
 
 /** createConversation's writes; the caller provides the transaction. */
@@ -104,7 +111,11 @@ async function insertConversation(
 		throw new Error("a conversation needs at least one book");
 	const [row] = await tx
 		.insert(conversations)
-		.values({ title: input.title?.trim() || DEFAULT_TITLE })
+		.values({
+			title: input.title?.trim() || DEFAULT_TITLE,
+			aiProvider: input.model?.provider ?? null,
+			aiModel: input.model?.model ?? null,
+		})
 		.returning({ id: conversations.id });
 	if (!row) throw new Error("could not create conversation");
 	await tx.insert(conversationEditions).values(
@@ -176,6 +187,7 @@ export async function getMessages(
 			parts: messages.parts,
 			citations: messages.citations,
 			finishReason: messages.finishReason,
+			provider: messages.provider,
 			model: messages.model,
 			promptVersion: messages.promptVersion,
 			error: messages.error,
@@ -206,6 +218,10 @@ export async function getConversation(
 		title: row.title,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
+		model:
+			row.aiProvider && row.aiModel
+				? { provider: row.aiProvider, model: row.aiModel }
+				: null,
 		books,
 		messages: msgs,
 	};
@@ -249,6 +265,23 @@ export async function setProvisionalTitle(
 	return rows.length > 0;
 }
 
+/**
+ * Sets the conversation's own model, or clears it with null so the chat
+ * default applies. False when the conversation does not exist.
+ */
+export async function updateConversationModel(
+	db: Executor,
+	conversationId: string,
+	model: AiSelection | null,
+): Promise<boolean> {
+	const rows = await db
+		.update(conversations)
+		.set({ aiProvider: model?.provider ?? null, aiModel: model?.model ?? null })
+		.where(eq(conversations.id, conversationId))
+		.returning({ id: conversations.id });
+	return rows.length > 0;
+}
+
 export async function deleteConversation(
 	db: Executor,
 	conversationId: string,
@@ -287,6 +320,7 @@ export interface NewMessage {
 	parts: Json[];
 	citations?: CitationRecord[];
 	finishReason?: string | null;
+	provider?: string | null;
 	model?: string | null;
 	promptVersion?: string | null;
 	error?: string | null;
@@ -320,6 +354,7 @@ export async function appendMessage(
 				parts: m.parts,
 				citations: m.citations ?? [],
 				finishReason: m.finishReason ?? null,
+				provider: m.provider ?? null,
 				model: m.model ?? null,
 				promptVersion: m.promptVersion ?? null,
 				error: m.error ?? null,
@@ -355,7 +390,8 @@ export async function resolveScope(
 }
 
 /**
- * Starts a conversation about one ready book with the reader's chosen scope.
+ * Starts a conversation about one ready book with the reader's chosen scope
+ * and, optionally, its own model (checked by the caller).
  * Returns null when the book does not exist or is not ready, and
  * `stale_scope` when the chosen unit is no longer one of the book's units.
  */
@@ -363,6 +399,7 @@ export async function createConversationForEdition(
 	db: Database,
 	editionId: string,
 	scope: Scope,
+	model?: AiSelection,
 ): Promise<{ id: string } | { error: "stale_scope" } | null> {
 	return db.transaction(async (tx) => {
 		// Conflicts with the lock replaceEditionStructure takes, so units cannot change before the insert.
@@ -377,6 +414,7 @@ export async function createConversationForEdition(
 		return insertConversation(tx, {
 			editionIds: [editionId],
 			scopes: { [editionId]: resolved },
+			model,
 		});
 	});
 }

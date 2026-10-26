@@ -30,17 +30,14 @@ services:
       # empty disables the login: anyone who can reach the instance can use it.
       AUTH_PASSWORD: ${AUTH_PASSWORD:-}
       MARGINALIA_LIBRARY_PATHS: /library
-      # AI conversations are off unless AI_PROVIDER is set (see docs/deployment.md).
-      AI_PROVIDER: ${AI_PROVIDER:-}
-      AI_MODEL: ${AI_MODEL:-}
-      AI_API_KEY: ${AI_API_KEY:-}
-      AI_BASE_URL: ${AI_BASE_URL:-}
+      # Required even without AI; generate with openssl rand -base64 32.
+      MARGINALIA_SECRET_KEY: ${MARGINALIA_SECRET_KEY:?Set MARGINALIA_SECRET_KEY (openssl rand -base64 32)}
+      # Configure providers and models in Settings. Global tuning only:
       AI_MAX_STEPS: ${AI_MAX_STEPS:-}
       AI_TEMPERATURE: ${AI_TEMPERATURE:-}
       AI_EFFORT: ${AI_EFFORT:-}
       AI_PROMPT_CACHE: ${AI_PROMPT_CACHE:-}
       AI_PRICES: ${AI_PRICES:-}
-      AI_PREPROCESS_MODEL: ${AI_PREPROCESS_MODEL:-}
       AI_PREPROCESS_AUTO: ${AI_PREPROCESS_AUTO:-}
       # Behind a TLS-terminating reverse proxy, also set:
       # MARGINALIA_PUBLIC_URL: https://books.example.com

@@ -38,7 +38,10 @@ const access = (
 	...over,
 });
 
-const config = loadConfig({ DATABASE_URL: "postgres://unused" });
+const config = loadConfig({
+	MARGINALIA_SECRET_KEY: Buffer.alloc(32).toString("base64"),
+	DATABASE_URL: "postgres://unused",
+});
 const pageHtml = { accept: "text/html,application/xhtml+xml" };
 
 /** Stand-in for the TanStack handler: records calls, and runs real uploads. */

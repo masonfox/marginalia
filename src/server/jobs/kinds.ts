@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Config } from "../config";
+import { AI_PROVIDERS, type Config } from "../config";
 
 /**
  * Every background job kind: payload schema, deduplication key, retry policy,
@@ -29,7 +29,15 @@ export const jobKinds = {
 		concurrency: (c: JobConfig) => c.ingestConcurrency,
 	},
 	"analysis.preprocess": {
-		payload: z.object({ editionId: z.uuid() }),
+		payload: z.object({
+			editionId: z.uuid(),
+			/**
+			 * The model every attempt uses, fixed at enqueue. Absent on jobs queued
+			 * before runs carried one; those use the default when they start.
+			 */
+			provider: z.enum(AI_PROVIDERS).optional(),
+			model: z.string().min(1).optional(),
+		}),
 		key: (p: { editionId: string }) => p.editionId,
 		retryLimit: 2,
 		// Fixed at 1 to bound spend.
@@ -95,6 +103,18 @@ export type PendingJob = <K extends JobKind>(
 	kind: K,
 	payload: JobPayload<K>,
 ) => Promise<"queued" | "active" | null>;
+
+/**
+ * The pending job with this kind and key and its payload, or null when there
+ * is none. The payload is null when this version cannot read it.
+ */
+export type PendingJobDetail = <K extends JobKind>(
+	kind: K,
+	payload: JobPayload<K>,
+) => Promise<{
+	state: "queued" | "active";
+	payload: ParsedJobPayload<K> | null;
+} | null>;
 
 /**
  * Cancels the pending job with this kind and key, waiting or running, so it

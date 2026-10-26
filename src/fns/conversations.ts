@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { selectionSchema } from "#/modules/ai";
 import { getReadingUnits } from "#/modules/catalog";
 import {
 	checkPassageRef,
@@ -13,17 +14,23 @@ import {
 	type PassageCheck,
 	passageRefSchema,
 	renameConversation,
+	setConversationModel,
 	widenConversationScope,
 } from "#/modules/conversation";
+import { getAiStatus } from "#/modules/settings";
 import { priceTable } from "#/modules/usage";
 import { appContext } from "#/server/context";
 
 // Only server functions are exported here: anything else would pull server code into the client bundle.
 
-/** Whether AI is configured, and which provider and model. Never includes the API key. */
-export const getAiStatusFn = createServerFn({ method: "GET" }).handler(
-	() => appContext().ai.status,
-);
+/**
+ * Whether AI is enabled, the available providers, and both defaults with
+ * their source and availability. Never includes API keys or base URLs.
+ */
+export const getAiStatusFn = createServerFn({ method: "GET" }).handler(() => {
+	const { db, ai } = appContext();
+	return getAiStatus(db, ai);
+});
 
 export const listConversationsFn = createServerFn({ method: "GET" })
 	.validator(z.object({ editionId: z.uuid() }))
@@ -42,14 +49,49 @@ export const getReadingUnitsFn = createServerFn({ method: "GET" })
 	.handler(({ data }) => getReadingUnits(appContext().db, data.editionId));
 
 /**
- * Starts a single-book conversation with the reader's chosen scope. Returns
- * null when the book is missing or not ready, and `stale_scope` when the
- * chosen unit no longer exists (reload the units and choose again).
+ * Starts a single-book conversation with the reader's chosen scope and,
+ * optionally, its own model. Returns null when the book is missing or not
+ * ready, `stale_scope` when the chosen unit no longer exists (reload the
+ * units and choose again), and `model_unavailable` when the model's provider
+ * has no credentials.
  */
 export const createConversationFn = createServerFn({ method: "POST" })
-	.validator(z.object({ editionId: z.uuid(), scope: scopeSchema }))
+	.validator(
+		z.object({
+			editionId: z.uuid(),
+			scope: scopeSchema,
+			selection: selectionSchema.optional(),
+		}),
+	)
+	.handler(async ({ data }) => {
+		const { db, ai } = appContext();
+		if (
+			data.selection &&
+			!(await ai.available()).includes(data.selection.provider)
+		)
+			return { error: "model_unavailable" as const };
+		return createConversationForEdition(
+			db,
+			data.editionId,
+			data.scope,
+			data.selection,
+		);
+	});
+
+/**
+ * Sets a conversation's own model, or clears it with null so it follows the
+ * chat default. Refused (`busy`) while a reply is being generated, and
+ * `unavailable` when the provider has no credentials.
+ */
+export const setConversationModelFn = createServerFn({ method: "POST" })
+	.validator(
+		z.object({
+			conversationId: z.uuid(),
+			selection: selectionSchema.nullable(),
+		}),
+	)
 	.handler(({ data }) =>
-		createConversationForEdition(appContext().db, data.editionId, data.scope),
+		setConversationModel(appContext(), data.conversationId, data.selection),
 	);
 
 /** Widens one book's scope in a conversation; never narrows it. */

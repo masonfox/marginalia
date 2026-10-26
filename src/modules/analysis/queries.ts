@@ -382,6 +382,7 @@ export type RunProgress = Partial<{
 	totalUnits: number;
 	doneUnits: number;
 	failedUnits: number;
+	provider: string | null;
 	model: string | null;
 	attemptId: string | null;
 	lastError: string | null;
@@ -552,6 +553,8 @@ export interface PreprocessStatus {
 	totalUnits: number;
 	doneUnits: number;
 	failedUnits: number;
+	/** Of the queued, running, or last run. */
+	provider: string | null;
 	model: string | null;
 	lastError: string | null;
 	startedAt: Date | null;
@@ -600,6 +603,7 @@ export async function getPreprocessStatus(
 			totalUnits: 0,
 			doneUnits: 0,
 			failedUnits: 0,
+			provider: null,
 			model: null,
 			lastError: null,
 			startedAt: null,
@@ -610,6 +614,7 @@ export async function getPreprocessStatus(
 		totalUnits: run?.totalUnits ?? current + outdated,
 		doneUnits: current,
 		failedUnits: run?.failedUnits ?? 0,
+		provider: run?.provider ?? null,
 		model: run?.model ?? null,
 		lastError: run?.lastError
 			? redactSecrets(run.lastError)

@@ -9,7 +9,7 @@ export function describeError(error: unknown): string {
 		const status = error.statusCode ? ` (HTTP ${error.statusCode})` : "";
 		const hint =
 			error.statusCode === 401 || error.statusCode === 403
-				? " Check AI_API_KEY and that the key may use this model."
+				? " Check the provider key in Settings and that the key may use this model."
 				: "";
 		return redactSecrets(
 			`The AI provider returned an error${status}: ${error.message}.${hint}`,

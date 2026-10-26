@@ -1,10 +1,14 @@
+import { MockLanguageModelV4 } from "ai/test";
 import { and, eq, sql } from "drizzle-orm";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	getBookMap,
+	getPreprocessOverview,
 	getPreprocessStatus,
 	lookupObservations,
+	preprocessRuns,
 	saveUnitResult,
+	startPreprocess,
 	updateRun,
 } from "#/modules/analysis";
 import { getReadingUnits, ingestEdition, passages } from "#/modules/catalog";
@@ -41,16 +45,25 @@ import {
 	setReadingPosition,
 } from "#/modules/guide";
 import { getEdition } from "#/modules/library";
+import {
+	clearChatDefault,
+	clearPreprocessDefault,
+	saveChatDefault,
+	savePreprocessDefault,
+} from "#/modules/settings";
+import type { AiProviderName, AiSelection } from "#/server/config";
 import { createTestDb, type TestDb } from "../../../test/db";
 import { buildEpub } from "../../../test/epub-builder";
 import {
 	addUploadedBook,
+	ingestBook,
 	reshape,
 	silentLog,
 	tempDataDir,
 } from "../../../test/library";
 import { type AppContext, setAppContext } from "../context";
-import { jobHandlers } from "./handlers";
+import { enqueueAutoPreprocess, jobHandlers } from "./handlers";
+import type { Enqueue, PendingJobDetail } from "./kinds";
 
 let t: TestDb;
 let dataDir: string;
@@ -69,7 +82,7 @@ beforeAll(async () => {
 		db: t.db,
 		config: { dataDir, preprocessAuto: false },
 		log: silentLog,
-		ai: { status: { enabled: false } },
+		ai: { available: async () => [] },
 		enqueue: async () => null,
 	} as unknown as AppContext);
 });
@@ -1349,5 +1362,323 @@ describe("reparse re-anchors past the end of the book", () => {
 		expect(atFinal.ok && atFinal.notes).toEqual([]);
 		const atWhole = await listGuideNotes(t.db, edition.id, whole);
 		expect(atWhole.ok && atWhole.notes).toHaveLength(1);
+	});
+});
+
+describe("preprocessing model selection", () => {
+	const small: AiSelection = { provider: "openai", model: "small" };
+	const big: AiSelection = { provider: "openai", model: "big" };
+
+	/** An AI runtime with credentials for `available` whose models always fail. */
+	async function fakeAi(
+		available: AiProviderName[],
+		defaults: { chat?: AiSelection; preprocess?: AiSelection } = {},
+	) {
+		await t.pool.query("delete from ai_settings");
+		await t.pool.query(
+			"insert into ai_settings (id,chat_provider,chat_model,preprocess_mode,preprocess_provider,preprocess_model) values (1,$1,$2,$3,$4,$5)",
+			[
+				defaults.chat?.provider ?? null,
+				defaults.chat?.model ?? null,
+				defaults.preprocess ? "model" : null,
+				defaults.preprocess?.provider ?? null,
+				defaults.preprocess?.model ?? null,
+			],
+		);
+		const calls: string[] = [];
+		const model = new MockLanguageModelV4({
+			doGenerate: async () => {
+				calls.push("generate");
+				throw new Error("provider down");
+			},
+		});
+		return {
+			calls,
+			available: async () => available,
+			resolve: vi.fn(async (selection: AiSelection) =>
+				available.includes(selection.provider)
+					? { ok: true as const, model, providerOptions: {}, selection }
+					: { ok: false as const, reason: "unavailable" as const },
+			),
+			maxSteps: 8,
+			temperature: undefined,
+			reasoning: undefined,
+		};
+	}
+
+	/** A queue stand-in; with `pending`, a job with that payload already holds the key. */
+	function queue(pending?: Partial<AiSelection>) {
+		const enqueued: unknown[] = [];
+		const enqueue = (async (_kind, payload) => {
+			enqueued.push(payload);
+			return pending ? null : "job";
+		}) as Enqueue;
+		const pendingJobDetail = (async (_kind, payload) =>
+			pending
+				? {
+						state: "queued",
+						payload: { ...(payload as { editionId: string }), ...pending },
+					}
+				: null) as PendingJobDetail;
+		return { enqueued, enqueue, pendingJobDetail };
+	}
+
+	async function readyEdition(name: string) {
+		const book = await ingestBook(
+			t.db,
+			dataDir,
+			await buildEpub({
+				title: name,
+				language: "en",
+				chapters: [
+					{ href: "a.xhtml", title: "One", body: "<p>Anna waits.</p>" },
+				],
+			}),
+			`${name}.epub`,
+		);
+		return book.id;
+	}
+
+	async function runRow(editionId: string) {
+		const [row] = await t.db
+			.select()
+			.from(preprocessRuns)
+			.where(eq(preprocessRuns.editionId, editionId));
+		return row;
+	}
+
+	/** Runs the job handler under `ai`, as the worker would. */
+	async function handle(
+		ai: Awaited<ReturnType<typeof fakeAi>>,
+		payload: { editionId: string } & Partial<AiSelection>,
+	) {
+		setAppContext({
+			db: t.db,
+			config: { dataDir, preprocessAuto: false },
+			log: silentLog,
+			ai,
+			enqueue: async () => null,
+		} as unknown as AppContext);
+		const handler = jobHandlers()["analysis.preprocess"];
+		if (!handler) throw new Error("expected a preprocess handler");
+		return handler(payload, { ...ctx, id: crypto.randomUUID() });
+	}
+
+	it("enqueues the reader's choice, which leaves the default alone", async () => {
+		await clearPreprocessDefault(t.db);
+		const ai = await fakeAi(["openai"], { chat: big });
+		const q = queue();
+		const editionId = crypto.randomUUID();
+		expect(
+			await startPreprocess({ db: t.db, ai, ...q }, editionId, small),
+		).toEqual({ status: "enqueued", selection: small });
+		expect(q.enqueued).toEqual([{ editionId, ...small }]);
+		const overview = await getPreprocessOverview(
+			{ db: t.db, ai, pendingJobDetail: queue().pendingJobDetail },
+			editionId,
+		);
+		expect(overview.preprocessDefault.selection).toEqual(big);
+	});
+
+	it("enqueues the preprocessing default when no model is chosen", async () => {
+		const ai = await fakeAi(["openai", "anthropic"], { chat: big });
+		await savePreprocessDefault(t.db, ai, {
+			provider: "anthropic",
+			model: "a",
+		});
+		try {
+			const q = queue();
+			const editionId = crypto.randomUUID();
+			expect(await startPreprocess({ db: t.db, ai, ...q }, editionId)).toEqual({
+				status: "enqueued",
+				selection: { provider: "anthropic", model: "a" },
+			});
+			expect(q.enqueued).toEqual([
+				{ editionId, provider: "anthropic", model: "a" },
+			]);
+		} finally {
+			await clearPreprocessDefault(t.db);
+		}
+	});
+
+	it("a deduplicated request reports the pending run's model", async () => {
+		const ai = await fakeAi(["openai"], { chat: big });
+		const q = queue(small);
+		expect(
+			await startPreprocess({ db: t.db, ai, ...q }, crypto.randomUUID(), big),
+		).toEqual({ status: "in_progress", selection: small });
+		// A job queued before runs carried a model reports the run row's.
+		const editionId = await readyEdition("Dedupe");
+		await updateRun(t.db, editionId, { status: "running", ...small });
+		expect(
+			await startPreprocess({ db: t.db, ai, ...queue({}) }, editionId, big),
+		).toEqual({ status: "in_progress", selection: small });
+	});
+
+	it("enqueues nothing without a usable model", async () => {
+		await clearPreprocessDefault(t.db);
+		const editionId = crypto.randomUUID();
+		const q = queue();
+		expect(
+			await startPreprocess(
+				{ db: t.db, ai: await fakeAi([]), ...q },
+				editionId,
+			),
+		).toEqual({ status: "disabled" });
+		expect(
+			await startPreprocess(
+				{ db: t.db, ai: await fakeAi(["openai"]), ...q },
+				editionId,
+			),
+		).toEqual({ status: "no_model" });
+		const choice: AiSelection = { provider: "google", model: "g" };
+		expect(
+			await startPreprocess(
+				{ db: t.db, ai: await fakeAi(["openai"]), ...q },
+				editionId,
+				choice,
+			),
+		).toEqual({ status: "unavailable", selection: choice });
+		expect(q.enqueued).toEqual([]);
+	});
+
+	it("the auto-trigger enqueues the default, and skips with a warning when none resolves", async () => {
+		await clearPreprocessDefault(t.db);
+		const editionId = crypto.randomUUID();
+		const auto = (ai: Awaited<ReturnType<typeof fakeAi>>) => {
+			const q = queue();
+			const warn = vi.fn();
+			const deps = {
+				db: t.db,
+				config: { preprocessAuto: true },
+				ai,
+				enqueue: q.enqueue,
+				log: { warn },
+			};
+			return { q, warn, deps };
+		};
+		const ok = auto(await fakeAi(["openai"], { preprocess: small }));
+		expect(await enqueueAutoPreprocess(ok.deps, editionId)).toBe(true);
+		expect(ok.q.enqueued).toEqual([{ editionId, ...small }]);
+
+		const unset = auto(await fakeAi(["openai"]));
+		expect(await enqueueAutoPreprocess(unset.deps, editionId)).toBe(false);
+		expect(unset.q.enqueued).toEqual([]);
+		expect(unset.warn).toHaveBeenCalledWith(
+			expect.objectContaining({ editionId, reason: "no_model" }),
+			expect.stringContaining("skipped"),
+		);
+
+		const lost = auto(
+			await fakeAi(["anthropic"], {
+				preprocess: { provider: "google", model: "g" },
+			}),
+		);
+		expect(await enqueueAutoPreprocess(lost.deps, editionId)).toBe(false);
+		expect(lost.q.enqueued).toEqual([]);
+		expect(lost.warn).toHaveBeenCalledWith(
+			expect.objectContaining({ reason: "unavailable", provider: "google" }),
+			expect.any(String),
+		);
+	});
+
+	it("every attempt uses the job's model, even after the default changes", async () => {
+		const editionId = await readyEdition("Retry");
+		const ai = await fakeAi(["openai"], { chat: big });
+		await expect(handle(ai, { editionId, ...small })).rejects.toThrow(/failed/);
+		await saveChatDefault(t.db, ai, big);
+		await savePreprocessDefault(t.db, ai, big);
+		try {
+			await expect(handle(ai, { editionId, ...small })).rejects.toThrow(
+				/failed/,
+			);
+		} finally {
+			await clearChatDefault(t.db);
+			await clearPreprocessDefault(t.db);
+		}
+		expect(ai.resolve.mock.calls.map(([s]) => s)).toEqual([small, small]);
+		expect(await runRow(editionId)).toMatchObject({
+			status: "failed",
+			provider: "openai",
+			model: "small",
+		});
+	});
+
+	it("a job queued without a model uses the current preprocessing default", async () => {
+		const editionId = await readyEdition("Legacy");
+		const ai = await fakeAi(["openai", "anthropic"], { chat: big });
+		await savePreprocessDefault(t.db, ai, {
+			provider: "anthropic",
+			model: "a",
+		});
+		try {
+			await expect(handle(ai, { editionId })).rejects.toThrow(/failed/);
+		} finally {
+			await clearPreprocessDefault(t.db);
+		}
+		expect(ai.resolve.mock.calls.map(([s]) => s)).toEqual([
+			{ provider: "anthropic", model: "a" },
+		]);
+		expect(await runRow(editionId)).toMatchObject({
+			provider: "anthropic",
+			model: "a",
+		});
+	});
+
+	it("fails without retry or another model when the job's provider lost its credentials", async () => {
+		const editionId = await readyEdition("Unavailable");
+		const ai = await fakeAi(["openai"], { chat: big });
+		await expect(
+			handle(ai, { editionId, provider: "anthropic", model: "a" }),
+		).rejects.toMatchObject({
+			name: "NonRetryableError",
+			message: "Model anthropic/a is unavailable.",
+		});
+		expect(ai.resolve).toHaveBeenCalledTimes(1);
+		expect(ai.calls).toEqual([]);
+		expect(await runRow(editionId)).toMatchObject({
+			status: "failed",
+			provider: "anthropic",
+			model: "a",
+			lastError: "Model anthropic/a is unavailable.",
+		});
+		expect((await getPreprocessStatus(t.db, editionId, null)).lastError).toBe(
+			"Model anthropic/a is unavailable.",
+		);
+	});
+
+	it("status shows the last run's model apart from the default a new run preselects", async () => {
+		const editionId = await readyEdition("Status");
+		const ai = await fakeAi(["openai"], { preprocess: big });
+		await updateRun(t.db, editionId, {
+			status: "complete",
+			totalUnits: 1,
+			...small,
+		});
+		const idle = await getPreprocessOverview(
+			{ db: t.db, ai, pendingJobDetail: queue().pendingJobDetail },
+			editionId,
+		);
+		expect(idle).toMatchObject({ provider: "openai", model: "small" });
+		expect(idle.preprocessDefault).toMatchObject({
+			selection: big,
+			available: true,
+		});
+		expect(JSON.stringify(idle)).not.toMatch(/apiKey|baseUrl/);
+		// A queued job shows the model it will run with before a worker claims it.
+		const queued = await getPreprocessOverview(
+			{
+				db: t.db,
+				ai,
+				pendingJobDetail: queue({ provider: "openai", model: "next" })
+					.pendingJobDetail,
+			},
+			editionId,
+		);
+		expect(queued).toMatchObject({
+			status: "queued",
+			provider: "openai",
+			model: "next",
+		});
 	});
 });

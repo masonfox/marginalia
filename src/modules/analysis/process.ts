@@ -16,6 +16,7 @@ import {
 	type TokenUsage,
 } from "#/modules/usage";
 import type { Database, Executor } from "#/server/db";
+import { NonRetryableError } from "#/server/jobs/kinds";
 import {
 	buildUnitPrompt,
 	type PromptPassage,
@@ -35,9 +36,13 @@ import type { DerivedCitation, ObservationKind } from "./schema";
 export const CHUNK_CHARS = 24_000;
 const MAX_CITATIONS = 3;
 
+export class ModelUnavailableError extends NonRetryableError {}
+
 export interface ProcessDeps {
 	db: Database;
-	model: LanguageModel;
+	model: LanguageModel | null;
+	/** Current credentials for the fixed run selection, resolved before each call. */
+	resolveModel?: () => ReturnType<AiRuntime["resolve"]>;
 	modelName: string;
 	provider: string;
 	editionId: string;
@@ -150,15 +155,30 @@ async function callModel(
 		}).catch(() => {});
 	let text: string;
 	try {
+		const resolved = deps.resolveModel
+			? await deps.resolveModel()
+			: deps.model
+				? {
+						ok: true as const,
+						model: deps.model,
+						providerOptions: deps.providerOptions,
+					}
+				: { ok: false as const };
+		if (!resolved.ok) {
+			throw new ModelUnavailableError(
+				`Model ${deps.provider}/${deps.modelName} is unavailable.`,
+			);
+		}
+		deps.signal?.throwIfAborted();
 		const result = await generateText({
-			model: deps.model,
+			model: resolved.model,
 			system: UNIT_SYSTEM_PROMPT,
 			prompt,
 			// Providers that support it constrain decoding to this shape; the
 			// reply is still validated by parseUnitOutput below.
 			output: Output.object({ schema: jsonSchema(UNIT_OUTPUT_JSON_SCHEMA) }),
 			reasoning: deps.reasoning,
-			providerOptions: deps.providerOptions,
+			providerOptions: resolved.providerOptions,
 			abortSignal: deps.signal,
 		});
 		usage = addUsage(NO_USAGE, result.usage);

@@ -9,6 +9,8 @@ export {
 	type ChatStart,
 	type ChatUIMessage,
 	describeError,
+	type SetModelResult,
+	setConversationModel,
 	startChat,
 } from "./chat";
 export {

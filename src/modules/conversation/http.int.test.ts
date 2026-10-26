@@ -1,11 +1,11 @@
 import { MockLanguageModelV4 } from "ai/test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	createSession,
 	LoginRateLimiter,
 	setupPassword,
 } from "#/modules/access";
-import type { AiRuntime } from "#/modules/ai";
+import { type AiRuntime, createAi } from "#/modules/ai";
 import { loadConfig } from "#/server/config";
 import { handleRequest } from "#/server/request";
 import { createTestDb, type TestDb } from "../../../test/db";
@@ -22,7 +22,10 @@ import {
 let t: TestDb;
 let editionId: string;
 
-const config = loadConfig({ DATABASE_URL: "postgres://unused" });
+const config = loadConfig({
+	MARGINALIA_SECRET_KEY: Buffer.alloc(32).toString("base64"),
+	DATABASE_URL: "postgres://unused",
+});
 const usage = {
 	inputTokens: {
 		total: 1,
@@ -58,24 +61,21 @@ function modelWith(
 	});
 }
 
-const enabled = (model: MockLanguageModelV4): AiRuntime => ({
-	model,
-	status: { enabled: true, provider: "openai", model: "mock" },
-	maxSteps: 4,
-	preprocessModel: null,
-	temperature: undefined,
-	reasoning: undefined,
-	providerOptions: {},
-});
-const disabled: AiRuntime = {
-	model: null,
-	status: { enabled: false },
-	preprocessModel: null,
-	maxSteps: 8,
-	temperature: undefined,
-	reasoning: undefined,
-	providerOptions: {},
+const enabled = (model: MockLanguageModelV4): AiRuntime => {
+	return {
+		available: async () => ["openai"],
+		resolve: async (selection) => ({
+			ok: true,
+			model,
+			providerOptions: {},
+			selection,
+		}),
+		maxSteps: 4,
+		temperature: undefined,
+		reasoning: undefined,
+	};
 };
+const disabled = createAi(undefined);
 
 const post = (body: unknown, headers: Record<string, string> = {}) =>
 	new Request("http://books.local/api/chat", {
@@ -96,6 +96,9 @@ const newConversation = () =>
 
 beforeAll(async () => {
 	t = await createTestDb();
+	await t.pool.query(
+		"insert into ai_settings (id, chat_provider, chat_model) values (1, 'openai', 'mock')",
+	);
 	const book = await ingestBook(
 		t.db,
 		await tempDataDir(),
@@ -118,6 +121,50 @@ describe("POST /api/chat", () => {
 		);
 		expect(res.status).toBe(503);
 		expect((await getConversation(t.db, id))?.messages).toEqual([]);
+	});
+
+	it("returns 503 Settings guidance for a missing chat model without resolving or storing", async () => {
+		await t.pool.query(
+			"update ai_settings set chat_provider = null, chat_model = null where id = 1",
+		);
+		try {
+			const id = await newConversation();
+			const model = modelWith(() => []);
+			const ai = enabled(model);
+			const resolve = vi.spyOn(ai, "resolve");
+			const res = await chat(ai, post({ conversationId: id, message: "hi" }));
+			expect(res.status).toBe(503);
+			expect(await res.json()).toEqual({
+				error: "Choose a chat model in Settings before starting a chat.",
+			});
+			expect(resolve).not.toHaveBeenCalled();
+			expect(model.doStreamCalls).toHaveLength(0);
+			expect((await getConversation(t.db, id))?.messages).toEqual([]);
+		} finally {
+			await t.pool.query(
+				"update ai_settings set chat_provider = 'openai', chat_model = 'mock' where id = 1",
+			);
+		}
+	});
+
+	it("returns 503 naming the model when the conversation's model is unavailable", async () => {
+		const model = modelWith(() => []);
+		const { id } = await createConversation(t.db, {
+			editionIds: [editionId],
+			model: { provider: "google", model: "gemini-pro" },
+		});
+		const ai: AiRuntime = {
+			...enabled(model),
+			resolve: async () => ({ ok: false, reason: "unavailable" }),
+		};
+		const res = await chat(ai, post({ conversationId: id, message: "hi" }));
+		expect(res.status).toBe(503);
+		expect(await res.json()).toEqual({
+			error: "Model google/gemini-pro is unavailable",
+			selection: { provider: "google", model: "gemini-pro" },
+		});
+		expect((await getConversation(t.db, id))?.messages).toEqual([]);
+		expect(model.doStreamCalls).toHaveLength(0);
 	});
 
 	it("returns 404 for an unknown conversation", async () => {

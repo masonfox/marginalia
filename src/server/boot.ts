@@ -1,5 +1,6 @@
 import { LoginRateLimiter, setupPassword } from "#/modules/access";
 import { createAi } from "#/modules/ai";
+import { loadCredentials } from "#/modules/settings";
 import {
 	type Config,
 	ConfigError,
@@ -60,7 +61,7 @@ async function start(): Promise<AppContext> {
 
 	// Model warnings are logged per request by the chat code, so the SDK's own console output is off.
 	globalThis.AI_SDK_LOG_WARNINGS = false;
-	const ai = createAi(config.ai);
+	const ai = createAi(config.ai, () => loadCredentials(db, config.secretKey));
 	const ctx: AppContext = {
 		config,
 		log,
@@ -68,6 +69,7 @@ async function start(): Promise<AppContext> {
 		ai,
 		enqueue: jobs.enqueue,
 		pendingJob: jobs.pendingJob,
+		pendingJobDetail: jobs.pendingJobDetail,
 		cancelJob: jobs.cancelJob,
 		access,
 	};

@@ -7,7 +7,10 @@ import {
 	servesWeb,
 } from "./config";
 
-const base = { DATABASE_URL: "postgres://u:dbsecret@localhost:5432/m" };
+const base = {
+	DATABASE_URL: "postgres://u:dbsecret@localhost:5432/m",
+	MARGINALIA_SECRET_KEY: Buffer.alloc(32, 7).toString("base64"),
+};
 
 function errorOf(env: Record<string, string | undefined>): ConfigError {
 	try {
@@ -40,7 +43,7 @@ describe("loadConfig", () => {
 	});
 
 	it("names a missing DATABASE_URL", () => {
-		const err = errorOf({});
+		const err = errorOf({ MARGINALIA_SECRET_KEY: base.MARGINALIA_SECRET_KEY });
 		expect(err.issues).toEqual([
 			"DATABASE_URL is required (a PostgreSQL connection string)",
 		]);
@@ -65,6 +68,7 @@ describe("loadConfig", () => {
 
 	it("reports every invalid variable at once", () => {
 		const err = errorOf({
+			MARGINALIA_SECRET_KEY: base.MARGINALIA_SECRET_KEY,
 			MARGINALIA_MAX_UPLOAD_MB: "x",
 			MARGINALIA_ROLE: "admin",
 			MARGINALIA_WORKER: "maybe",
@@ -151,183 +155,65 @@ describe("loadConfig", () => {
 		});
 	});
 
-	describe("AI provider", () => {
-		it("is disabled when AI_PROVIDER is unset", () => {
-			const c = loadConfig(base);
-			expect(c.ai).toBeUndefined();
-			expect(redactedConfig(c).ai).toBeUndefined();
-		});
-
-		it("loads a hosted provider with defaults", () => {
+	describe("AI configuration", () => {
+		it("ignores removed credentials and model variables without warnings", () => {
 			const c = loadConfig({
 				...base,
-				AI_PROVIDER: "anthropic",
-				AI_MODEL: "claude-x",
-				AI_API_KEY: "k",
+				AI_PROVIDER: "invalid",
+				AI_MODEL: "m",
+				AI_API_KEY: "secret",
+				AI_BASE_URL: "bad",
+				AI_PREPROCESS_MODEL: "m",
+				AI_OPENAI_API_KEY: "secret",
+				AI_OPENAI_BASE_URL: "bad",
+				AI_ANTHROPIC_API_KEY: "secret",
+				AI_ANTHROPIC_BASE_URL: "bad",
+				AI_GOOGLE_API_KEY: "secret",
+				AI_GOOGLE_BASE_URL: "bad",
+				AI_OPENAI_COMPATIBLE_API_KEY: "secret",
+				AI_OPENAI_COMPATIBLE_BASE_URL: "bad",
+				AI_PREPROCESS_AUTO: "true",
 			});
 			expect(c.ai).toEqual({
-				provider: "anthropic",
-				model: "claude-x",
-				preprocessModel: "claude-x",
-				apiKey: "k",
-				baseUrl: undefined,
 				maxSteps: 8,
 				temperature: undefined,
 				effort: undefined,
 				promptCache: true,
 				prices: {},
 			});
-		});
-
-		const anthropic = {
-			...base,
-			AI_PROVIDER: "anthropic",
-			AI_MODEL: "claude-x",
-			AI_API_KEY: "k",
-		};
-
-		it("loads effort, caching, and price overrides", () => {
-			const c = loadConfig({
-				...anthropic,
-				AI_EFFORT: "low",
-				AI_PROMPT_CACHE: "false",
-				AI_PRICES:
-					'{"claude-x": {"input": 2, "output": 10, "cacheRead": 0.2}, "local": {"input": 0, "output": 0}}',
-			});
-			expect(c.ai).toMatchObject({
-				effort: "low",
-				promptCache: false,
-				prices: {
-					"claude-x": { input: 2, output: 10, cacheRead: 0.2 },
-					local: { input: 0, output: 0 },
-				},
-			});
-		});
-
-		it.each([
-			["AI_EFFORT", "extreme"],
-			["AI_PRICES", "not json"],
-			["AI_PRICES", '{"m": {"input": -1, "output": 1}}'],
-			["AI_PRICES", '{"m": {"input": 1}}'],
-			["AI_PRICES", '{"m": {"input": 1, "output": 1, "cached": 1}}'],
-			["AI_PRICES", '[{"input": 1, "output": 1}]'],
-			["AI_PROMPT_CACHE", "sometimes"],
-		])("names an invalid %s (%s)", (name, value) => {
-			const issues = errorOf({ ...anthropic, [name]: value }).issues;
-			expect(issues.map((i) => i.split(" ")[0])).toEqual([name]);
-		});
-
-		it("allows openai-compatible without a key", () => {
-			const c = loadConfig({
-				...base,
-				AI_PROVIDER: "openai-compatible",
-				AI_MODEL: "llama3",
-				AI_BASE_URL: "http://localhost:11434/v1",
-				AI_TEMPERATURE: "0.7",
-				AI_MAX_STEPS: "4",
-			});
-			expect(c.ai).toMatchObject({
-				apiKey: undefined,
-				temperature: 0.7,
-				maxSteps: 4,
-			});
-		});
-
-		it("defaults preprocessing off and to the main model", () => {
-			const c = loadConfig(anthropic);
-			expect(c.preprocessAuto).toBe(false);
-			expect(c.ai?.preprocessModel).toBe("claude-x");
-		});
-
-		it("loads the preprocess model and auto flag", () => {
-			const c = loadConfig({
-				...anthropic,
-				AI_PREPROCESS_MODEL: "cheap",
-				AI_PREPROCESS_AUTO: "true",
-			});
 			expect(c.preprocessAuto).toBe(true);
-			expect(c.ai?.preprocessModel).toBe("cheap");
+			expect(c).not.toHaveProperty("warnings");
 		});
-
-		it("names an invalid AI_PREPROCESS_AUTO", () => {
+		it.each([
+			undefined,
+			"",
+			"c2hvcnQ=",
+			"invalid!",
+		])("rejects missing, short or malformed secrets", (value) => {
+			const error = errorOf({ ...base, MARGINALIA_SECRET_KEY: value });
+			expect(error.message).toContain("MARGINALIA_SECRET_KEY");
+			expect(error.message).toContain("openssl rand -base64 32");
+			if (value) expect(error.message).not.toContain(value);
+		});
+		it("registers and redacts the secret", async () => {
+			const { maskSecrets } = await import("#/modules/ai");
+			const c = loadConfig(base);
+			expect(JSON.stringify(redactedConfig(c))).not.toContain(
+				base.MARGINALIA_SECRET_KEY,
+			);
+			expect(maskSecrets(base.MARGINALIA_SECRET_KEY)).toBe("[redacted]");
+		});
+		it.each([
+			["AI_MAX_STEPS", "0"],
+			["AI_TEMPERATURE", "hot"],
+			["AI_EFFORT", "extreme"],
+			["AI_PROMPT_CACHE", "sometimes"],
+			["AI_PRICES", "invalid"],
+			["AI_PREPROCESS_AUTO", "maybe"],
+		])("validates %s", (name, value) => {
 			expect(
-				errorOf({ ...anthropic, AI_PREPROCESS_AUTO: "maybe" }).issues.map(
-					(i) => i.split(" ")[0],
-				),
-			).toEqual(["AI_PREPROCESS_AUTO"]);
-		});
-
-		it("names preprocess variables set without a provider", () => {
-			expect(
-				errorOf({
-					...base,
-					AI_PREPROCESS_MODEL: "m",
-					AI_PREPROCESS_AUTO: "true",
-				}).issues,
-			).toEqual([
-				"AI_PREPROCESS_MODEL requires AI_PROVIDER to be set",
-				"AI_PREPROCESS_AUTO requires AI_PROVIDER to be set",
-			]);
-		});
-
-		it("names a missing model", () => {
-			expect(
-				errorOf({ ...base, AI_PROVIDER: "openai", AI_API_KEY: "k" }).issues,
-			).toEqual(["AI_MODEL is required when AI_PROVIDER is set"]);
-		});
-
-		it("names a missing key", () => {
-			expect(
-				errorOf({ ...base, AI_PROVIDER: "google", AI_MODEL: "m" }).issues,
-			).toEqual(["AI_API_KEY is required when AI_PROVIDER is google"]);
-		});
-
-		it("names a missing base URL for openai-compatible", () => {
-			expect(
-				errorOf({ ...base, AI_PROVIDER: "openai-compatible", AI_MODEL: "m" })
-					.issues,
-			).toEqual([
-				"AI_BASE_URL is required when AI_PROVIDER is openai-compatible",
-			]);
-		});
-
-		it("rejects an unknown provider and bad numbers", () => {
-			const names = errorOf({
-				...base,
-				AI_PROVIDER: "bing",
-				AI_MAX_STEPS: "0",
-				AI_TEMPERATURE: "hot",
-			}).issues.map((i) => i.split(" ")[0]);
-			expect(names.sort()).toEqual([
-				"AI_MAX_STEPS",
-				"AI_PROVIDER",
-				"AI_TEMPERATURE",
-			]);
-		});
-
-		it("never exposes the key in errors or the loggable config", () => {
-			const secret = "sk-very-secret-key";
-			const err = errorOf({
-				...base,
-				AI_PROVIDER: "openai",
-				AI_API_KEY: secret,
-			});
-			expect(err.message).not.toContain(secret);
-			expect(JSON.stringify(err)).not.toContain(secret);
-			expect(String(err.stack)).not.toContain(secret);
-
-			const c = loadConfig({
-				...base,
-				AI_PROVIDER: "openai",
-				AI_MODEL: "m",
-				AI_API_KEY: secret,
-				AI_EFFORT: "medium",
-				AI_PRICES: '{"m": {"input": 1, "output": 2}}',
-			});
-			const logged = JSON.stringify(redactedConfig(c));
-			expect(redactedConfig(c).ai?.effort).toBe("medium");
-			expect(logged).not.toContain(secret);
-			expect(redactedConfig(c).ai?.apiKeySet).toBe(true);
+				errorOf({ ...base, [name]: value }).issues.map((i) => i.split(" ")[0]),
+			).toEqual([name]);
 		});
 	});
 });

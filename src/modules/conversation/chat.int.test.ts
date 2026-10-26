@@ -2,7 +2,7 @@ import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { asc, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import type { AiRuntime } from "#/modules/ai";
+import { type AiRuntime, createAi, type ProviderOptions } from "#/modules/ai";
 import { preprocessEdition, saveUnitResult } from "#/modules/analysis";
 import { getReadingUnits } from "#/modules/catalog";
 import { saveCorrection } from "#/modules/guide";
@@ -23,6 +23,7 @@ import {
 	getConversation,
 	messages,
 	PROMPT_VERSION,
+	setConversationModel,
 	startChat,
 	widenConversationScope,
 } from ".";
@@ -74,15 +75,22 @@ const streamOf = (chunks: Chunk[]) =>
 		},
 	});
 
-function runtime(model: MockLanguageModelV4, maxSteps = 5): AiRuntime {
+function runtime(
+	model: MockLanguageModelV4,
+	maxSteps = 5,
+	providerOptions: ProviderOptions = {},
+): AiRuntime {
 	return {
-		model,
-		status: { enabled: true, provider: "openai", model: "mock-1" },
+		available: async () => ["openai"],
+		resolve: async (selection) => ({
+			ok: true,
+			model,
+			providerOptions,
+			selection,
+		}),
 		maxSteps,
-		preprocessModel: null,
 		temperature: undefined,
 		reasoning: undefined,
-		providerOptions: {},
 	};
 }
 
@@ -153,6 +161,9 @@ async function run(
 
 beforeAll(async () => {
 	t = await createTestDb();
+	await t.pool.query(
+		"insert into ai_settings (id, chat_provider, chat_model) values (1, 'openai', 'mock-1')",
+	);
 	const dataDir = await tempDataDir();
 	const book = await ingestBook(
 		t.db,
@@ -226,16 +237,13 @@ describe("startChat", () => {
 
 	it("replays earlier messages on the next turn", async () => {
 		const id = await newConversation();
-		const ai = runtime(
-			scripted(textReply("First answer."), textReply("Second.")),
-		);
+		const model = scripted(textReply("First answer."), textReply("Second."));
+		const ai = runtime(model);
 		await (await run(ai, id, "one")).text();
 		await saved(id, 2);
 		await (await run(ai, id, "two")).text();
 		await saved(id, 4);
-		const prompt = JSON.stringify(
-			(ai.model as MockLanguageModelV4).doStreamCalls[1]?.prompt,
-		);
+		const prompt = JSON.stringify(model.doStreamCalls[1]?.prompt);
 		expect(prompt).toContain("First answer.");
 		expect(prompt).toContain('"two"');
 	});
@@ -395,17 +403,39 @@ describe("startChat", () => {
 		expect(JSON.stringify(conv.messages[0]?.parts)).toContain("First");
 	});
 
+	it("reports a missing model without resolving or storing, while an override works without a default", async () => {
+		await t.pool.query(
+			"update ai_settings set chat_provider = null, chat_model = null where id = 1",
+		);
+		try {
+			const id = await newConversation();
+			const model = scripted(textReply("Override reply."));
+			const ai = runtime(model);
+			const resolve = vi.spyOn(ai, "resolve");
+			expect(
+				await startChat(deps(ai), { conversationId: id, message: "hi" }),
+			).toEqual({ status: "missing_model" });
+			expect(resolve).not.toHaveBeenCalled();
+			expect(model.doStreamCalls).toHaveLength(0);
+			expect((await getConversation(t.db, id))?.messages).toEqual([]);
+			const selection = { provider: "openai" as const, model: "override" };
+			expect(
+				await setConversationModel({ db: t.db, ai }, id, selection),
+			).toMatchObject({ status: "ok" });
+			await (await run(ai, id, "hi")).text();
+			expect(resolve).toHaveBeenCalledWith(selection);
+			expect(model.doStreamCalls).toHaveLength(1);
+			await saved(id, 2);
+		} finally {
+			await t.pool.query(
+				"update ai_settings set chat_provider = 'openai', chat_model = 'mock-1' where id = 1",
+			);
+		}
+	});
+
 	it("reports disabled and not_found without calling a model", async () => {
 		const id = await newConversation();
-		const off: AiRuntime = {
-			model: null,
-			status: { enabled: false },
-			maxSteps: 8,
-			preprocessModel: null,
-			temperature: undefined,
-			reasoning: undefined,
-			providerOptions: {},
-		};
+		const off = createAi(undefined);
 		const disabled = await startChat(deps(off), {
 			conversationId: id,
 			message: "x",
@@ -431,9 +461,10 @@ describe("usage and provider options", () => {
 			textReply("Done."),
 		);
 		const ai: AiRuntime = {
-			...runtime(model),
+			...runtime(model, 5, {
+				anthropic: { cacheControl: { type: "ephemeral" } },
+			}),
 			reasoning: "low",
-			providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
 		};
 		await (await run(ai, id, "Go")).text();
 		expect(model.doStreamCalls).toHaveLength(2);
@@ -636,6 +667,53 @@ describe("request prefix", () => {
 		expect(JSON.stringify(turn2.slice(0, lastOfTurn1.length))).toBe(
 			JSON.stringify(lastOfTurn1),
 		);
+	});
+
+	it("keeps the system prompt, tools and replayed history byte-identical across a model change", async () => {
+		const id = await newConversation();
+		const before = scripted(
+			toolCall("c1", { query: "green light" }),
+			textReply("First answer."),
+			textReply("Second answer."),
+		);
+		const after = scripted(textReply("Third answer."));
+		const ai: AiRuntime = {
+			...runtime(before),
+			available: async () => ["openai", "anthropic"],
+			resolve: async (selection) => ({
+				ok: true,
+				model: selection.provider === "anthropic" ? after : before,
+				providerOptions: {},
+				selection,
+			}),
+		};
+		await (await run(ai, id, "one")).text();
+		await saved(id, 2);
+		await (await run(ai, id, "two")).text();
+		await saved(id, 4);
+		expect(
+			await setConversationModel({ db: t.db, ai }, id, {
+				provider: "anthropic",
+				model: "other-model",
+			}),
+		).toMatchObject({ status: "ok" });
+		await (await run(ai, id, "three")).text();
+		const conv = await saved(id, 6);
+
+		const last = before.doStreamCalls.at(-1);
+		const next = after.doStreamCalls[0];
+		if (!last || !next) throw new Error("expected calls to both models");
+		const system = (call: typeof last) =>
+			JSON.stringify(call.prompt.filter((m) => m.role === "system"));
+		expect(system(next)).toBe(system(last));
+		expect(JSON.stringify(next.tools)).toBe(JSON.stringify(last.tools));
+		// Everything the previous model was sent, earlier replies included, is replayed unchanged.
+		expect(JSON.stringify(next.prompt.slice(0, last.prompt.length))).toBe(
+			JSON.stringify(last.prompt),
+		);
+		expect(
+			conv.messages.filter((m) => m.role === "assistant").map((m) => m.model),
+		).toEqual(["mock-1", "mock-1", "other-model"]);
 	});
 });
 

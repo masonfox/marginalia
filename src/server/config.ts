@@ -1,4 +1,6 @@
 import { z } from "zod";
+// biome-ignore lint/style/noRestrictedImports: config must register secrets without importing the runtime, which depends on config.
+import { registerSecret } from "#/modules/ai/errors";
 
 /** Treat empty strings as unset so `VAR=` in Compose or `.env` means "use the default". */
 const optional = <T extends z.ZodType>(schema: T) =>
@@ -74,6 +76,15 @@ function parsePrices(
 	return parsed.data;
 }
 
+export const AI_PROVIDERS = [
+	"openai",
+	"anthropic",
+	"google",
+	"openai-compatible",
+] as const;
+
+export type AiProviderName = (typeof AI_PROVIDERS)[number];
+
 export const envSchema = z.object({
 	DATABASE_URL: optional(
 		z.string({ error: "is required (a PostgreSQL connection string)" }),
@@ -113,26 +124,21 @@ export const envSchema = z.object({
 			.transform((v) => v.replace(/\/+$/, ""))
 			.optional(),
 	),
+	MARGINALIA_SECRET_KEY: z
+		.string({ error: "is required; generate with openssl rand -base64 32" })
+		.refine(
+			(value) =>
+				/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+					value,
+				) && Buffer.from(value, "base64").length >= 32,
+			{
+				message:
+					"must be base64 encoding at least 32 bytes; generate with openssl rand -base64 32",
+			},
+		),
 	AUTH_PASSWORD: optional(z.string().optional()),
 	MARGINALIA_SESSION_DAYS: integer(1, 30, "a positive whole number of days"),
 	MARGINALIA_TRUST_PROXY: boolean(false),
-	AI_PROVIDER: optional(
-		z
-			.enum(["openai", "anthropic", "google", "openai-compatible"], {
-				error: "must be openai, anthropic, google, or openai-compatible",
-			})
-			.optional(),
-	),
-	AI_MODEL: optional(z.string().optional()),
-	AI_API_KEY: optional(z.string().optional()),
-	AI_BASE_URL: optional(
-		z
-			.url({
-				protocol: /^https?$/,
-				error: "must be an absolute http(s) URL",
-			})
-			.optional(),
-	),
 	AI_MAX_STEPS: integer(1, 8, "a positive whole number"),
 	AI_TEMPERATURE: optional(
 		z.coerce
@@ -150,7 +156,6 @@ export const envSchema = z.object({
 	),
 	AI_PROMPT_CACHE: boolean(true),
 	AI_PRICES: optional(z.string().transform(parsePrices).optional()),
-	AI_PREPROCESS_MODEL: optional(z.string().optional()),
 	AI_PREPROCESS_AUTO: boolean(false),
 	LOG_LEVEL: optional(
 		z
@@ -161,20 +166,20 @@ export const envSchema = z.object({
 	),
 });
 
-export type AiProviderName =
-	| "openai"
-	| "anthropic"
-	| "google"
-	| "openai-compatible";
-
-/** Language model settings. Absent from Config when AI is not configured. Never log `apiKey`. */
-export interface AiConfig {
+/** A provider and one of its model ids. */
+export interface AiSelection {
 	provider: AiProviderName;
 	model: string;
-	/** Model for whole-book preprocessing. Defaults to `model`. */
-	preprocessModel: string;
+}
+
+/** How to reach one provider. Never log `apiKey`. */
+export interface AiCredentials {
 	apiKey: string | undefined;
 	baseUrl: string | undefined;
+}
+
+/** Language model settings. Never log the API keys in `credentials`. */
+export interface AiConfig {
 	maxSteps: number;
 	temperature: number | undefined;
 	/** Undefined means the provider's default. */
@@ -185,6 +190,7 @@ export interface AiConfig {
 }
 
 export interface Config {
+	secretKey: string;
 	databaseUrl: string;
 	port: number;
 	dataDir: string;
@@ -203,8 +209,7 @@ export interface Config {
 	logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
 	/** Preprocess books automatically after ingest (AI_PREPROCESS_AUTO). */
 	preprocessAuto: boolean;
-	/** Undefined when no AI provider is configured. */
-	ai: AiConfig | undefined;
+	ai: AiConfig;
 }
 
 export class ConfigError extends Error {
@@ -229,8 +234,9 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		);
 	}
 	const e = result.data;
-	const ai = buildAiConfig(e);
+	registerSecret(e.MARGINALIA_SECRET_KEY);
 	return {
+		secretKey: e.MARGINALIA_SECRET_KEY,
 		databaseUrl: e.DATABASE_URL,
 		port: e.PORT,
 		dataDir: e.MARGINALIA_DATA_DIR,
@@ -246,51 +252,13 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		trustProxy: e.MARGINALIA_TRUST_PROXY,
 		logLevel: e.LOG_LEVEL,
 		preprocessAuto: e.AI_PREPROCESS_AUTO,
-		ai,
-	};
-}
-
-type Env = z.infer<typeof envSchema>;
-
-/** Cross-field validation for the AI variables. Messages name variables only, never values. */
-function buildAiConfig(e: Env): AiConfig | undefined {
-	if (e.AI_PROVIDER === undefined) {
-		const orphans: string[] = [];
-		if (e.AI_PREPROCESS_MODEL !== undefined) {
-			orphans.push("AI_PREPROCESS_MODEL requires AI_PROVIDER to be set");
-		}
-		if (e.AI_PREPROCESS_AUTO) {
-			orphans.push("AI_PREPROCESS_AUTO requires AI_PROVIDER to be set");
-		}
-		if (orphans.length > 0) throw new ConfigError(orphans);
-		return undefined;
-	}
-	const issues: string[] = [];
-	if (e.AI_MODEL === undefined) {
-		issues.push("AI_MODEL is required when AI_PROVIDER is set");
-	}
-	if (e.AI_PROVIDER !== "openai-compatible" && e.AI_API_KEY === undefined) {
-		issues.push(`AI_API_KEY is required when AI_PROVIDER is ${e.AI_PROVIDER}`);
-	}
-	if (e.AI_PROVIDER === "openai-compatible" && e.AI_BASE_URL === undefined) {
-		issues.push(
-			"AI_BASE_URL is required when AI_PROVIDER is openai-compatible",
-		);
-	}
-	if (issues.length > 0 || e.AI_MODEL === undefined) {
-		throw new ConfigError(issues);
-	}
-	return {
-		provider: e.AI_PROVIDER,
-		model: e.AI_MODEL,
-		preprocessModel: e.AI_PREPROCESS_MODEL ?? e.AI_MODEL,
-		apiKey: e.AI_API_KEY,
-		baseUrl: e.AI_BASE_URL,
-		maxSteps: e.AI_MAX_STEPS,
-		temperature: e.AI_TEMPERATURE,
-		effort: e.AI_EFFORT,
-		promptCache: e.AI_PROMPT_CACHE,
-		prices: e.AI_PRICES ?? {},
+		ai: {
+			maxSteps: e.AI_MAX_STEPS,
+			temperature: e.AI_TEMPERATURE,
+			effort: e.AI_EFFORT,
+			promptCache: e.AI_PROMPT_CACHE,
+			prices: e.AI_PRICES ?? {},
+		},
 	};
 }
 
@@ -306,21 +274,10 @@ export function servesWeb(config: Config): boolean {
 
 /** A loggable view of the config: secrets are replaced by whether they are set. */
 export function redactedConfig(config: Config) {
-	const { authPassword, databaseUrl, ai, ...rest } = config;
+	const { authPassword, databaseUrl, secretKey, ...rest } = config;
 	return {
 		...rest,
-		ai: ai && {
-			provider: ai.provider,
-			model: ai.model,
-			preprocessModel: ai.preprocessModel,
-			baseUrl: ai.baseUrl,
-			maxSteps: ai.maxSteps,
-			temperature: ai.temperature,
-			effort: ai.effort,
-			promptCache: ai.promptCache,
-			prices: ai.prices,
-			apiKeySet: ai.apiKey !== undefined,
-		},
+		secretKeySet: secretKey !== undefined,
 		databaseUrl: redactUrlPassword(databaseUrl),
 		authEnabled: authPassword !== undefined,
 	};

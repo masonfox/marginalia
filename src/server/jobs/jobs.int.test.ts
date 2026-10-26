@@ -210,16 +210,29 @@ describe("job runtime", () => {
 			null,
 		);
 		expect(
-			await web.enqueue("analysis.preprocess", { editionId }),
+			await web.enqueue("analysis.preprocess", {
+				editionId,
+				provider: "openai",
+				model: "small",
+			}),
 		).toBeTruthy();
 		expect(await web.pendingJob("analysis.preprocess", { editionId })).toBe(
 			"queued",
 		);
-		// A duplicate enqueue is refused but the accepted job stays visible.
-		expect(await web.enqueue("analysis.preprocess", { editionId })).toBeNull();
-		expect(await web.pendingJob("analysis.preprocess", { editionId })).toBe(
-			"queued",
-		);
+		// A duplicate enqueue is refused; the accepted job keeps its payload.
+		expect(
+			await web.enqueue("analysis.preprocess", {
+				editionId,
+				provider: "openai",
+				model: "big",
+			}),
+		).toBeNull();
+		expect(
+			await web.pendingJobDetail("analysis.preprocess", { editionId }),
+		).toEqual({
+			state: "queued",
+			payload: { editionId, provider: "openai", model: "small" },
+		});
 		expect(
 			await web.pendingJob("analysis.preprocess", { editionId: randomUUID() }),
 		).toBe(null);

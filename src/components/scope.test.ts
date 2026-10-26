@@ -14,8 +14,15 @@ const mocks = vi.hoisted(() => ({
 vi.mock("#/fns/conversations", () => ({
 	getReadingUnitsFn: mocks.units,
 	createConversationFn: vi.fn(),
+	// No provider, so the dialog offers no model choice.
+	getAiStatusFn: vi.fn(async () => ({
+		enabled: false,
+		providers: [],
+		chat: { selection: null, source: "none", available: false },
+	})),
 	widenScopeFn: vi.fn(),
 }));
+vi.mock("#/fns/settings", () => ({ listModelsFn: vi.fn() }));
 vi.mock("#/fns/guide", () => ({
 	getReadingPositionFn: mocks.position,
 	setReadingPositionFn: vi.fn(),

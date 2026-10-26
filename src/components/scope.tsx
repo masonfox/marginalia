@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { cn } from "cn";
 import { BookOpenCheck, ChevronDown, TriangleAlert } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
+import { ModelChoice } from "#/components/model-picker";
 import { Button } from "#/components/ui/button";
 import {
 	Dialog,
@@ -17,6 +18,7 @@ import {
 } from "#/components/ui/dialog";
 import {
 	createConversationFn,
+	getAiStatusFn,
 	getReadingUnitsFn,
 	widenScopeFn,
 } from "#/fns/conversations";
@@ -25,6 +27,7 @@ import type { PassageRef } from "#/lib/passage-ref";
 import type { ReadingUnit } from "#/modules/catalog";
 import type { ConversationBook, Scope } from "#/modules/conversation";
 import type { ReadingPosition } from "#/modules/guide";
+import type { AiSelection } from "#/server/config";
 import { usePositionOffer } from "./conversation-controls";
 
 /** "Through Chapter 22" or "Whole book". */
@@ -387,6 +390,16 @@ export function NewConversationDialog({
 		queryFn: () => getReadingPositionFn({ data: { editionId } }),
 		enabled: open,
 	});
+	// The conversation's own model; null follows the chat default.
+	const [model, setModel] = useState<AiSelection | null>(null);
+	const aiStatus = useQuery({
+		queryKey: ["ai-status"],
+		queryFn: () => getAiStatusFn(),
+		enabled: open,
+	});
+	const chatDefault = aiStatus.data?.chat.available
+		? aiStatus.data.chat.selection
+		: null;
 	const chosenLabel =
 		choice === null
 			? undefined
@@ -406,6 +419,7 @@ export function NewConversationDialog({
 				if (busy) return;
 				setOpen(next);
 				setChoice(null);
+				setModel(null);
 				setError(null);
 			}}
 		>
@@ -442,6 +456,24 @@ export function NewConversationDialog({
 					/>
 				)}
 				{chosenLabel !== undefined && <ScopeNotice labels={[chosenLabel]} />}
+				{aiStatus.data?.enabled && (
+					<div className="space-y-1" data-testid="new-conversation-model">
+						<p className="text-sm font-medium">Model</p>
+						<ModelChoice
+							providers={aiStatus.data.providers}
+							fallback={chatDefault}
+							value={model}
+							onChange={setModel}
+							disabled={busy}
+						/>
+						{!chatDefault && model === null && (
+							<p className="text-sm text-muted-foreground">
+								No chat default is set. Choose a model, or start now and choose
+								one in the conversation.
+							</p>
+						)}
+					</div>
+				)}
 				{error && (
 					<p role="alert" className="text-sm text-destructive-foreground">
 						{error}
@@ -455,17 +487,30 @@ export function NewConversationDialog({
 					</DialogClose>
 					<Button
 						type="button"
-						disabled={choice === null || busy}
+						disabled={
+							choice === null || busy || (model !== null && !model.model.trim())
+						}
 						onClick={async () => {
 							if (choice === null) return;
 							setBusy(true);
 							setError(null);
 							try {
 								const created = await create({
-									data: { editionId, scope: toScope(choice) },
+									data: {
+										editionId,
+										scope: toScope(choice),
+										...(model && { selection: model }),
+									},
 								});
 								if (!created) {
 									setError("This book is not ready for conversations yet.");
+								} else if (
+									"error" in created &&
+									created.error === "model_unavailable"
+								) {
+									setError(
+										"That model's provider is not configured on this instance. Choose another model.",
+									);
 								} else if ("error" in created) {
 									setChoice(null);
 									setError(STALE);

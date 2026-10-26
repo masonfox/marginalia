@@ -13,6 +13,7 @@
 			"!**/drizzle",
 			"!**/openspec",
 			"!**/.claude",
+			"!**/.multi-review",
 			"!**/test/fixtures"
 		]
 	},
