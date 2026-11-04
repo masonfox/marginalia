@@ -271,6 +271,28 @@ describe("paging", () => {
 		expect(ids).toEqual(before);
 	});
 
+	it("counts only on the first page", async () => {
+		const first = await listShelf(t.db, { limit: 10 });
+		expect(first).toMatchObject({
+			total: expect.any(Number),
+			matching: expect.any(Number),
+			needsAttention: expect.any(Number),
+			processing: expect.any(Number),
+		});
+		expect(first.nextCursor).not.toBeNull();
+		const next = await listShelf(t.db, {
+			cursor: first.nextCursor ?? undefined,
+			limit: 10,
+		});
+		expect(next.items.length).toBeGreaterThan(0);
+		expect(next).toMatchObject({
+			total: null,
+			matching: null,
+			needsAttention: null,
+			processing: null,
+		});
+	});
+
 	it("ends with a null cursor and no empty page", async () => {
 		const page = await listShelf(t.db, { limit: 10_000 });
 		expect(page.nextCursor).toBeNull();

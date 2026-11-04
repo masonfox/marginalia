@@ -28,14 +28,17 @@ export interface ShelfPage {
 	items: ShelfItem[];
 	/** Opaque; pass back as `cursor` for the next page. Null after the last page. */
 	nextCursor: string | null;
-	/** Editions in the library. */
-	total: number;
+	/**
+	 * Editions in the library. This and the other counts are computed only for
+	 * the first page; pages fetched with a cursor return null counts.
+	 */
+	total: number | null;
 	/** Editions matching the search and filter. */
-	matching: number;
+	matching: number | null;
 	/** Editions processing, failed, or unavailable, ignoring the search and filter. */
-	needsAttention: number;
+	needsAttention: number | null;
 	/** Editions processing, ignoring the search and filter. */
-	processing: number;
+	processing: number | null;
 }
 
 export interface ShelfQuery {
@@ -140,6 +143,7 @@ export async function listShelf(
 		.orderBy(sortTitleSql, asc(editions.createdAt), asc(editions.id))
 		.limit(pageSize + 1);
 
+	// Only the first page carries counts; the client reads them from pages[0].
 	const countsQuery = db
 		.select({
 			total: sql<number>`count(*)::int`,
@@ -152,7 +156,10 @@ export async function listShelf(
 		.from(editions)
 		.leftJoin(readingPositions, joined);
 
-	const [rows, [counts]] = await Promise.all([pageQuery, countsQuery]);
+	const [rows, counts] = await Promise.all([
+		pageQuery,
+		after ? null : countsQuery.then(([row]) => row ?? null),
+	]);
 	const page = rows.slice(0, pageSize);
 	const last = page.at(-1);
 	return {
@@ -172,9 +179,9 @@ export async function listShelf(
 						i: last.id,
 					})
 				: null,
-		total: counts?.total ?? 0,
-		matching: counts?.matching ?? 0,
-		needsAttention: counts?.needsAttention ?? 0,
-		processing: counts?.processing ?? 0,
+		total: after ? null : (counts?.total ?? 0),
+		matching: after ? null : (counts?.matching ?? 0),
+		needsAttention: after ? null : (counts?.needsAttention ?? 0),
+		processing: after ? null : (counts?.processing ?? 0),
 	};
 }
