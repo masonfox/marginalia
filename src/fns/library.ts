@@ -35,7 +35,9 @@ export const listShelfInput = z.object({
 	status: z.enum(SHELF_FILTERS).optional(),
 	cursor: z
 		.string()
-		.max(4096)
+		// The cursor embeds the last book's lowercased title, which has no
+		// length limit, so this cap must comfortably exceed any realistic title.
+		.max(65_536)
 		.refine(isValidShelfCursor, "Invalid cursor")
 		.optional(),
 });
