@@ -80,9 +80,16 @@ function LibraryPage() {
 		...shelfQuery({ q, status }),
 		placeholderData: keepPreviousData,
 		// Poll while anything in the library is being imported, so statuses,
-		// counts, and the filter update without a reload.
-		refetchInterval: (query) =>
-			(query.state.data?.pages[0]?.processing ?? 0) > 0 ? 3000 : false,
+		// counts, and the filter update without a reload. Rows and counts are
+		// separate reads, so a loaded book can show Processing while the count
+		// is already 0; keep polling until every visible Processing badge resolves.
+		refetchInterval: (query) => {
+			const pages = query.state.data?.pages ?? [];
+			const processing =
+				(pages[0]?.processing ?? 0) > 0 ||
+				pages.some((p) => p.items.some((b) => b.status === "processing"));
+			return processing ? 3000 : false;
+		},
 	});
 	const pages = shelf.data?.pages ?? [];
 	const first = pages[0];
