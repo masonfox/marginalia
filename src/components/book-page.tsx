@@ -81,12 +81,18 @@ export function BookHeader() {
  * `text-muted-foreground` would still win.
  */
 const TAB =
-	"-mb-px shrink-0 border-b-2 border-transparent px-3 py-2 whitespace-nowrap text-muted-foreground hover:text-foreground pointer-coarse:py-3 aria-[current=page]:border-primary aria-[current=page]:font-medium aria-[current=page]:text-foreground";
+	"shrink-0 border-b-2 border-transparent px-3 py-2 whitespace-nowrap text-muted-foreground hover:text-foreground pointer-coarse:py-3 aria-[current=page]:border-primary aria-[current=page]:font-medium aria-[current=page]:text-foreground";
 
 /**
  * The book's tabs as links: each is a page with its own URL, and the router
  * marks the current one with `aria-current="page"`. The Guide is current on
  * every `/guide/*` path and is only offered for ready editions.
+ *
+ * The baseline is an inset shadow rather than `border-b`: the row scrolls
+ * sideways on narrow screens, which makes overflow-y non-visible too, so a
+ * tab underline pulled over a real border with `-mb-px` would overflow and
+ * show a vertical scrollbar. An inset shadow paints under the tabs, so the
+ * current tab's underline covers it while staying inside the nav.
  */
 export function BookTabs() {
 	const { edition, isReady } = useBook();
@@ -94,7 +100,7 @@ export function BookTabs() {
 	return (
 		<nav
 			aria-label="Book"
-			className="flex gap-1 overflow-x-auto border-b text-sm"
+			className="flex gap-1 overflow-x-auto overflow-y-hidden text-sm shadow-[inset_0_-1px_0_var(--color-border)]"
 			data-testid="book-tabs"
 		>
 			<Link
