@@ -60,6 +60,9 @@ const LABELS: Record<PreprocessView["status"], string> = {
 	stale: "Out of date",
 };
 
+/** The id of the card's heading, which the Guide's empty states point to. */
+export const PREPROCESS_ID = "preprocess";
+
 /** Presentational card; the container below wires data and actions. */
 export function PreprocessCardView({
 	view,
@@ -110,8 +113,8 @@ export function PreprocessCardView({
 	// A run needs a model: the default, or one chosen here.
 	const startable = choice ? choice.model.trim() !== "" : fallback !== null;
 	return (
-		<section className="mt-8" aria-labelledby="preprocess">
-			<h2 id="preprocess" className="font-medium">
+		<section className="mt-8" aria-labelledby={PREPROCESS_ID}>
+			<h2 id={PREPROCESS_ID} tabIndex={-1} className="font-medium">
 				Preprocessing
 			</h2>
 			<div className="mt-2 max-w-xl space-y-2 rounded-md border p-3 text-sm">

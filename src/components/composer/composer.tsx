@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCoarsePointer } from "#/hooks/use-coarse-pointer";
 import { MESSAGE_LIMIT } from "#/lib/composer-draft";
 import {
 	attachmentKey,
@@ -15,19 +15,6 @@ import type { Attachment, ComposerState } from "./use-composer";
 
 /** The remaining-character count appears from here on. */
 const COUNTER_FROM = 7200;
-
-/** Whether the primary input is touch, where Enter inserts a newline. */
-function useCoarsePointer() {
-	const [coarse, setCoarse] = useState(false);
-	useEffect(() => {
-		const query = window.matchMedia("(pointer: coarse)");
-		setCoarse(query.matches);
-		const change = () => setCoarse(query.matches);
-		query.addEventListener("change", change);
-		return () => query.removeEventListener("change", change);
-	}, []);
-	return coarse;
-}
 
 /** Identifies an attachment, so a new one gets a fresh, collapsed chip. */
 function keyOf(attachment: Attachment) {

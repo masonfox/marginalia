@@ -54,23 +54,30 @@ export function loadComposerDraft(
 	}
 }
 
-/** Saves a draft, or removes the saved one when there is nothing to keep. */
+/**
+ * Saves a draft, or removes the saved one when there is nothing to keep.
+ * Returns whether a non-empty draft was stored. Most callers can ignore the
+ * result, since a lost draft is just not restored.
+ */
 export function saveComposerDraft(
 	conversationId: string,
 	draft: ComposerDraft,
 	storage = sessionStore(),
-): void {
+): boolean {
 	if (!draft.text && !draft.attachment) {
 		clearComposerDraft(conversationId, storage);
-		return;
+		return true;
 	}
+	if (!storage) return false;
 	try {
-		storage?.setItem(
+		storage.setItem(
 			composerDraftKey(conversationId),
 			JSON.stringify({ v: 1, ...draft } satisfies StoredDraft),
 		);
+		return true;
 	} catch {
-		// Quota or private mode: the draft just is not restored.
+		// Quota or private mode: the draft is not kept.
+		return false;
 	}
 }
 
@@ -82,5 +89,18 @@ export function clearComposerDraft(
 		storage?.removeItem(composerDraftKey(conversationId));
 	} catch {
 		// Nothing to clear without storage.
+	}
+}
+
+/** The draft key of a book page's composer, before any conversation exists. */
+export const bookDraftId = (editionId: string) => `book:${editionId}`;
+
+declare module "@tanstack/react-router" {
+	interface HistoryState {
+		/**
+		 * Set when the book page created a conversation and saved its first
+		 * message as the draft: the conversation sends it once, then drops this.
+		 */
+		autoSend?: boolean;
 	}
 }

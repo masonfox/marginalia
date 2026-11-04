@@ -33,7 +33,7 @@ import {
 import { Button, buttonVariants } from "#/components/ui/button";
 import { deleteNoteFn, getGuideNoteFn } from "#/fns/guide";
 
-export const Route = createFileRoute("/books/$editionId_/guide/notes/$noteId")({
+export const Route = createFileRoute("/books/$editionId/guide/notes/$noteId")({
 	beforeLoad: ({ params }) => {
 		if (!/^[1-9]\d{0,9}$/.test(params.noteId)) throw notFound();
 	},

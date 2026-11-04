@@ -10,6 +10,7 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm";
+import { previewText } from "#/lib/preview-text";
 import { getReadingUnits } from "#/modules/catalog";
 import { editions } from "#/modules/library";
 import type { AiSelection } from "#/server/config";
@@ -24,6 +25,9 @@ import {
 } from "./schema";
 
 export const DEFAULT_TITLE = "New conversation";
+
+/** Characters of message text fetched for a list preview. */
+const PREVIEW_SOURCE_CHARS = 600;
 
 export interface ConversationBook {
 	editionId: string;
@@ -51,6 +55,8 @@ export interface ConversationSummary {
 	messageCount: number;
 	/** Scope of the listed book in this conversation; null means whole book. */
 	scopeLabel: string | null;
+	/** Plain text of the latest message that has text; null when none does. */
+	preview: string | null;
 }
 
 export interface StoredMessage {
@@ -136,7 +142,20 @@ export async function listConversationsForEdition(
 	editionId: string,
 ): Promise<ConversationSummary[]> {
 	const count = sql<number>`(select count(*)::int from ${messages} where ${messages.conversationId} = ${conversations.id})`;
-	return db
+	// The latest message with a non-empty text part, walking the (conversation_id, seq) index backwards.
+	const latest = db
+		.select({ parts: messages.parts })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, conversations.id),
+				sql`exists (select 1 from json_array_elements(${messages.parts}) as p where p->>'type' = 'text' and p->>'text' ~ '\\S')`,
+			),
+		)
+		.orderBy(desc(messages.seq))
+		.limit(1)
+		.as("latest_text");
+	const rows = await db
 		.select({
 			id: conversations.id,
 			title: conversations.title,
@@ -144,14 +163,24 @@ export async function listConversationsForEdition(
 			updatedAt: conversations.updatedAt,
 			messageCount: count,
 			scopeLabel: conversationEditions.scopeLabel,
+			previewSource: sql<string | null>`(
+				select left(string_agg(e.p->>'text', E'\\n\\n' order by e.o), ${PREVIEW_SOURCE_CHARS}::int)
+				from json_array_elements(${latest.parts}) with ordinality as e(p, o)
+				where e.p->>'type' = 'text'
+			)`,
 		})
 		.from(conversations)
 		.innerJoin(
 			conversationEditions,
 			eq(conversationEditions.conversationId, conversations.id),
 		)
+		.leftJoinLateral(latest, sql`true`)
 		.where(eq(conversationEditions.editionId, editionId))
 		.orderBy(desc(conversations.updatedAt), desc(conversations.createdAt));
+	return rows.map(({ previewSource, ...row }) => ({
+		...row,
+		preview: (previewSource && previewText(previewSource)) || null,
+	}));
 }
 
 /** The books a conversation is scoped to, in order. */

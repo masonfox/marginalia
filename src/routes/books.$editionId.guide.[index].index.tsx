@@ -17,7 +17,7 @@ import { Badge } from "#/components/ui/badge";
 import { Input } from "#/components/ui/input";
 import { listGuideSubjectsFn } from "#/fns/guide";
 
-export const Route = createFileRoute("/books/$editionId_/guide/index/")({
+export const Route = createFileRoute("/books/$editionId/guide/index/")({
 	validateSearch: z.object({
 		kind: z.enum(["character", "place", "object", "motif"]).optional(),
 		q: z.string().max(200).optional(),
@@ -56,7 +56,7 @@ function IndexView() {
 		if (stale) onStaleBound();
 	}, [stale, onStaleBound]);
 
-	if (!preprocessed) return <GuideEmpty editionId={editionId} />;
+	if (!preprocessed) return <GuideEmpty />;
 	const text = q?.trim().toLocaleLowerCase() ?? "";
 	const withHidden = subjects.data?.ok ? subjects.data.subjects : [];
 	const hiddenCount = withHidden.filter((s) => s.hidden).length;

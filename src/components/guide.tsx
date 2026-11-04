@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { createContext, useContext, useEffect } from "react";
+import { PREPROCESS_ID } from "#/components/preprocess-card";
 import { Badge } from "#/components/ui/badge";
+import { getAiStatusFn } from "#/fns/conversations";
 import { getGuideProvenanceFn } from "#/fns/guide";
 import type { DerivedCitation, ObservationKind } from "#/modules/analysis";
 import type { ReadingUnit } from "#/modules/catalog";
@@ -180,7 +182,11 @@ export const KIND_LABELS: Record<
 export const KINDS = Object.keys(KIND_LABELS) as ObservationKind[];
 
 /** Shown in Chapters and Index when the book has no current preprocessing. */
-export function GuideEmpty({ editionId }: { editionId: string }) {
+export function GuideEmpty() {
+	const aiStatus = useQuery({
+		queryKey: ["ai-status"],
+		queryFn: () => getAiStatusFn(),
+	});
 	return (
 		<div
 			className="rounded-md border bg-muted/40 p-4 text-sm"
@@ -188,17 +194,32 @@ export function GuideEmpty({ editionId }: { editionId: string }) {
 		>
 			<p className="font-medium">No guide data for this book yet.</p>
 			<p className="mt-1 text-muted-foreground">
-				Chapter summaries and the index come from preprocessing, which you can
-				start on the{" "}
-				<Link
-					to="/books/$editionId"
-					params={{ editionId }}
-					hash="preprocess"
-					className="underline"
-				>
-					book's page
-				</Link>{" "}
-				when an AI provider is configured.
+				Chapter summaries and the index come from preprocessing.{" "}
+				{aiStatus.data?.enabled === false ? (
+					<>
+						It needs an AI provider, which you can set up in{" "}
+						<Link to="/settings" className="underline">
+							Settings
+						</Link>
+						.
+					</>
+				) : (
+					<>
+						You can start it under{" "}
+						<button
+							type="button"
+							className="underline"
+							onClick={() => {
+								const card = document.getElementById(PREPROCESS_ID);
+								card?.scrollIntoView({ block: "start" });
+								card?.focus({ preventScroll: true });
+							}}
+						>
+							Preprocessing
+						</button>{" "}
+						on this tab.
+					</>
+				)}
 			</p>
 		</div>
 	);

@@ -96,6 +96,21 @@ describe("composer drafts", () => {
 		}
 	});
 
+	it("reports whether a draft was stored", () => {
+		const storage = memoryStorage();
+		expect(saveComposerDraft(id, passageDraft, storage)).toBe(true);
+		expect(saveComposerDraft(id, { text: "", attachment: null }, storage)).toBe(
+			true,
+		);
+		const full = memoryStorage();
+		full.setItem = () => {
+			throw new Error("QuotaExceededError");
+		};
+		expect(saveComposerDraft(id, passageDraft, full)).toBe(false);
+		expect(saveComposerDraft(id, passageDraft, null)).toBe(false);
+		expect(saveComposerDraft(id, passageDraft, throwing)).toBe(false);
+	});
+
 	it("works without storage", () => {
 		expect(loadComposerDraft(id, throwing)).toBeNull();
 		expect(() => saveComposerDraft(id, passageDraft, throwing)).not.toThrow();
