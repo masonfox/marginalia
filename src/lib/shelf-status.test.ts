@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+	SHELF_STATUS_CLASS,
 	SHELF_STATUS_LABEL,
 	SHELF_STATUSES,
 	shelfCountLabel,
 	shelfFilterOptions,
-	shelfStatusVariant,
 } from "./shelf-status";
 
 describe("status badge", () => {
@@ -20,10 +20,13 @@ describe("status badge", () => {
 		expect(Object.values(SHELF_STATUS_LABEL)).not.toContain("Ready");
 	});
 
-	it("marks failures as destructive", () => {
-		expect(shelfStatusVariant("failed")).toBe("destructive");
-		expect(shelfStatusVariant("reading")).toBe("secondary");
-		expect(shelfStatusVariant("processing")).toBe("outline");
+	it("gives every status its own color", () => {
+		for (const status of SHELF_STATUSES) {
+			expect(SHELF_STATUS_CLASS[status]).toContain(`text-status-${status}`);
+		}
+		expect(new Set(Object.values(SHELF_STATUS_CLASS)).size).toBe(
+			SHELF_STATUSES.length,
+		);
 	});
 });
 

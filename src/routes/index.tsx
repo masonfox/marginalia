@@ -21,11 +21,11 @@ import { listShelfFn, rescanLibrary, retryFailedImport } from "#/fns/library";
 import {
 	MAX_SHELF_QUERY,
 	SHELF_FILTERS,
+	SHELF_STATUS_CLASS,
 	SHELF_STATUS_LABEL,
 	type ShelfFilter,
 	shelfCountLabel,
 	shelfFilterOptions,
-	shelfStatusVariant,
 } from "#/lib/shelf-status";
 
 interface ShelfSearch {
@@ -179,7 +179,10 @@ function LibraryPage() {
 										</p>
 									)}
 									<div className="mt-1">
-										<Badge variant={shelfStatusVariant(e.status)}>
+										<Badge
+											variant="outline"
+											className={SHELF_STATUS_CLASS[e.status]}
+										>
 											{SHELF_STATUS_LABEL[e.status]}
 										</Badge>
 									</div>
