@@ -5,7 +5,12 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReadingUnit } from "#/modules/catalog";
 import type { ReadingPosition } from "#/modules/guide";
-import { NewConversationDialog, positionChoice, WidenScope } from "./scope";
+import {
+	NewConversationDialog,
+	positionChoice,
+	STALE,
+	WidenScope,
+} from "./scope";
 
 const mocks = vi.hoisted(() => ({
 	units: vi.fn(),
@@ -296,6 +301,23 @@ describe("NewConversationDialog", () => {
 		});
 	});
 
+	it("asks again rather than reselecting the position after a stale scope", async () => {
+		mocks.position.mockResolvedValue(atChapter(1));
+		mocks.create.mockResolvedValue({ error: "stale_scope" });
+		const dialog = await open();
+		expect(checked(dialog).map((r) => r.value)).toEqual(["unit:19"]);
+		mocks.units.mockClear();
+		await act(async () => start(dialog).click());
+		await settle();
+		// The refetched units still include the position's unit.
+		expect(mocks.units).toHaveBeenCalledTimes(1);
+		expect(dialog.querySelector("[role=alert]")?.textContent).toBe(STALE);
+		expect(checked(dialog)).toEqual([]);
+		expect(start(dialog).disabled).toBe(true);
+		await pick(dialog, "unit:19");
+		expect(start(dialog).disabled).toBe(false);
+	});
+
 	it("selects a position that loads after the units", async () => {
 		const resolvePosition = deferredPosition();
 		const dialog = await open();
@@ -394,6 +416,23 @@ describe("WidenScope", () => {
 		expect(checked(dialog)).toEqual([]);
 		await resolvePosition(atChapter(2));
 		expect(checked(dialog).map((r) => r.value)).toEqual(["unit:29"]);
+		expect(widen(dialog).disabled).toBe(false);
+	});
+
+	it("asks again rather than reselecting the position after a stale scope", async () => {
+		mocks.position.mockResolvedValue(atChapter(2));
+		mocks.widen.mockResolvedValue({ widened: false, reason: "stale_scope" });
+		const dialog = await open();
+		expect(checked(dialog).map((r) => r.value)).toEqual(["unit:29"]);
+		mocks.units.mockClear();
+		await act(async () => widen(dialog).click());
+		await settle();
+		// The refetched units still include the position's unit.
+		expect(mocks.units).toHaveBeenCalledTimes(1);
+		expect(dialog.querySelector("[role=alert]")?.textContent).toBe(STALE);
+		expect(checked(dialog)).toEqual([]);
+		expect(widen(dialog).disabled).toBe(true);
+		await pick(dialog, "unit:29");
 		expect(widen(dialog).disabled).toBe(false);
 	});
 });
