@@ -165,7 +165,7 @@ function Description({ text }: { text: string }) {
 		<>
 			<p
 				id={id}
-				className={`mt-3 max-w-prose font-serif text-base leading-7 text-pretty sm:text-[1.0625rem] ${long && !expanded ? "line-clamp-[10]" : ""}`}
+				className={`mt-3 max-w-prose text-[0.9375rem] leading-6 text-pretty${long && !expanded ? "line-clamp-[10]" : ""}`}
 			>
 				{text}
 			</p>
