@@ -14,7 +14,8 @@ export interface EditionSummary {
 	hasCover: boolean;
 }
 
-const availableExpr = sql<boolean>`exists (
+/** True when some library file holding the edition's bytes is available. */
+export const editionAvailableSql = sql<boolean>`exists (
 	select 1 from ${libraryFiles}
 	where ${libraryFiles.sha256} = ${editions.sha256} and ${libraryFiles.status} = 'available'
 )`;
@@ -34,7 +35,7 @@ export async function listEditions(db: Executor): Promise<EditionSummary[]> {
 			status: editions.status,
 			error: editions.error,
 			coverPath: editions.coverPath,
-			available: availableExpr,
+			available: editionAvailableSql,
 		})
 		.from(editions)
 		.orderBy(sql`lower(${editions.title})`, asc(editions.createdAt));
@@ -57,7 +58,7 @@ export interface EditionSource {
 
 export async function getEditionDetail(db: Executor, id: string) {
 	const [row] = await db
-		.select({ edition: editions, available: availableExpr })
+		.select({ edition: editions, available: editionAvailableSql })
 		.from(editions)
 		.where(eq(editions.id, id));
 	if (!row) return null;
