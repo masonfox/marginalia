@@ -84,7 +84,8 @@ function applyTextEdit(
 /**
  * A plain-text input that grows with its content from one line up to about
  * 40% of the viewport, then scrolls. Enter and Tab continue and indent
- * Markdown lists unless `onKeyDown` has already handled the key.
+ * Markdown lists unless `onKeyDown` has already handled the key or the field
+ * is read-only or disabled.
  *
  * The text stays plain but is drawn with its Markdown styled: the textarea's
  * own text is transparent, and a copy laid out identically sits over it.
@@ -132,6 +133,8 @@ export function AutogrowTextarea({
 		onKeyDown?.(e);
 		if (e.defaultPrevented || e.nativeEvent.isComposing) return;
 		const el = e.currentTarget;
+		// A locked field keeps its text: the fallback below would edit it anyway.
+		if (el.readOnly || el.disabled) return;
 		const state = {
 			value: el.value,
 			selectionStart: el.selectionStart,

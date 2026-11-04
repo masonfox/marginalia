@@ -147,7 +147,18 @@ beforeEach(() => {
 afterEach(() => {
 	act(() => root.unmount());
 	document.body.replaceChildren();
+	Reflect.deleteProperty(document, "execCommand");
 });
+
+/** jsdom has no execCommand: refuse in-place edits so list shortcuts fall back to setting the value. */
+const refuseExecCommand = () => {
+	const execCommand = vi.fn(() => false);
+	Object.defineProperty(document, "execCommand", {
+		configurable: true,
+		value: execCommand,
+	});
+	return execCommand;
+};
 
 const render = (node: ReactNode) =>
 	act(() =>
@@ -196,6 +207,18 @@ const type = (el: HTMLTextAreaElement, text: string) =>
 		)?.set;
 		set?.call(el, text);
 		el.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+/** Dispatches a cancelable keydown to the element. */
+const pressKey = (el: HTMLElement, key: string, init: KeyboardEventInit = {}) =>
+	act(() => {
+		el.dispatchEvent(
+			new KeyboardEvent("keydown", {
+				key,
+				bubbles: true,
+				cancelable: true,
+				...init,
+			}),
+		);
 	});
 const question = () => {
 	const el = document.querySelector<HTMLTextAreaElement>(
@@ -401,15 +424,34 @@ describe("BookComposer", () => {
 				resolve = r;
 			}),
 		);
+		const execCommand = refuseExecCommand();
+		const bookDraft = () =>
+			JSON.parse(
+				sessionStorage.getItem("marginalia:composer:book:e1") ?? "null",
+			);
 		render(<BookComposer editionId="e1" status={OK_STATUS} />);
-		await type(question(), "Question A");
+		await type(question(), "- Question A");
 		await click(button("Send"));
 		expect(question().readOnly).toBe(true);
+		// List shortcuts would otherwise indent and continue the locked question.
+		question().setSelectionRange(12, 12);
+		pressKey(question(), "Tab");
+		pressKey(question(), "Enter", { shiftKey: true });
+		expect(question().value).toBe("- Question A");
+		expect(bookDraft()).toMatchObject({ text: "- Question A" });
+		expect(execCommand).not.toHaveBeenCalled();
+		let navigated = false;
+		mocks.navigate.mockImplementation(async () => {
+			expect(bookDraft()).toMatchObject({ text: "- Question A" });
+			navigated = true;
+		});
 		await act(async () => resolve({ id: "c3" }));
 		expect(
 			JSON.parse(sessionStorage.getItem("marginalia:composer:c3") ?? ""),
-		).toMatchObject({ text: "Question A" });
+		).toMatchObject({ text: "- Question A" });
 		expect(mocks.navigate).toHaveBeenCalledTimes(1);
+		expect(navigated).toBe(true);
+		expect(bookDraft()).toBeNull();
 	});
 
 	it("unlocks the question for a retry when creation fails", async () => {
@@ -431,6 +473,12 @@ describe("BookComposer", () => {
 		expect(document.body.textContent).toContain(
 			"Could not start a conversation",
 		);
+		// List shortcuts edit again once unlocked.
+		refuseExecCommand();
+		await type(question(), "- Question A");
+		question().setSelectionRange(12, 12);
+		pressKey(question(), "Tab");
+		expect(question().value).toBe("  - Question A");
 	});
 
 	describe("when the question cannot be saved for the new conversation", () => {
