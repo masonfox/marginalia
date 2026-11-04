@@ -82,6 +82,8 @@ type ReplyUsage = ConversationWithUsage["usage"][string];
 
 /** How many times to refetch while a finished reply's usage is not stored yet. */
 const USAGE_REFETCHES = 5;
+/** How near the page end still counts as "at the end" for following a reply. */
+const FOLLOW_SLACK_PX = 80;
 
 export const Route = createFileRoute("/c/$conversationId")({
 	// A passage reference handed over from the passage view; removed once attached.
@@ -275,15 +277,39 @@ function ConversationPage() {
 		});
 		return () => clearTimeout(timer);
 	}, [autoSend, conversationId]);
-	const bottom = useRef<HTMLDivElement>(null);
-	const dock = useRef<HTMLDivElement>(null);
+	// Follow new content while the reader is at the end of the page; scrolling
+	// up to read stops following until they return. The composer sits in flow
+	// at the end, so the page end shows the last message just above it.
+	const following = useRef(true);
+	useEffect(() => {
+		const onScroll = () => {
+			const el = document.scrollingElement ?? document.documentElement;
+			following.current =
+				el.scrollHeight - el.scrollTop - window.innerHeight < FOLLOW_SLACK_PX;
+		};
+		window.addEventListener("scroll", onScroll, { passive: true });
+		return () => window.removeEventListener("scroll", onScroll);
+	}, []);
+	// Sending a message always returns to the end.
+	const lastUserId = [...messages].reverse().find((m) => m.role === "user")?.id;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: re-pin on each new message
+	useEffect(() => {
+		following.current = true;
+	}, [lastUserId]);
+	const pendingFollow = useRef(0);
+	useEffect(() => () => cancelAnimationFrame(pendingFollow.current), []);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: follow new content
 	useEffect(() => {
-		const anchor = bottom.current;
-		if (!anchor) return;
-		// Stop above the composer, which floats over the end of the list.
-		anchor.style.scrollMarginBottom = `${dock.current?.offsetHeight ?? 0}px`;
-		anchor.scrollIntoView({ block: "end" });
+		if (!following.current || pendingFollow.current) return;
+		// At most one scroll per frame, after layout, and only ever downward:
+		// nudging up and back per chunk makes mobile toolbars (and dvh) bounce.
+		pendingFollow.current = requestAnimationFrame(() => {
+			pendingFollow.current = 0;
+			if (!following.current) return;
+			const el = document.scrollingElement ?? document.documentElement;
+			if (el.scrollHeight - el.clientHeight - el.scrollTop > 1)
+				window.scrollTo({ top: el.scrollHeight, behavior: "instant" });
+		});
 	}, [messages, status]);
 
 	const last = messages.at(-1);
@@ -662,16 +688,12 @@ function ConversationPage() {
 							</Button>
 						</li>
 					)}
-					<div ref={bottom} />
 				</ol>
 
 				{effect.status === "ok" ? (
 					// The page background below the card and a fade above it, so messages
 					// scroll under the composer. Only the card itself takes the pointer.
-					<div
-						ref={dock}
-						className="pointer-events-none sticky bottom-0 z-10 -mx-2 bg-gradient-to-t from-background from-75% to-transparent px-2 pt-8 pb-3 *:pointer-events-auto"
-					>
+					<div className="pointer-events-none sticky bottom-0 z-10 -mx-2 bg-gradient-to-t from-background from-75% to-transparent px-2 pt-8 pb-3 *:pointer-events-auto">
 						<Composer
 							composer={composer}
 							conversationId={conversationId}
