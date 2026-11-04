@@ -433,6 +433,112 @@ describe("BookComposer", () => {
 		);
 	});
 
+	describe("when the question cannot be saved for the new conversation", () => {
+		const conversationKey = (id: string) => `marginalia:composer:${id}`;
+		const bookKey = conversationKey("book:e1");
+		const handedOver = (id: string) =>
+			JSON.parse(sessionStorage.getItem(conversationKey(id)) ?? "null");
+		const expectKeptHere = (text: string) => {
+			expect(question().value).toBe(text);
+			expect(question().readOnly).toBe(false);
+			expect(mocks.navigate).not.toHaveBeenCalled();
+			expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+				"Could not pass your question to the new conversation",
+			);
+		};
+
+		afterEach(() => vi.restoreAllMocks());
+
+		it("keeps the question when every write throws, and a retry reuses the conversation", async () => {
+			mocks.reading = fakeReading(at(2));
+			mocks.create.mockResolvedValue({ id: "c1" });
+			render(<BookComposer editionId="e1" status={OK_STATUS} />);
+			await type(question(), "Who is Hal?");
+			const setItem = vi
+				.spyOn(Storage.prototype, "setItem")
+				.mockImplementation(() => {
+					throw new DOMException("full", "QuotaExceededError");
+				});
+			await click(button("Send"));
+			expect(mocks.create).toHaveBeenCalledTimes(1);
+			expect(handedOver("c1")).toBeNull();
+			expectKeptHere("Who is Hal?");
+
+			// Storage recovers: the retry hands over to the same conversation.
+			setItem.mockRestore();
+			await click(button("Send"));
+			expect(mocks.create).toHaveBeenCalledTimes(1);
+			expect(handedOver("c1")).toMatchObject({ text: "Who is Hal?" });
+			expect(mocks.navigate).toHaveBeenCalledTimes(1);
+			expect(mocks.navigate.mock.calls[0][0]).toMatchObject({
+				params: { conversationId: "c1" },
+			});
+			expect(sessionStorage.getItem(bookKey)).toBeNull();
+		});
+
+		it("keeps the book draft when only the conversation's write fails", async () => {
+			mocks.reading = fakeReading(at(2));
+			mocks.create.mockResolvedValue({ id: "c1" });
+			render(<BookComposer editionId="e1" status={OK_STATUS} />);
+			await type(question(), "Who is Hal?");
+			expect(JSON.parse(sessionStorage.getItem(bookKey) ?? "")).toMatchObject({
+				text: "Who is Hal?",
+			});
+			const original = Storage.prototype.setItem;
+			vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+				this: Storage,
+				key: string,
+				value: string,
+			) {
+				if (key === conversationKey("c1"))
+					throw new DOMException("full", "QuotaExceededError");
+				original.call(this, key, value);
+			});
+			await click(button("Send"));
+			expectKeptHere("Who is Hal?");
+			expect(handedOver("c1")).toBeNull();
+			expect(JSON.parse(sessionStorage.getItem(bookKey) ?? "")).toMatchObject({
+				text: "Who is Hal?",
+			});
+
+			// An edited question goes to the same conversation on retry.
+			await type(question(), "Who is Hal, really?");
+			await click(button("Send"));
+			expect(mocks.create).toHaveBeenCalledTimes(1);
+			expectKeptHere("Who is Hal, really?");
+		});
+
+		it("keeps the question when session storage is blocked, and a new scope creates afresh", async () => {
+			mocks.reading = fakeReading(at(4));
+			mocks.create
+				.mockResolvedValueOnce({ id: "c1" })
+				.mockResolvedValueOnce({ id: "c2" });
+			render(<BookComposer editionId="e1" status={OK_STATUS} />);
+			await type(question(), "Who is Hal?");
+			const blocked = vi
+				.spyOn(window, "sessionStorage", "get")
+				.mockImplementation(() => {
+					throw new DOMException("denied", "SecurityError");
+				});
+			await click(button("Send"));
+			expect(mocks.create).toHaveBeenCalledTimes(1);
+			expectKeptHere("Who is Hal?");
+
+			// The first conversation was made for chapter 4; chapter 2 needs its own.
+			await chooseInSheet("Chapter 2", "once");
+			blocked.mockRestore();
+			await click(button("Send"));
+			expect(mocks.create).toHaveBeenCalledTimes(2);
+			expect(mocks.create.mock.calls[1][0]).toEqual({
+				data: { editionId: "e1", scope: { kind: "unit", endPosition: 20 } },
+			});
+			expect(handedOver("c2")).toMatchObject({ text: "Who is Hal?" });
+			expect(mocks.navigate.mock.calls[0][0]).toMatchObject({
+				params: { conversationId: "c2" },
+			});
+		});
+	});
+
 	it("keeps the message and asks again after a stale choice", async () => {
 		mocks.reading = fakeReading(at(2));
 		mocks.create.mockResolvedValue({ error: "stale_scope" });

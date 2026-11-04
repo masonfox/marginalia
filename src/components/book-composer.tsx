@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { BookMarked } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AiSetupNotice, modelInEffect } from "#/components/chat";
 import { AutogrowTextarea } from "#/components/composer/autogrow-textarea";
 import { SendButton } from "#/components/composer/send-button";
@@ -374,6 +374,12 @@ function ComposerForm({
 	const [sheet, setSheet] = useState<Sheet | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	/**
+	 * A conversation created for the question whose handoff then could not be
+	 * saved, with the request that made it. A retry with the same book, scope
+	 * and model reuses it instead of creating another.
+	 */
+	const unsent = useRef<{ id: string; request: string } | null>(null);
 
 	// Restore the tab's draft before the first paint.
 	useLayoutEffect(() => {
@@ -429,14 +435,17 @@ function ComposerForm({
 	const start = async (choice: Choice) => {
 		setCreating(true);
 		setError(null);
+		const data = {
+			editionId,
+			scope: toScope(choice),
+			...(model && { selection: model }),
+		};
+		const request = JSON.stringify(data);
 		try {
-			const created = await create({
-				data: {
-					editionId,
-					scope: toScope(choice),
-					...(model && { selection: model }),
-				},
-			});
+			const created =
+				unsent.current?.request === request
+					? { id: unsent.current.id }
+					: await create({ data });
 			if (!created) {
 				setError("This book is not ready for conversations yet.");
 			} else if ("error" in created && created.error === "model_unavailable") {
@@ -455,8 +464,16 @@ function ComposerForm({
 					}),
 				]);
 				openSheet(true, STALE);
+			} else if (
+				!saveComposerDraft(created.id, { text: draft, attachment: null })
+			) {
+				// The conversation sends only what was saved: stay and keep the question.
+				unsent.current = { id: created.id, request };
+				setError(
+					"Could not pass your question to the new conversation because this browser blocked saving it. Allow site data for this page or free some browser storage, then send again.",
+				);
 			} else {
-				saveComposerDraft(created.id, { text: draft, attachment: null });
+				unsent.current = null;
 				await navigate({
 					to: "/c/$conversationId",
 					params: { conversationId: created.id },
