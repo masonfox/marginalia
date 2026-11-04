@@ -103,6 +103,7 @@ export function ScopeStrip({
 					type="button"
 					size="sm"
 					variant="outline"
+					className="pointer-coarse:h-11 pointer-coarse:min-w-11"
 					disabled={disabled}
 					onClick={onChange}
 				>
@@ -136,6 +137,7 @@ export function ScopeStrip({
 						type="button"
 						size="sm"
 						variant="ghost"
+						className="pointer-coarse:h-11 pointer-coarse:min-w-11"
 						disabled={disabled}
 						onClick={onUsePosition}
 					>
@@ -146,6 +148,7 @@ export function ScopeStrip({
 					type="button"
 					size="sm"
 					variant="outline"
+					className="pointer-coarse:h-11 pointer-coarse:min-w-11"
 					disabled={disabled}
 					onClick={onChange}
 				>
@@ -250,7 +253,10 @@ export function ScopeSheet({
 							["once", "Only for this conversation"],
 						] as const
 					).map(([value, label]) => (
-						<label key={value} className="flex items-center gap-2">
+						<label
+							key={value}
+							className="flex items-center gap-2 pointer-coarse:min-h-11"
+						>
 							<input
 								type="radio"
 								name={name}
