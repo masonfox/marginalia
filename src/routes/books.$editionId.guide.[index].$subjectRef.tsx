@@ -20,7 +20,7 @@ import { Badge } from "#/components/ui/badge";
 import { getGuideSubjectFn } from "#/fns/guide";
 
 export const Route = createFileRoute(
-	"/books/$editionId_/guide/index/$subjectRef",
+	"/books/$editionId/guide/index/$subjectRef",
 )({ component: SubjectView });
 
 /** A subject's observations within the bound, in reading order. */
@@ -64,7 +64,7 @@ function SubjectView() {
 			</Link>
 		</p>
 	);
-	if (!preprocessed) return <GuideEmpty editionId={editionId} />;
+	if (!preprocessed) return <GuideEmpty />;
 	if (subject.isPending)
 		return <p className="text-sm text-muted-foreground">Loading…</p>;
 	if (subject.isError || !subject.data.ok)

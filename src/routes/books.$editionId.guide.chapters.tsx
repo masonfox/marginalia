@@ -15,7 +15,7 @@ import {
 import { AddNoteLink, AttachedNotes } from "#/components/guide-notes";
 import { getGuideChaptersFn } from "#/fns/guide";
 
-export const Route = createFileRoute("/books/$editionId_/guide/chapters")({
+export const Route = createFileRoute("/books/$editionId/guide/chapters")({
 	component: ChaptersView,
 });
 
@@ -38,7 +38,7 @@ function ChaptersView() {
 		if (stale) onStaleBound();
 	}, [stale, onStaleBound]);
 
-	if (!preprocessed) return <GuideEmpty editionId={editionId} />;
+	if (!preprocessed) return <GuideEmpty />;
 	if (chapters.isPending)
 		return <p className="text-sm text-muted-foreground">Loading chapters…</p>;
 	if (chapters.isError || !chapters.data.ok)

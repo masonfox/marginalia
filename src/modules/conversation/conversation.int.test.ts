@@ -103,6 +103,68 @@ describe("conversation repository", () => {
 		expect(list[0]?.messageCount).toBe(1);
 	});
 
+	it("previews the latest message that has text", async () => {
+		const e = await edition("pv01", "Preview Book");
+		const empty = await createConversation(t.db, { editionIds: [e] });
+		const replied = await createConversation(t.db, { editionIds: [e] });
+		const failed = await createConversation(t.db, { editionIds: [e] });
+		await appendMessage(t.db, {
+			conversationId: replied.id,
+			role: "user",
+			parts: [{ type: "text", text: "Why the dictionary?" }],
+		});
+		await appendMessage(t.db, {
+			conversationId: replied.id,
+			role: "assistant",
+			parts: [
+				{ type: "step-start" },
+				{ type: "text", text: "**Hal** is reading the dictionary" },
+				{ type: "tool-search", toolCallId: "t1", state: "output-available" },
+				{
+					type: "text",
+					text: 'because[[cite locator="ab:v1:0.0" quote="words"]] he must.',
+				},
+			],
+		});
+		await appendMessage(t.db, {
+			conversationId: failed.id,
+			role: "user",
+			parts: [{ type: "text", text: "# What about <em>Orin</em>?" }],
+		});
+		await appendMessage(t.db, {
+			conversationId: failed.id,
+			role: "assistant",
+			parts: [{ type: "step-start" }, { type: "text", text: "  " }],
+			error: "provider failed",
+		});
+		await appendMessage(t.db, {
+			conversationId: failed.id,
+			role: "assistant",
+			parts: [],
+			error: "provider failed",
+		});
+		const byId = new Map(
+			(await listConversationsForEdition(t.db, e)).map((c) => [c.id, c]),
+		);
+		expect(byId.get(replied.id)?.preview).toBe(
+			"Hal is reading the dictionary because he must.",
+		);
+		expect(byId.get(failed.id)?.preview).toBe("What about <em>Orin</em>?");
+		expect(byId.get(empty.id)?.preview).toBeNull();
+	});
+
+	it("caps the preview source at 600 characters", async () => {
+		const e = await edition("pv02", "Long Preview Book");
+		const { id } = await createConversation(t.db, { editionIds: [e] });
+		await appendMessage(t.db, {
+			conversationId: id,
+			role: "user",
+			parts: [{ type: "text", text: "x".repeat(2000) }],
+		});
+		const [c] = await listConversationsForEdition(t.db, e);
+		expect(c?.preview).toHaveLength(600);
+	});
+
 	it("sets a provisional title once and never over a rename", async () => {
 		const { id } = await createConversation(t.db, { editionIds: [a] });
 		expect(

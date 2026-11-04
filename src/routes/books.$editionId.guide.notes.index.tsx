@@ -7,7 +7,7 @@ import { NoteCard } from "#/components/guide-notes";
 import { buttonVariants } from "#/components/ui/button";
 import { listGuideNotesFn } from "#/fns/guide";
 
-export const Route = createFileRoute("/books/$editionId_/guide/notes/")({
+export const Route = createFileRoute("/books/$editionId/guide/notes/")({
 	component: NotesView,
 });
 

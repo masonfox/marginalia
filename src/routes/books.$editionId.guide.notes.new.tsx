@@ -10,7 +10,7 @@ import { GuideError, useGuide } from "#/components/guide";
 import { NoteEditor, newNoteDraft } from "#/components/guide-notes";
 import { getNoteDefaultsFn } from "#/fns/guide";
 
-export const Route = createFileRoute("/books/$editionId_/guide/notes/new")({
+export const Route = createFileRoute("/books/$editionId/guide/notes/new")({
 	// Opened from a chapter or a subject, to attach the note to it.
 	validateSearch: z.object({
 		unit: z.string().optional(),

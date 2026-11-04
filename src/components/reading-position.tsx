@@ -1,13 +1,6 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
+import { BookMarked } from "lucide-react";
 import { useState } from "react";
-import {
-	type Choice,
-	positionChoice,
-	ScopeChoices,
-	STALE,
-	toScope,
-} from "#/components/scope";
+import { type Choice, positionChoice, ScopeChoices } from "#/components/scope";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -29,13 +22,14 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "#/components/ui/dialog";
-import { getReadingUnitsFn } from "#/fns/conversations";
 import {
-	clearReadingPositionFn,
-	getReadingPositionFn,
-	setReadingPositionFn,
-} from "#/fns/guide";
+	type SaveResult,
+	useReadingPosition,
+} from "#/hooks/use-reading-position";
+import type { ReadingProgress } from "#/lib/reading-progress";
 import type { ReadingPosition } from "#/modules/guide";
+
+export { isMoveBack } from "#/hooks/use-reading-position";
 
 /** "Not set", "Finished", or the unit's label. */
 export const positionText = (position: ReadingPosition | null) =>
@@ -45,232 +39,229 @@ export const positionText = (position: ReadingPosition | null) =>
 			? "Finished"
 			: position.scopeLabel;
 
-/** Whether choosing `choice` moves the position earlier, which needs confirmation. */
-export function isMoveBack(
-	position: ReadingPosition | null,
-	choice: Choice,
-): boolean {
-	if (position === null || choice === "whole") return false;
-	if (position.kind === "finished") return true;
-	return Number(choice.slice(5)) < position.maxPosition;
-}
-
-const SHARED =
+export const SHARED_POSITION =
 	"Your reading position is shared by everyone using this Marginalia instance.";
 
 /**
- * The book's reading position with controls to set, advance, move back
- * (after confirmation), or clear it.
+ * The book's reading position for the book page header: its label, progress
+ * through the book, and controls to set, advance, move back (after
+ * confirmation), or clear it. Every instance shares the query cache through
+ * `useReadingPosition`, so a save anywhere on the page updates it.
  */
-export function ReadingPositionCard({ editionId }: { editionId: string }) {
-	const queryClient = useQueryClient();
-	const set = useServerFn(setReadingPositionFn);
-	const clear = useServerFn(clearReadingPositionFn);
+export function ReadingPositionControl({ editionId }: { editionId: string }) {
+	const reading = useReadingPosition(editionId);
+	const { position: current, units, busy, error } = reading;
 	const [open, setOpen] = useState(false);
 	const [choice, setChoice] = useState<Choice | null>(null);
-	const [confirming, setConfirming] = useState(false);
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const position = useQuery({
-		queryKey: ["reading-position", editionId],
-		queryFn: () => getReadingPositionFn({ data: { editionId } }),
-	});
-	const units = useQuery({
-		queryKey: ["reading-units", editionId],
-		queryFn: () => getReadingUnitsFn({ data: { editionId } }),
-		enabled: open,
-	});
-	const current = position.data ?? null;
 	const label = (c: Choice) =>
 		c === "whole"
 			? "Finished"
-			: (units.data?.find((u) => `unit:${u.endPosition}` === c)?.label ??
+			: (units?.find((u) => `unit:${u.endPosition}` === c)?.label ??
 				"the chosen chapter");
-	const refresh = () =>
-		queryClient.invalidateQueries({
-			queryKey: ["reading-position", editionId],
-		});
 
-	const save = async (c: Choice, moveBack: boolean) => {
-		setBusy(true);
-		setError(null);
-		try {
-			const result = await set({
-				data: { editionId, choice: toScope(c), moveBack },
-			});
-			if (result.set) {
-				setConfirming(false);
-				setOpen(false);
-				setChoice(null);
-			} else if (result.reason === "move_back") {
-				// Advanced elsewhere since this page loaded: confirm against the new position.
-				setConfirming(true);
-			} else if (result.reason === "stale_scope") {
-				setConfirming(false);
-				setChoice(null);
-				setError(STALE);
-				await units.refetch();
-			} else {
-				setConfirming(false);
-				setError("This book is not ready.");
-			}
-			await refresh();
-		} catch {
-			setConfirming(false);
-			setError("Could not save your reading position. Please try again.");
-		}
-		setBusy(false);
+	const after = (result: SaveResult) => {
+		if (result === "saved") {
+			setOpen(false);
+			setChoice(null);
+		} else if (result === "stale") setChoice(null);
 	};
 
 	return (
-		<section className="mt-8" aria-labelledby="reading-position">
-			<h2 id="reading-position" className="font-medium">
-				Reading position
-			</h2>
-			<div className="mt-2 max-w-xl space-y-2 rounded-md border p-3 text-sm">
-				<p data-testid="reading-position-value">
-					{position.isPending
+		<section
+			className="space-y-1.5 text-sm"
+			aria-label="Reading position"
+			data-testid="reading-position"
+		>
+			<div className="flex items-center gap-2">
+				<BookMarked
+					className="size-4 shrink-0 text-muted-foreground"
+					aria-hidden
+				/>
+				<p
+					className="min-w-0 flex-1 truncate"
+					data-testid="reading-position-value"
+				>
+					{reading.positionStatus === "pending"
 						? "Loading…"
-						: position.isError
+						: reading.positionStatus === "error"
 							? "Could not load your reading position."
 							: positionText(current)}
 				</p>
-				<p className="text-muted-foreground">{SHARED}</p>
-				<div className="flex flex-wrap gap-2">
-					<Dialog
-						open={open}
-						onOpenChange={(next) => {
-							if (busy) return;
-							setOpen(next);
-							setChoice(null);
-							setError(null);
-						}}
-					>
-						<DialogTrigger asChild>
-							<Button
-								type="button"
-								size="sm"
-								variant="outline"
-								disabled={position.isPending}
-							>
-								{current === null ? "Set position" : "Change position"}
-							</Button>
-						</DialogTrigger>
-						<DialogContent data-testid="reading-position-dialog">
-							<DialogHeader>
-								<DialogTitle>How far have you read?</DialogTitle>
-								<DialogDescription>
-									Choose the last chapter you finished, or the whole book.
-									Conversations keep their own scope. {SHARED}
-								</DialogDescription>
-							</DialogHeader>
-							{units.isPending ? (
-								<p className="text-sm text-muted-foreground">
-									Loading chapters…
-								</p>
-							) : units.isError ? (
-								<p className="text-sm text-destructive-foreground">
-									Could not load this book's chapters.
-								</p>
-							) : (
-								<ScopeChoices
-									units={units.data}
-									value={choice}
-									position={positionChoice(current, units.data)}
-									legend="Your reading position"
-									onChange={(c) => {
-										setChoice(c);
-										setError(null);
-									}}
-								/>
-							)}
-							{error && (
-								<p role="alert" className="text-sm text-destructive-foreground">
-									{error}
-								</p>
-							)}
-							<DialogFooter>
-								<DialogClose asChild>
-									<Button type="button" variant="outline" disabled={busy}>
-										Cancel
-									</Button>
-								</DialogClose>
-								<Button
-									type="button"
-									disabled={choice === null || busy}
-									onClick={() => {
-										if (choice === null) return;
-										if (isMoveBack(current, choice)) setConfirming(true);
-										else void save(choice, false);
-									}}
-								>
-									Save
-								</Button>
-							</DialogFooter>
-						</DialogContent>
-					</Dialog>
-					{current !== null && (
+				<Dialog
+					open={open}
+					onOpenChange={(next) => {
+						if (busy) return;
+						setOpen(next);
+						setChoice(null);
+						reading.dismissError();
+					}}
+				>
+					<DialogTrigger asChild>
 						<Button
 							type="button"
 							size="sm"
-							variant="ghost"
-							disabled={busy}
-							onClick={async () => {
-								setBusy(true);
-								setError(null);
-								try {
-									await clear({ data: { editionId } });
-									await refresh();
-								} catch {
-									setError("Could not clear your reading position.");
-								}
-								setBusy(false);
-							}}
+							variant="outline"
+							className="shrink-0"
+							disabled={reading.positionStatus === "pending"}
 						>
-							Clear
+							{current === null ? "Set position" : "Change position"}
 						</Button>
-					)}
-				</div>
-				{error && !open && (
-					<p role="alert" className="text-destructive-foreground">
-						{error}
-					</p>
-				)}
+					</DialogTrigger>
+					<DialogContent data-testid="reading-position-dialog">
+						<DialogHeader>
+							<DialogTitle>How far have you read?</DialogTitle>
+							<DialogDescription>
+								Choose the last chapter you finished, or the whole book.
+								Conversations keep their own scope. {SHARED_POSITION}
+							</DialogDescription>
+						</DialogHeader>
+						{reading.unitsStatus === "pending" ? (
+							<p className="text-sm text-muted-foreground">Loading chapters…</p>
+						) : units === undefined ? (
+							<p className="text-sm text-destructive-foreground">
+								Could not load this book's chapters.
+							</p>
+						) : (
+							<ScopeChoices
+								units={units}
+								value={choice}
+								position={positionChoice(current, units)}
+								legend="Your reading position"
+								onChange={(c) => {
+									setChoice(c);
+									reading.dismissError();
+								}}
+							/>
+						)}
+						{error && (
+							<p role="alert" className="text-sm text-destructive-foreground">
+								{error}
+							</p>
+						)}
+						<DialogFooter>
+							{current !== null && (
+								<Button
+									type="button"
+									variant="ghost"
+									className="sm:mr-auto"
+									disabled={busy}
+									onClick={() =>
+										void reading.clear().then((cleared) => {
+											if (!cleared) return;
+											setOpen(false);
+											setChoice(null);
+										})
+									}
+								>
+									Clear position
+								</Button>
+							)}
+							<DialogClose asChild>
+								<Button type="button" variant="outline" disabled={busy}>
+									Cancel
+								</Button>
+							</DialogClose>
+							<Button
+								type="button"
+								disabled={choice === null || busy}
+								onClick={() => {
+									if (choice !== null) void reading.save(choice).then(after);
+								}}
+							>
+								Save
+							</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
 			</div>
-			<AlertDialog
-				open={confirming}
-				onOpenChange={(next) => {
-					if (!busy) setConfirming(next);
-				}}
-			>
-				<AlertDialogContent data-testid="move-back-dialog">
-					<AlertDialogHeader>
-						<AlertDialogTitle>
-							Move your reading position back?
-						</AlertDialogTitle>
-						<AlertDialogDescription>
-							Your position moves from {positionText(current)} back to{" "}
-							{choice === null ? "an earlier chapter" : label(choice)}, for
-							example for a re-read.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel disabled={busy}>
-							Keep my position
-						</AlertDialogCancel>
-						<AlertDialogAction
-							disabled={busy || choice === null}
-							onClick={(event) => {
-								// Keep the dialog open until the move finishes.
-								event.preventDefault();
-								if (choice !== null) void save(choice, true);
-							}}
-						>
-							Move back
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+			{reading.progress && <ProgressBar progress={reading.progress} />}
+			{error && !open && (
+				<p role="alert" className="text-destructive-foreground">
+					{error}
+				</p>
+			)}
+			<MoveBackDialog reading={reading} label={label} onSettled={after} />
 		</section>
+	);
+}
+
+/**
+ * Asks before moving the reading position back, while a save waits for
+ * confirmation (`pendingMoveBack`). `onSettled` gets the confirmed save's result.
+ */
+export function MoveBackDialog({
+	reading,
+	label,
+	onSettled,
+}: {
+	reading: ReturnType<typeof useReadingPosition>;
+	/** The chosen unit's label, or "Finished". */
+	label: (choice: Choice) => string;
+	onSettled: (result: SaveResult) => void;
+}) {
+	const { position, pendingMoveBack, busy } = reading;
+	return (
+		<AlertDialog
+			open={pendingMoveBack !== null}
+			onOpenChange={(next) => {
+				if (!next) reading.cancelMoveBack();
+			}}
+		>
+			<AlertDialogContent data-testid="move-back-dialog">
+				<AlertDialogHeader>
+					<AlertDialogTitle>Move your reading position back?</AlertDialogTitle>
+					<AlertDialogDescription>
+						Your position moves from {positionText(position)} back to{" "}
+						{pendingMoveBack === null
+							? "an earlier chapter"
+							: label(pendingMoveBack)}
+						, for example for a re-read.
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel disabled={busy}>
+						Keep my position
+					</AlertDialogCancel>
+					<AlertDialogAction
+						disabled={busy || pendingMoveBack === null}
+						onClick={(event) => {
+							// Keep the dialog open until the move finishes.
+							event.preventDefault();
+							void reading.confirmMoveBack().then(onSettled);
+						}}
+					>
+						Move back
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
+	);
+}
+
+/** Which unit of how many, with a bar for the share of passages read. */
+function ProgressBar({ progress }: { progress: ReadingProgress }) {
+	return (
+		<div className="flex items-center gap-2">
+			<div
+				role="progressbar"
+				aria-label="Share of the book read"
+				aria-valuemin={0}
+				aria-valuemax={100}
+				aria-valuenow={Math.round(progress.share * 100)}
+				className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+				data-testid="reading-progress-bar"
+			>
+				<div
+					className="h-full rounded-full bg-primary"
+					style={{ width: `${progress.share * 100}%` }}
+				/>
+			</div>
+			<span
+				className="shrink-0 text-xs text-muted-foreground tabular-nums"
+				data-testid="reading-progress"
+			>
+				{progress.index} of {progress.count}
+			</span>
+		</div>
 	);
 }

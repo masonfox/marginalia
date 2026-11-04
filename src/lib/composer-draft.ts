@@ -84,3 +84,16 @@ export function clearComposerDraft(
 		// Nothing to clear without storage.
 	}
 }
+
+/** The draft key of a book page's composer, before any conversation exists. */
+export const bookDraftId = (editionId: string) => `book:${editionId}`;
+
+declare module "@tanstack/react-router" {
+	interface HistoryState {
+		/**
+		 * Set when the book page created a conversation and saved its first
+		 * message as the draft: the conversation sends it once, then drops this.
+		 */
+		autoSend?: boolean;
+	}
+}

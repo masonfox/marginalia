@@ -4,9 +4,12 @@ import {
 	Link,
 	notFound,
 	useRouter,
+	useRouterState,
 } from "@tanstack/react-router";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "cn";
+import { ChevronDown } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import {
 	AiSetupNotice,
@@ -45,6 +48,7 @@ import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
+import { loadComposerDraft } from "#/lib/composer-draft";
 import { excerptNoteDraft } from "#/lib/note-prefill";
 import {
 	attachmentKey,
@@ -121,6 +125,10 @@ function ConversationPage() {
 	const effect = modelInEffect(aiStatus, conversation.model);
 	const aiEnabled = effect.status === "ok";
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
+	// Below sm the scope and model controls start collapsed, so the header stays short.
+	const [controlsOpen, setControlsOpen] = useState(false);
+	const controlsId = useId();
+	const collapsed = controlsOpen ? undefined : "max-sm:hidden";
 	const conversationModel = useConversationModel(conversationId);
 
 	const initial = useMemo<Msg[]>(
@@ -224,6 +232,49 @@ function ConversationPage() {
 	useEffect(() => {
 		submission.current = null;
 	}, [conversationId]);
+
+	/** Sends a message and empties the composer and its saved draft. */
+	const send = (text: string, attachment: Attachment | null) => {
+		const parts: Msg["parts"] = [
+			...(attachment?.kind === "quote"
+				? [replyContextPart(attachment.quote)]
+				: []),
+			...(attachment?.kind === "passage"
+				? [passageContextPart(attachment.snapshot)]
+				: []),
+			{ type: "text", text },
+		];
+		submissionBase.current = conversation.messages.length;
+		submission.current = { id: crypto.randomUUID(), role: "user", parts };
+		composer.clear();
+		void chat.sendMessage({ id: submission.current.id, parts });
+	};
+
+	// The book page created this conversation and saved its first message as
+	// the draft: send it once. The flag is dropped from history first, so a
+	// reload or back/forward finds the message sent, or still in the composer.
+	// Sending waits a tick: StrictMode's effect re-run stops the chat first.
+	const autoSend = useRouterState({ select: (s) => s.location.state.autoSend });
+	const autoSent = useRef<string | null>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs once per handed-over conversation
+	useEffect(() => {
+		if (!autoSend || autoSent.current === conversationId) return;
+		const timer = setTimeout(() => {
+			autoSent.current = conversationId;
+			const { autoSend: _, ...state } = router.history.location.state;
+			router.history.replace(router.history.location.href, state);
+			const saved = loadComposerDraft(conversationId);
+			if (
+				aiEnabled &&
+				conversation.messages.length === 0 &&
+				messages.length === 0 &&
+				saved?.text.trim() &&
+				!saved.attachment
+			)
+				send(saved.text, null);
+		});
+		return () => clearTimeout(timer);
+	}, [autoSend, conversationId]);
 	const bottom = useRef<HTMLDivElement>(null);
 	const dock = useRef<HTMLDivElement>(null);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: follow new content
@@ -349,7 +400,7 @@ function ConversationPage() {
 
 	return (
 		<PositionOfferProvider>
-			<main className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-3xl flex-col px-4 py-6">
+			<main className="mx-auto flex min-h-[calc(100dvh-4rem)] max-w-3xl flex-col px-4 py-6 max-sm:pt-3">
 				<ReplySelection
 					key={conversationId}
 					onAttach={aiEnabled ? composer.attachQuote : undefined}
@@ -364,64 +415,109 @@ function ConversationPage() {
 					}}
 					onCancel={() => setNoteExcerpt(null)}
 				/>
-				<header className="border-b pb-4">
+				<header className="border-b pb-4 max-sm:pb-3" data-testid="chat-header">
 					<p className="text-sm">
-						<Link
-							to="/books/$editionId/conversations"
-							params={{ editionId: conversation.books[0]?.editionId ?? "" }}
-							className="text-muted-foreground hover:underline"
-						>
-							← Conversations
-						</Link>
+						{conversation.books[0] ? (
+							<Link
+								to="/books/$editionId"
+								params={{ editionId: conversation.books[0].editionId }}
+								className="text-muted-foreground hover:underline"
+							>
+								← Conversations
+							</Link>
+						) : (
+							<Link to="/" className="text-muted-foreground hover:underline">
+								← Library
+							</Link>
+						)}
 					</p>
-					<h1 className="mt-2 font-serif text-2xl font-semibold">
+					{/* Below sm: the title and the books take one line each. */}
+					<h1
+						className="mt-2 font-serif text-2xl font-semibold max-sm:mt-1 max-sm:truncate max-sm:text-xl"
+						title={conversation.title}
+					>
 						{conversation.title}
 					</h1>
 					<p className="mt-1 text-sm text-muted-foreground">
-						{conversation.books.length === 0
-							? "No book"
-							: conversation.books.map((b, i) => (
-									<span key={b.editionId}>
-										{i > 0 && ", "}
-										<Link
-											to="/books/$editionId"
-											params={{ editionId: b.editionId }}
-											className="hover:underline"
-										>
-											{b.title}
-										</Link>
-									</span>
-								))}
-						<ConversationModelControl
-							conversationId={conversationId}
-							status={aiStatus}
-							own={conversation.model}
-							effect={effect}
-							disabled={busy}
-							open={modelPickerOpen}
-							onOpenChange={setModelPickerOpen}
-						/>
-						<UsageTotal total={conversation.usageTotal} />
+						<span
+							className="max-sm:block max-sm:truncate"
+							data-testid="conversation-books"
+						>
+							{conversation.books.length === 0
+								? "No book"
+								: conversation.books.map((b, i) => (
+										<span key={b.editionId}>
+											{i > 0 && ", "}
+											<Link
+												to="/books/$editionId"
+												params={{ editionId: b.editionId }}
+												className="hover:underline"
+											>
+												{b.title}
+											</Link>
+										</span>
+									))}
+						</span>
+						{(conversation.books.length > 0 ||
+							effect.status !== "disabled") && (
+							<Button
+								type="button"
+								variant="ghost"
+								size="sm"
+								className="-ml-2 text-foreground sm:hidden pointer-coarse:h-11"
+								aria-expanded={controlsOpen}
+								aria-controls={`${controlsId}-model ${controlsId}-scope`}
+								onClick={() => setControlsOpen((open) => !open)}
+							>
+								Scope and model
+								<ChevronDown
+									aria-hidden
+									className={cn(
+										"transition-transform",
+										controlsOpen && "rotate-180",
+									)}
+								/>
+							</Button>
+						)}
+						<span
+							id={`${controlsId}-model`}
+							className={cn("max-sm:block", collapsed)}
+						>
+							<ConversationModelControl
+								conversationId={conversationId}
+								status={aiStatus}
+								own={conversation.model}
+								effect={effect}
+								disabled={busy}
+								open={modelPickerOpen}
+								onOpenChange={setModelPickerOpen}
+							/>
+							<UsageTotal total={conversation.usageTotal} />
+						</span>
 					</p>
-					{conversation.books.length > 0 && (
-						<ul className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-							{conversation.books.map((b) => (
-								<li key={b.editionId} className="flex items-center gap-1">
-									<Badge variant="secondary" data-testid="scope-chip">
-										{conversation.books.length > 1 && `${b.title}: `}
-										{scopeText(b.scopeLabel)}
-									</Badge>
-									<WidenScope
-										conversationId={conversationId}
-										book={b}
-										disabled={busy}
-									/>
-								</li>
-							))}
-						</ul>
-					)}
-					<div className="mt-3">
-						<ScopeNotice labels={conversation.books.map((b) => b.scopeLabel)} />
+					<div id={`${controlsId}-scope`} className={collapsed}>
+						{conversation.books.length > 0 && (
+							<ul className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+								{conversation.books.map((b) => (
+									<li key={b.editionId} className="flex items-center gap-1">
+										<Badge variant="secondary" data-testid="scope-chip">
+											{conversation.books.length > 1 && `${b.title}: `}
+											{scopeText(b.scopeLabel)}
+										</Badge>
+										<WidenScope
+											conversationId={conversationId}
+											book={b}
+											disabled={busy}
+										/>
+									</li>
+								))}
+							</ul>
+						)}
+						<div className="mt-3">
+							<ScopeNotice
+								labels={conversation.books.map((b) => b.scopeLabel)}
+							/>
+						</div>
 					</div>
 					<PositionUpdateOffer />
 					<div className="mt-2 flex flex-wrap items-center gap-1">
@@ -434,10 +530,13 @@ function ConversationPage() {
 							title={conversation.title}
 							onDeleted={() => {
 								composer.clear();
-								return router.navigate({
-									to: "/books/$editionId/conversations",
-									params: { editionId: conversation.books[0]?.editionId ?? "" },
-								});
+								const book = conversation.books[0];
+								return book
+									? router.navigate({
+											to: "/books/$editionId",
+											params: { editionId: book.editionId },
+										})
+									: router.navigate({ to: "/" });
 							}}
 						/>
 					</div>
@@ -582,27 +681,7 @@ function ConversationPage() {
 								setStoppedId(messages.at(-1)?.id ?? null);
 								void chat.stop();
 							}}
-							onSend={() => {
-								const text = composer.draft;
-								const attachment = composer.attachment;
-								const parts: Msg["parts"] = [
-									...(attachment?.kind === "quote"
-										? [replyContextPart(attachment.quote)]
-										: []),
-									...(attachment?.kind === "passage"
-										? [passageContextPart(attachment.snapshot)]
-										: []),
-									{ type: "text", text },
-								];
-								submissionBase.current = conversation.messages.length;
-								submission.current = {
-									id: crypto.randomUUID(),
-									role: "user",
-									parts,
-								};
-								composer.clear();
-								void chat.sendMessage({ id: submission.current.id, parts });
-							}}
+							onSend={() => send(composer.draft, composer.attachment)}
 						/>
 					</div>
 				) : (

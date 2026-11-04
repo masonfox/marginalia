@@ -177,12 +177,12 @@ function LibraryPage() {
 										className="group block"
 									>
 										<Cover id={e.id} title={e.title} hasCover={e.hasCover} />
-										<h2 className="mt-2 line-clamp-2 font-medium group-hover:underline">
+										<h2 className="mt-2 line-clamp-2 font-medium break-words group-hover:underline">
 											{e.title}
 										</h2>
 									</Link>
 									{e.authors.length > 0 && (
-										<p className="line-clamp-1 text-sm text-muted-foreground">
+										<p className="line-clamp-1 text-sm break-words text-muted-foreground">
 											{e.authors.join(", ")}
 										</p>
 									)}
@@ -296,13 +296,19 @@ function StatusFilter({
 	needsAttention: number;
 	onChange: (status: ShelfFilter | undefined) => void;
 }) {
+	// One row that scrolls sideways when the filters do not fit (phones).
 	return (
-		<fieldset className="flex flex-wrap gap-1" aria-label="Filter by status">
+		<fieldset
+			className="flex min-w-0 max-w-full gap-1 overflow-x-auto"
+			aria-label="Filter by status"
+			data-testid="status-filter"
+		>
 			{shelfFilterOptions(needsAttention, selected).map((option) => (
 				<Button
 					key={option.label}
 					size="sm"
 					variant={option.value === selected ? "secondary" : "ghost"}
+					className="pointer-coarse:h-11 pointer-coarse:min-w-11"
 					aria-pressed={option.value === selected}
 					onClick={() => onChange(option.value)}
 				>
@@ -356,7 +362,11 @@ function FailedImport({ id, error }: { id: string; error: string | null }) {
 	const [busy, setBusy] = useState(false);
 	return (
 		<div className="mt-2 space-y-1">
-			{error && <p className="text-sm text-destructive-foreground">{error}</p>}
+			{error && (
+				<p className="text-sm break-words text-destructive-foreground">
+					{error}
+				</p>
+			)}
 			<Button
 				size="sm"
 				variant="outline"

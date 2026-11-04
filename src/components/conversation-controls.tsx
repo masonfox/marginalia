@@ -261,31 +261,130 @@ export function RenameConversation({
 	);
 }
 
-/** A delete button with a confirmation dialog. */
+/**
+ * A dialog to rename a conversation, opened from elsewhere (a row's actions
+ * menu). Reloads the page data once renamed.
+ */
+export function RenameConversationDialog({
+	conversationId,
+	title,
+	open,
+	onOpenChange,
+}: {
+	conversationId: string;
+	title: string;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+}) {
+	const router = useRouter();
+	const rename = useServerFn(renameConversationFn);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	return (
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				if (busy) return;
+				setError(null);
+				onOpenChange(next);
+			}}
+		>
+			<DialogContent data-testid="rename-conversation-dialog">
+				<form
+					className="grid gap-4"
+					onSubmit={async (e) => {
+						e.preventDefault();
+						const value = new FormData(e.currentTarget).get("title");
+						const next = typeof value === "string" ? value.trim() : "";
+						if (!next) return;
+						setBusy(true);
+						setError(null);
+						try {
+							await rename({ data: { conversationId, title: next } });
+							await router.invalidate();
+							onOpenChange(false);
+						} catch {
+							setError("Could not rename. Please try again.");
+						}
+						setBusy(false);
+					}}
+				>
+					<DialogHeader>
+						<DialogTitle>Rename conversation</DialogTitle>
+						<DialogDescription className="break-words">
+							Currently “{title}”.
+						</DialogDescription>
+					</DialogHeader>
+					<Input
+						name="title"
+						defaultValue={title}
+						aria-label="Conversation title"
+						maxLength={200}
+						required
+						autoFocus
+					/>
+					{error && (
+						<p role="alert" className="text-sm text-destructive-foreground">
+							{error}
+						</p>
+					)}
+					<DialogFooter>
+						<DialogClose asChild>
+							<Button type="button" variant="outline" disabled={busy}>
+								Cancel
+							</Button>
+						</DialogClose>
+						<Button type="submit" disabled={busy}>
+							Save
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+/**
+ * A delete button with a confirmation dialog. With `open` and `onOpenChange`
+ * the dialog is controlled and has no button of its own.
+ */
 export function DeleteConversation({
 	conversationId,
 	title,
 	onDeleted,
+	open,
+	onOpenChange,
 }: {
 	conversationId: string;
 	title: string;
 	onDeleted: () => void | Promise<void>;
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
 }) {
 	const remove = useServerFn(deleteConversationFn);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	return (
-		<AlertDialog onOpenChange={() => setError(null)}>
-			<AlertDialogTrigger asChild>
-				<Button
-					type="button"
-					size="sm"
-					variant="ghost"
-					aria-label={`Delete “${title}”`}
-				>
-					<Trash2 aria-hidden /> Delete
-				</Button>
-			</AlertDialogTrigger>
+		<AlertDialog
+			open={open}
+			onOpenChange={(next) => {
+				if (busy) return;
+				setError(null);
+				onOpenChange?.(next);
+			}}
+		>
+			{open === undefined && (
+				<AlertDialogTrigger asChild>
+					<Button
+						type="button"
+						size="sm"
+						variant="ghost"
+						aria-label={`Delete “${title}”`}
+					>
+						<Trash2 aria-hidden /> Delete
+					</Button>
+				</AlertDialogTrigger>
+			)}
 			<AlertDialogContent>
 				<AlertDialogHeader>
 					<AlertDialogTitle>Delete “{title}”?</AlertDialogTitle>

@@ -7,6 +7,7 @@ import {
 	Scripts,
 	useRouterState,
 } from "@tanstack/react-router";
+import { LogOut, Settings } from "lucide-react";
 import { Button } from "#/components/ui/button";
 import { getShellInfo } from "#/fns/library";
 import appCss from "../styles.css?url";
@@ -19,7 +20,12 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 	head: () => ({
 		meta: [
 			{ charSet: "utf-8" },
-			{ name: "viewport", content: "width=device-width, initial-scale=1" },
+			{
+				name: "viewport",
+				// Resize the page for the on-screen keyboard, so the docked composer stays above it.
+				content:
+					"width=device-width, initial-scale=1, interactive-widget=resizes-content",
+			},
 			{ title: "Marginalia" },
 		],
 		links: [{ rel: "stylesheet", href: appCss }],
@@ -56,6 +62,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 	);
 }
 
+const UNPROTECTED_NOTICE =
+	"No password set: anyone who can reach this instance can use it.";
+
 function AppShell() {
 	const shell = Route.useLoaderData();
 	const onLogin = useRouterState({
@@ -71,15 +80,31 @@ function AppShell() {
 					>
 						Marginalia
 					</Link>
+					{/* Icon-only below sm, each still named for assistive tech. */}
 					{!onLogin && (
 						<div className="flex items-center gap-1">
-							<Button asChild variant="ghost" size="sm">
-								<Link to="/settings">Settings</Link>
+							<Button
+								asChild
+								variant="ghost"
+								size="sm"
+								className="max-sm:size-11 max-sm:px-0"
+							>
+								<Link to="/settings" aria-label="Settings">
+									<Settings aria-hidden className="sm:hidden" />
+									<span className="max-sm:sr-only">Settings</span>
+								</Link>
 							</Button>
 							{shell.authEnabled && (
 								<form method="post" action="/logout">
-									<Button type="submit" variant="ghost" size="sm">
-										Log out
+									<Button
+										type="submit"
+										variant="ghost"
+										size="sm"
+										aria-label="Log out"
+										className="max-sm:size-11 max-sm:px-0"
+									>
+										<LogOut aria-hidden className="sm:hidden" />
+										<span className="max-sm:sr-only">Log out</span>
 									</Button>
 								</form>
 							)}
@@ -87,8 +112,15 @@ function AppShell() {
 					)}
 				</div>
 				{!shell.authEnabled && (
-					<output className="block border-t bg-muted px-4 py-2 text-center text-sm text-muted-foreground">
-						No password set: anyone who can reach this instance can use it.
+					<output
+						className="block border-t bg-muted px-4 py-2 text-center text-sm text-muted-foreground max-sm:truncate max-sm:text-xs"
+						title={UNPROTECTED_NOTICE}
+						data-testid="unprotected-notice"
+					>
+						<span className="sm:hidden">
+							No password set: anyone with access can use this instance.
+						</span>
+						<span className="max-sm:hidden">{UNPROTECTED_NOTICE}</span>
 					</output>
 				)}
 			</header>

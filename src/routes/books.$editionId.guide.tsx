@@ -16,6 +16,7 @@ import {
 	positionBound,
 } from "#/components/guide";
 import { CorrectionReviewPanel } from "#/components/guide-corrections";
+import { PreprocessCard } from "#/components/preprocess-card";
 import {
 	type Choice,
 	ScopeChoices,
@@ -43,10 +44,14 @@ import {
 	DialogTitle,
 } from "#/components/ui/dialog";
 import { getReadingUnitsFn } from "#/fns/conversations";
-import { getGuideFn } from "#/fns/guide";
+import { getGuideFn, getReadingPositionFn } from "#/fns/guide";
+import {
+	readingPositionKey,
+	readingUnitsKey,
+} from "#/hooks/use-reading-position";
 import type { ReadingUnit } from "#/modules/catalog";
 
-export const Route = createFileRoute("/books/$editionId_/guide")({
+export const Route = createFileRoute("/books/$editionId/guide")({
 	loader: async ({ params }) => {
 		if (!z.uuid().safeParse(params.editionId).success) throw notFound();
 		const guide = await getGuideFn({ data: { editionId: params.editionId } });
@@ -91,9 +96,17 @@ const toChoice = (bound: GuideBound | null): Choice | null =>
  * before peeking past the position.
  */
 function GuideLayout() {
-	const { edition, position, preprocessed } = Route.useLoaderData();
+	const loaded = Route.useLoaderData();
+	const { edition, preprocessed } = loaded;
+	// Live, so a position set from the book header applies here at once.
+	const { data: position } = useQuery({
+		queryKey: readingPositionKey(edition.id),
+		queryFn: () => getReadingPositionFn({ data: { editionId: edition.id } }),
+		initialData: loaded.position,
+		enabled: edition.status === "ready",
+	});
 	const units = useQuery({
-		queryKey: ["reading-units", edition.id],
+		queryKey: readingUnitsKey(edition.id),
 		queryFn: () => getReadingUnitsFn({ data: { editionId: edition.id } }),
 		enabled: edition.status === "ready",
 	});
@@ -129,7 +142,7 @@ function GuideLayout() {
 
 	if (edition.status !== "ready") {
 		return (
-			<GuideFrame editionId={edition.id} title={edition.title}>
+			<GuideFrame title={edition.title}>
 				<p className="mt-6 text-sm text-muted-foreground">
 					The Guide is available once the book has finished importing.
 				</p>
@@ -138,7 +151,7 @@ function GuideLayout() {
 	}
 
 	return (
-		<GuideFrame editionId={edition.id} title={edition.title}>
+		<GuideFrame title={edition.title}>
 			<div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
 				<span className="font-medium" data-testid="guide-bound">
 					{bound ? scopeText(bound.label) : "Choose how far you have read"}
@@ -230,6 +243,7 @@ function GuideLayout() {
 					</GuideContext.Provider>
 				)}
 			</div>
+			<PreprocessCard editionId={edition.id} />
 			{units.data && (
 				<BoundPicker
 					open={picking}
@@ -276,36 +290,24 @@ function GuideLayout() {
 	);
 }
 
+/** The Guide tab's body under the book page header. */
 function GuideFrame({
-	editionId,
 	title,
 	children,
 }: {
-	editionId: string;
 	title: string;
 	children: React.ReactNode;
 }) {
 	return (
-		<main className="mx-auto max-w-3xl px-4 py-8">
-			<p className="text-sm">
-				<Link
-					to="/books/$editionId"
-					params={{ editionId }}
-					className="text-muted-foreground hover:underline"
-				>
-					← {title}
-				</Link>
-			</p>
-			<h1 className="mt-4 font-serif text-3xl font-semibold">Guide</h1>
-			<p className="mt-1 text-muted-foreground">
+		<div className="max-w-3xl">
+			<p className="text-sm text-muted-foreground">
 				What has been derived about <em>{title}</em>, limited to how far you
 				have read.
 			</p>
 			{children}
-		</main>
+		</div>
 	);
 }
-
 /** Asks how far the reader has read when there is no position, with nothing preselected. */
 function FirstChoice({
 	units,
@@ -337,8 +339,8 @@ function FirstChoice({
 			</h2>
 			<p className="text-sm text-muted-foreground">
 				The Guide shows nothing past the point you choose. Your choice lasts for
-				this visit; set a reading position on the book's page to skip this
-				question.
+				this visit; set your reading position at the top of the page to skip
+				this question.
 			</p>
 			<ScopeChoices
 				units={units}

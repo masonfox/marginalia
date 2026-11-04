@@ -83,7 +83,7 @@ function PassagePage() {
 				</p>
 				<p className="mt-4">
 					<Link
-						to="/books/$editionId"
+						to="/books/$editionId/contents"
 						params={{ editionId: view.edition.id }}
 						className="underline"
 					>
