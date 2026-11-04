@@ -102,12 +102,17 @@ function LibraryPage() {
 		[setSearch],
 	);
 
-	const { hasNextPage, isFetching, fetchNextPage } = shelf;
+	const { hasNextPage, isFetching, isFetchNextPageError, fetchNextPage } =
+		shelf;
 	const loadMore = useCallback(() => {
 		void fetchNextPage();
 	}, [fetchNextPage]);
 	// isFetching also covers background refetches; a refetch finishing re-arms the sentinel.
-	const sentinel = useSentinel(loadMore, hasNextPage && !isFetching);
+	// After a failed next page, stop auto-loading until the reader asks to try again.
+	const sentinel = useSentinel(
+		loadMore,
+		hasNextPage && !isFetching && !isFetchNextPageError,
+	);
 
 	return (
 		<main className="mx-auto max-w-5xl px-4 py-8">
@@ -204,6 +209,14 @@ function LibraryPage() {
 					{shelf.isFetchingNextPage && (
 						<output className="mt-6 block text-center text-sm text-muted-foreground">
 							Loading more…
+						</output>
+					)}
+					{isFetchNextPageError && !isFetching && (
+						<output className="mt-6 block text-center text-sm text-muted-foreground">
+							Couldn't load more books.{" "}
+							<Button size="sm" variant="outline" onClick={loadMore}>
+								Try again
+							</Button>
 						</output>
 					)}
 				</>
