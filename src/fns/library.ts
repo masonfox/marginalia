@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { isValidShelfCursor } from "#/lib/shelf-cursor";
+import { MAX_SHELF_QUERY, SHELF_FILTERS } from "#/lib/shelf-status";
 import { countPassages, getToc } from "#/modules/catalog";
 import { pruneEmptyConversations } from "#/modules/conversation";
 import { PARSER_VERSION } from "#/modules/epub";
@@ -11,6 +13,7 @@ import {
 	requestRescan,
 	retryImport,
 } from "#/modules/library";
+import { listShelf, SHELF_PAGE_SIZE } from "#/modules/shelf";
 import { appContext } from "#/server/context";
 
 /** What every page's shell needs. Never includes the password itself. */
@@ -26,6 +29,25 @@ export const getShellInfo = createServerFn({ method: "GET" }).handler(() => {
 export const listEditionsFn = createServerFn({ method: "GET" }).handler(() =>
 	listEditions(appContext().db),
 );
+
+export const listShelfInput = z.object({
+	q: z.string().max(MAX_SHELF_QUERY).optional(),
+	status: z.enum(SHELF_FILTERS).optional(),
+	cursor: z
+		.string()
+		// The cursor embeds the last book's lowercased title, which has no
+		// length limit, so this cap must comfortably exceed any realistic title.
+		.max(65_536)
+		.refine(isValidShelfCursor, "Invalid cursor")
+		.optional(),
+});
+
+/** One page of the library list, with the search, status filter, and counts. */
+export const listShelfFn = createServerFn({ method: "GET" })
+	.validator(listShelfInput)
+	.handler(({ data }) =>
+		listShelf(appContext().db, { ...data, limit: SHELF_PAGE_SIZE }),
+	);
 
 export const getEditionFn = createServerFn({ method: "GET" })
 	.validator(z.object({ editionId: z.uuid() }))

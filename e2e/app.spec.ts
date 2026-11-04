@@ -41,6 +41,14 @@ async function login(page: Page) {
 	await page.waitForLoadState("networkidle");
 }
 
+/** Types into the library search and waits for the URL to follow. */
+async function searchLibrary(page: Page, text: string) {
+	await page
+		.getByRole("searchbox", { name: "Search by title or author" })
+		.fill(text);
+	await expect(page).toHaveURL((url) => url.searchParams.get("q") === text);
+}
+
 const highlighted = (page: Page) => page.locator('[aria-current="true"]');
 
 test.describe("logging in and out", () => {
@@ -105,6 +113,7 @@ test.describe("library", () => {
 				).join(""),
 			})),
 		});
+		await searchLibrary(page, title);
 		let reloaded = false;
 		page.on("framenavigated", (frame) => {
 			if (frame === page.mainFrame()) reloaded = true;
@@ -116,7 +125,9 @@ test.describe("library", () => {
 		});
 		const card = page.getByRole("listitem").filter({ hasText: title });
 		await expect(card).toBeVisible({ timeout: 15_000 });
-		await expect(card.getByText("Ready")).toBeVisible({ timeout: 30_000 });
+		await expect(card.getByText("Not started")).toBeVisible({
+			timeout: 30_000,
+		});
 		expect(reloaded).toBe(false);
 	});
 
@@ -156,6 +167,7 @@ test.describe("library", () => {
 		page,
 	}) => {
 		const title = `E2E Delete ${randomUUID().slice(0, 8)}`;
+		await searchLibrary(page, title);
 		await page.locator("#upload").setInputFiles({
 			name: "delete-me.epub",
 			mimeType: "application/epub+zip",
@@ -167,7 +179,9 @@ test.describe("library", () => {
 			}),
 		});
 		const card = page.getByRole("listitem").filter({ hasText: title });
-		await expect(card.getByText("Ready")).toBeVisible({ timeout: 30_000 });
+		await expect(card.getByText("Not started")).toBeVisible({
+			timeout: 30_000,
+		});
 		const { id, locator } = await one<{ id: string; locator: string }>(
 			`select e.id, p.locator from editions e join passages p on p.edition_id = e.id
 			 where e.title = $1 order by p.position limit 1`,
@@ -198,6 +212,148 @@ test.describe("library", () => {
 		await expect(
 			page.getByRole("heading", { name: "Passage not found" }),
 		).toBeVisible();
+	});
+});
+
+test.describe("library browsing", () => {
+	// Seeded straight into the database: ready books with an available file,
+	// half of them reading. Removed afterwards.
+	const runId = randomUUID().slice(0, 8);
+	const prefix = `E2E Shelf ${runId}`;
+	// File rows live under a per-run folder so concurrent runs don't delete each other's.
+	const shelfDir = `e2e-shelf/${runId}/`;
+	const COUNT = 200;
+	const READING = COUNT / 2;
+	const stateOf = (i: number) =>
+		(["finished", "not-started", "reading", "reading"] as const)[i % 4];
+
+	test.beforeAll(async () => {
+		const { id: sourceId } = await one<{ id: number }>(
+			"select id from library_sources where kind = 'upload' limit 1",
+		);
+		const { rows } = await db.query<{ id: string; title: string }>(
+			`insert into editions (sha256, short_id, title, authors, status)
+			 select sha, substr(sha, 1, 16), $1 || ' ' || lpad(g::text, 3, '0'),
+			        '["Shelf Author"]'::jsonb, 'ready'
+			 from (
+			   select g, md5($1 || g) || md5(g || $1) as sha
+			   from generate_series(1, $2::int) g
+			 ) s
+			 returning id, title`,
+			[prefix, COUNT],
+		);
+		await db.query(
+			`insert into library_files (source_id, rel_path, size, mtime, sha256)
+			 select $1, $3 || sha256 || '.epub', 1, now(), sha256
+			 from editions where title like $2 || ' %'`,
+			[sourceId, prefix, shelfDir],
+		);
+		for (const row of rows) {
+			const state = stateOf(Number(row.title.slice(-3)));
+			if (state === "not-started") continue;
+			await db.query(
+				`insert into reading_positions (edition_id, max_position, scope_label)
+				 values ($1, $2, $3)`,
+				state === "reading" ? [row.id, 1, "Chapter 1"] : [row.id, null, null],
+			);
+		}
+	});
+
+	test.afterAll(async () => {
+		await db.query("delete from editions where title like $1 || ' %'", [
+			prefix,
+		]);
+		await db.query("delete from library_files where rel_path like $1 || '%'", [
+			shelfDir,
+		]);
+	});
+
+	test.beforeEach(async ({ page }) => login(page));
+
+	const cards = (page: Page) => page.getByRole("main").getByRole("listitem");
+	const count = (page: Page) => page.getByTestId("library-count");
+
+	test("search narrows the list, keeps history, and survives a reload", async ({
+		page,
+	}) => {
+		const historyBefore = await page.evaluate(() => history.length);
+		// Typed key by key: the URL follows, but no history entry is added per change.
+		await page
+			.getByRole("searchbox", { name: "Search by title or author" })
+			.pressSequentially(`${prefix} 00`, { delay: 20 });
+		await expect(page).toHaveURL(
+			(url) => url.searchParams.get("q") === `${prefix} 00`,
+		);
+		await expect(cards(page)).toHaveCount(9);
+		await expect(count(page)).toHaveText(/^9 of \d+ books$/);
+		expect(await page.evaluate(() => history.length)).toBe(historyBefore);
+
+		await page.reload();
+		await page.waitForLoadState("networkidle");
+		await expect(
+			page.getByRole("searchbox", { name: "Search by title or author" }),
+		).toHaveValue(`${prefix} 00`);
+		await expect(cards(page)).toHaveCount(9);
+
+		await searchLibrary(page, `${prefix} no such book`);
+		await expect(page.getByText("No books match")).toBeVisible();
+		await page.getByRole("button", { name: "Clear search and filter" }).click();
+		await expect(page).toHaveURL("/");
+		await expect(
+			page.getByRole("searchbox", { name: "Search by title or author" }),
+		).toHaveValue("");
+	});
+
+	test("the status filter shows only matching books", async ({ page }) => {
+		await searchLibrary(page, `${prefix} 01`);
+		await expect(cards(page)).toHaveCount(10);
+		await page
+			.getByRole("group", { name: "Filter by status" })
+			.getByRole("button", { name: "Finished" })
+			.click();
+		await expect(page).toHaveURL(
+			(url) => url.searchParams.get("status") === "finished",
+		);
+		// 012 and 016 of 010–019.
+		await expect(cards(page)).toHaveCount(2);
+		for (const card of await cards(page).all()) {
+			await expect(card.getByText("Finished", { exact: true })).toBeVisible();
+		}
+		await expect(count(page)).toHaveText(/^2 of \d+ books$/);
+	});
+
+	test("scrolling loads every book once, and back restores the list", async ({
+		page,
+	}) => {
+		await page.goto(`/?q=${encodeURIComponent(prefix)}&status=reading`);
+		await page.waitForLoadState("networkidle");
+		await expect(count(page)).toHaveText(new RegExp(`^${READING} of `));
+		await expect(cards(page)).toHaveCount(60);
+		// Scroll until every reading book is loaded; loading then stops.
+		while ((await cards(page).count()) < READING) {
+			await page.mouse.wheel(0, 4000);
+			await page.waitForTimeout(100);
+		}
+		await page.waitForLoadState("networkidle");
+		await expect(cards(page)).toHaveCount(READING);
+		await expect(cards(page).getByText("Reading", { exact: true })).toHaveCount(
+			READING,
+		);
+		const titles = await cards(page).getByRole("heading").allTextContents();
+		expect(new Set(titles).size).toBe(READING);
+		expect(titles).toEqual([...titles].sort());
+
+		const last = titles.at(-1) ?? "";
+		await page.getByRole("link", { name: last }).click();
+		await expect(page).toHaveURL(/\/books\//);
+		await page.goBack();
+		await expect(page).toHaveURL(
+			(url) =>
+				url.searchParams.get("q") === prefix &&
+				url.searchParams.get("status") === "reading",
+		);
+		await expect(cards(page)).toHaveCount(READING);
+		await expect(page.getByRole("link", { name: last })).toBeInViewport();
 	});
 });
 

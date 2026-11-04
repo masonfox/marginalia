@@ -310,7 +310,10 @@ function DeleteBook({
 							try {
 								// Already deleted elsewhere also lands on the library.
 								await remove({ data: { editionId } });
-								await queryClient.invalidateQueries({ queryKey: ["editions"] });
+								await Promise.all([
+									queryClient.invalidateQueries({ queryKey: ["editions"] }),
+									queryClient.invalidateQueries({ queryKey: ["shelf"] }),
+								]);
 								await navigate({ to: "/" });
 							} catch {
 								setError("The book could not be deleted. Please try again.");

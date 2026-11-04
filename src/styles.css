@@ -24,6 +24,13 @@
 	--input: oklch(0.92 0.004 286.32);
 	--ring: oklch(0.871 0.006 286.286);
 	--highlight: oklch(0.95 0.09 95);
+	/* Library status badges: the text color; borders and fills are tints of it. */
+	--status-processing: oklch(0.5 0.13 240);
+	--status-failed: oklch(0.52 0.19 27);
+	--status-unavailable: oklch(0.53 0.12 65);
+	--status-not-started: oklch(0.5 0.02 286);
+	--status-reading: oklch(0.5 0.17 290);
+	--status-finished: oklch(0.5 0.13 155);
 	--radius: 0.625rem;
 }
 
@@ -49,6 +56,12 @@
 		--input: oklch(0.274 0.006 286.033);
 		--ring: oklch(0.442 0.017 285.786);
 		--highlight: oklch(0.38 0.07 95);
+		--status-processing: oklch(0.8 0.11 235);
+		--status-failed: oklch(0.75 0.15 25);
+		--status-unavailable: oklch(0.82 0.13 80);
+		--status-not-started: oklch(0.75 0.015 286);
+		--status-reading: oklch(0.78 0.12 290);
+		--status-finished: oklch(0.8 0.13 155);
 	}
 }
 
@@ -75,6 +88,12 @@
 	--color-input: var(--input);
 	--color-ring: var(--ring);
 	--color-highlight: var(--highlight);
+	--color-status-processing: var(--status-processing);
+	--color-status-failed: var(--status-failed);
+	--color-status-unavailable: var(--status-unavailable);
+	--color-status-not-started: var(--status-not-started);
+	--color-status-reading: var(--status-reading);
+	--color-status-finished: var(--status-finished);
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);

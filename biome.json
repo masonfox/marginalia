@@ -215,6 +215,26 @@
 					}
 				}
 			}
+		},
+		{
+			"includes": ["src/modules/shelf/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/modules/*/*", "**/library/*", "**/guide/*"],
+										"message": "Import other modules only through their public index (e.g. #/modules/library)."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
 		}
 	]
 }
