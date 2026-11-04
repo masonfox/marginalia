@@ -1,5 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import {
+	CONVERSATIONS_PAGE_SIZE,
+	isValidConversationCursor,
+} from "#/lib/conversation-cursor";
 import { selectionSchema } from "#/modules/ai";
 import { getReadingUnits } from "#/modules/catalog";
 import {
@@ -11,6 +15,7 @@ import {
 	getGuideStep,
 	getTrailObservations,
 	listConversationsForEdition,
+	listRecentConversations,
 	type PassageCheck,
 	passageRefSchema,
 	renameConversation,
@@ -37,6 +42,24 @@ export const listConversationsFn = createServerFn({ method: "GET" })
 	.handler(({ data }) =>
 		listConversationsForEdition(appContext().db, data.editionId),
 	);
+
+/**
+ * One page of every conversation, most recently active first. `limit`
+ * defaults to (and is capped at) a full page; the library's Continue
+ * section asks for fewer.
+ */
+export const listRecentConversationsFn = createServerFn({ method: "GET" })
+	.validator(
+		z.object({
+			cursor: z
+				.string()
+				.max(1024)
+				.refine(isValidConversationCursor, "Invalid cursor")
+				.optional(),
+			limit: z.number().int().min(1).max(CONVERSATIONS_PAGE_SIZE).optional(),
+		}),
+	)
+	.handler(({ data }) => listRecentConversations(appContext().db, data));
 
 const scopeSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("whole") }),

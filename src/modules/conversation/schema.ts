@@ -39,6 +39,12 @@ export const conversations = pgTable(
 			"conversations_ai_model_check",
 			sql`(${t.aiProvider} is null) = (${t.aiModel} is null)`,
 		),
+		// The order of the conversations list across books.
+		index("conversations_recent_idx").on(
+			t.updatedAt.desc(),
+			t.createdAt.desc(),
+			t.id.desc(),
+		),
 	],
 );
 

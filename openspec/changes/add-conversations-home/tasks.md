@@ -1,10 +1,10 @@
 ## 1. Server
 
-- [ ] 1.1 Add the `conversations (updated_at desc, created_at desc, id desc)` index to the schema and generate its migration with `pnpm db:generate`; verify the migration applies with `pnpm db:migrate` on the dev database
-- [ ] 1.2 Add the client-safe `src/lib/conversation-cursor.ts` (encode, decode, validate) following `shelf-cursor.ts`; verify with unit tests for round trips and rejection of malformed cursors
-- [ ] 1.3 Move the preview subquery and `previewText` handling into a shared helper used by `listConversationsForEdition`; verify the existing conversation integration tests still pass
-- [ ] 1.4 Add `listRecentConversations(db, { cursor, limit })` returning items with ordered `books` and the preview, plus `nextCursor`; verify with integration tests for ordering (updated, then created), paging to the end, no duplicates when a shown conversation is updated between pages, multi-book `books` order and scopes, and previews
-- [ ] 1.5 Export it from the conversation module and add `listRecentConversationsFn` (validated cursor and limit, capped) in `src/fns/conversations.ts`; verify `pnpm typecheck` passes
+- [x] 1.1 Add the `conversations (updated_at desc, created_at desc, id desc)` index to the schema and generate its migration with `pnpm db:generate`; verify the migration applies with `pnpm db:migrate` on the dev database
+- [x] 1.2 Add the client-safe `src/lib/conversation-cursor.ts` (encode, decode, validate) following `shelf-cursor.ts`; verify with unit tests for round trips and rejection of malformed cursors
+- [x] 1.3 Move the preview subquery and `previewText` handling into a shared helper used by `listConversationsForEdition`; verify the existing conversation integration tests still pass
+- [x] 1.4 Add `listRecentConversations(db, { cursor, limit })` returning items with ordered `books` and the preview, plus `nextCursor`; verify with integration tests for ordering (updated, then created), paging to the end, no duplicates when a shown conversation is updated between pages, multi-book `books` order and scopes, and previews
+- [x] 1.5 Export it from the conversation module and add `listRecentConversationsFn` (validated cursor and limit, capped) in `src/fns/conversations.ts`; verify `pnpm typecheck` passes
 
 ## 2. Shared UI
 

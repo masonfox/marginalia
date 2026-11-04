@@ -8,8 +8,15 @@ import {
 	lt,
 	notExists,
 	type SQL,
+	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
+import {
+	CONVERSATIONS_PAGE_SIZE,
+	type ConversationCursor,
+	decodeConversationCursor,
+	encodeConversationCursor,
+} from "#/lib/conversation-cursor";
 import { previewText } from "#/lib/preview-text";
 import { getReadingUnits } from "#/modules/catalog";
 import { editions } from "#/modules/library";
@@ -136,12 +143,13 @@ async function insertConversation(
 	return row;
 }
 
-/** Conversations that include the edition, most recently active first. */
-export async function listConversationsForEdition(
-	db: Executor,
-	editionId: string,
-): Promise<ConversationSummary[]> {
-	const count = sql<number>`(select count(*)::int from ${messages} where ${messages.conversationId} = ${conversations.id})`;
+/**
+ * The columns every conversation list shares: the message count and the
+ * source of the preview. Join `latest` laterally (`leftJoinLateral(latest,
+ * sql\`true\`)`) to a query over `conversations`, select `columns`, and pass
+ * each row's `previewSource` through `toPreview`.
+ */
+function listColumns(db: Executor) {
 	// The latest message with a non-empty text part, walking the (conversation_id, seq) index backwards.
 	const latest = db
 		.select({ parts: messages.parts })
@@ -155,20 +163,35 @@ export async function listConversationsForEdition(
 		.orderBy(desc(messages.seq))
 		.limit(1)
 		.as("latest_text");
-	const rows = await db
-		.select({
+	return {
+		latest,
+		columns: {
 			id: conversations.id,
 			title: conversations.title,
 			createdAt: conversations.createdAt,
 			updatedAt: conversations.updatedAt,
-			messageCount: count,
-			scopeLabel: conversationEditions.scopeLabel,
+			messageCount: sql<number>`(select count(*)::int from ${messages} where ${messages.conversationId} = ${conversations.id})`,
 			previewSource: sql<string | null>`(
 				select left(string_agg(e.p->>'text', E'\\n\\n' order by e.o), ${PREVIEW_SOURCE_CHARS}::int)
 				from json_array_elements(${latest.parts}) with ordinality as e(p, o)
 				where e.p->>'type' = 'text'
 			)`,
-		})
+		},
+	};
+}
+
+/** A list row's preview from its `previewSource`. */
+const toPreview = (source: string | null): string | null =>
+	(source && previewText(source)) || null;
+
+/** Conversations that include the edition, most recently active first. */
+export async function listConversationsForEdition(
+	db: Executor,
+	editionId: string,
+): Promise<ConversationSummary[]> {
+	const { latest, columns } = listColumns(db);
+	const rows = await db
+		.select({ ...columns, scopeLabel: conversationEditions.scopeLabel })
 		.from(conversations)
 		.innerJoin(
 			conversationEditions,
@@ -179,8 +202,111 @@ export async function listConversationsForEdition(
 		.orderBy(desc(conversations.updatedAt), desc(conversations.createdAt));
 	return rows.map(({ previewSource, ...row }) => ({
 		...row,
-		preview: (previewSource && previewText(previewSource)) || null,
+		preview: toPreview(previewSource),
 	}));
+}
+
+/** A book as named in a list of conversations across books. */
+export interface ConversationListBook {
+	editionId: string;
+	title: string;
+	/** The reading unit the conversation is scoped through; null means whole book. */
+	scopeLabel: string | null;
+}
+
+export interface RecentConversation
+	extends Omit<ConversationSummary, "scopeLabel"> {
+	/** The conversation's books in their stored order. */
+	books: ConversationListBook[];
+}
+
+export interface RecentConversationPage {
+	items: RecentConversation[];
+	/** Opaque; pass back as `cursor` for the next page. Null after the last page. */
+	nextCursor: string | null;
+}
+
+export class InvalidConversationCursorError extends Error {
+	constructor() {
+		super("Invalid conversations cursor");
+		this.name = "InvalidConversationCursorError";
+	}
+}
+
+/** A timestamptz at full (microsecond) precision, which a JS Date would lose. */
+const timestampKeySql = (column: SQLWrapper) =>
+	sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
+/**
+ * One page of every conversation, whatever its books, most recently active
+ * first, then most recently created. Paging is keyset on (updated_at,
+ * created_at, id), so a conversation that becomes active after it was listed
+ * moves above the cursor and is not returned again.
+ */
+export async function listRecentConversations(
+	db: Executor,
+	{
+		cursor,
+		limit = CONVERSATIONS_PAGE_SIZE,
+	}: { cursor?: string; limit?: number } = {},
+): Promise<RecentConversationPage> {
+	let after: ConversationCursor | null = null;
+	if (cursor !== undefined) {
+		after = decodeConversationCursor(cursor);
+		if (!after) throw new InvalidConversationCursorError();
+	}
+	const pageSize = Math.max(
+		1,
+		Math.min(Math.trunc(limit), CONVERSATIONS_PAGE_SIZE),
+	);
+	const { latest, columns } = listColumns(db);
+	const rows = await db
+		.select({
+			...columns,
+			books: sql<ConversationListBook[]>`coalesce((
+				select json_agg(json_build_object(
+					'editionId', ${editions.id},
+					'title', ${editions.title},
+					'scopeLabel', ${conversationEditions.scopeLabel}
+				) order by ${conversationEditions.ordinal})
+				from ${conversationEditions}
+				inner join ${editions} on ${editions.id} = ${conversationEditions.editionId}
+				where ${conversationEditions.conversationId} = ${conversations.id}
+			), '[]'::json)`,
+			updatedKey: timestampKeySql(conversations.updatedAt),
+			createdKey: timestampKeySql(conversations.createdAt),
+		})
+		.from(conversations)
+		.leftJoinLateral(latest, sql`true`)
+		.where(
+			after
+				? sql`(${conversations.updatedAt}, ${conversations.createdAt}, ${conversations.id}) < (${after.u}::timestamptz, ${after.c}::timestamptz, ${after.i}::uuid)`
+				: undefined,
+		)
+		.orderBy(
+			desc(conversations.updatedAt),
+			desc(conversations.createdAt),
+			desc(conversations.id),
+		)
+		.limit(pageSize + 1);
+	const page = rows.slice(0, pageSize);
+	const last = page.at(-1);
+	return {
+		items: page.map(
+			({ previewSource, updatedKey: _u, createdKey: _c, ...row }) => ({
+				...row,
+				preview: toPreview(previewSource),
+			}),
+		),
+		nextCursor:
+			rows.length > pageSize && last
+				? encodeConversationCursor({
+						u: last.updatedKey,
+						c: last.createdKey,
+						i: last.id,
+					})
+				: null,
+	};
 }
 
 /** The books a conversation is scoped to, in order. */

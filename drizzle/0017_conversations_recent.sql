@@ -1,0 +1,1 @@
+CREATE INDEX "conversations_recent_idx" ON "conversations" USING btree ("updated_at" DESC NULLS LAST,"created_at" DESC NULLS LAST,"id" DESC NULLS LAST);
