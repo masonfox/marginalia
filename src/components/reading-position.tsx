@@ -68,17 +68,18 @@ export function ReadingPositionControl({ editionId }: { editionId: string }) {
 
 	return (
 		<section
-			className="space-y-1.5 text-sm"
+			className="space-y-2 text-sm"
 			aria-label="Reading position"
 			data-testid="reading-position"
 		>
-			<div className="flex items-center gap-2">
+			{/* The label gets the whole width and wraps: a narrow rail must not cut it. */}
+			<div className="flex items-start gap-2">
 				<BookMarked
-					className="size-4 shrink-0 text-muted-foreground"
+					className="mt-0.5 size-4 shrink-0 text-muted-foreground"
 					aria-hidden
 				/>
 				<p
-					className="min-w-0 flex-1 truncate"
+					className="min-w-0 flex-1 break-words"
 					data-testid="reading-position-value"
 				>
 					{reading.positionStatus === "pending"
@@ -87,6 +88,9 @@ export function ReadingPositionControl({ editionId }: { editionId: string }) {
 							? "Could not load your reading position."
 							: positionText(current)}
 				</p>
+			</div>
+			{reading.progress && <ProgressBar progress={reading.progress} />}
+			<div>
 				<Dialog
 					open={open}
 					onOpenChange={(next) => {
@@ -101,7 +105,7 @@ export function ReadingPositionControl({ editionId }: { editionId: string }) {
 							type="button"
 							size="sm"
 							variant="outline"
-							className="shrink-0"
+							className="lg:w-full pointer-coarse:h-10"
 							disabled={reading.positionStatus === "pending"}
 						>
 							{current === null ? "Set position" : "Change position"}
@@ -174,7 +178,6 @@ export function ReadingPositionControl({ editionId }: { editionId: string }) {
 					</DialogContent>
 				</Dialog>
 			</div>
-			{reading.progress && <ProgressBar progress={reading.progress} />}
 			{error && !open && (
 				<p role="alert" className="text-destructive-foreground">
 					{error}

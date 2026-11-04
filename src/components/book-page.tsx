@@ -56,6 +56,7 @@ export function BookHeader() {
 										? "destructive"
 										: "secondary"
 								}
+								className="max-w-full whitespace-normal break-words"
 								data-testid="import-status"
 							>
 								{edition.displayStatus}
