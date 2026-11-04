@@ -112,7 +112,7 @@ function Option({
 	onChange: (choice: Choice) => void;
 	/** Shade as read: at or before the chosen unit. */
 	read?: boolean;
-	/** Mark as the reader's position, without selecting it. */
+	/** Mark as the reader's position. */
 	mine?: boolean;
 	className?: string;
 	children: ReactNode;
@@ -157,10 +157,11 @@ const CHOICE_LABELS: ChoiceLabels = {
 };
 
 /**
- * "Whole book", then a collapsed "partway through" section that opens to the
- * units grouped by parent, shown as a grid of numbers when a group is plainly
- * numbered. Units up to the chosen one are shaded as read. Nothing is
- * preselected; the reader's position, when given, is only marked.
+ * A collapsed "partway through" section that opens to the units grouped by
+ * parent, shown as a grid of numbers when a group is plainly numbered, then
+ * "Whole book" last. Units up to the chosen one are shaded as read. The
+ * reader's position, when given, is marked; whether it is also selected is
+ * up to the caller's `value`.
  */
 export function ScopeChoices({
 	units,
@@ -194,19 +195,6 @@ export function ScopeChoices({
 	return (
 		<fieldset className="space-y-3">
 			<legend className="sr-only">{legend}</legend>
-			<Option
-				{...shared}
-				choice="whole"
-				label={labels.whole}
-				mine={position === "whole"}
-				className="flex flex-col border px-3 py-2"
-			>
-				<span>{labels.whole}</span>
-				<span className="text-xs font-normal opacity-70">
-					{labels.wholeHint}
-				</span>
-				{position === "whole" && <YourPosition />}
-			</Option>
 			{units.length > 0 && (
 				<button
 					type="button"
@@ -227,7 +215,9 @@ export function ScopeChoices({
 						</span>
 						{mine && (
 							<span className="text-xs text-muted-foreground">
-								Your reading position: {mine.label}
+								{mine === chosen
+									? "Your reading position"
+									: `Your reading position: ${mine.label}`}
 							</span>
 						)}
 					</span>
@@ -289,6 +279,19 @@ export function ScopeChoices({
 					})}
 				</div>
 			)}
+			<Option
+				{...shared}
+				choice="whole"
+				label={labels.whole}
+				mine={position === "whole"}
+				className="flex flex-col border px-3 py-2"
+			>
+				<span>{labels.whole}</span>
+				<span className="text-xs font-normal opacity-70">
+					{labels.wholeHint}
+				</span>
+				{position === "whole" && <YourPosition />}
+			</Option>
 		</fieldset>
 	);
 }
@@ -377,7 +380,8 @@ export function NewConversationDialog({
 		setUncontrolledOpen(next);
 		onOpenChange?.(next);
 	};
-	const [choice, setChoice] = useState<Choice | null>(null);
+	// undefined: untouched, so the reading position is shown selected.
+	const [choice, setChoice] = useState<Choice | null | undefined>(undefined);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const units = useQuery({
@@ -400,17 +404,22 @@ export function NewConversationDialog({
 	const chatDefault = aiStatus.data?.chat.available
 		? aiStatus.data.chat.selection
 		: null;
-	const chosenLabel =
-		choice === null
-			? undefined
-			: choice === "whole"
-				? null
-				: (units.data?.find((u) => `unit:${u.endPosition}` === choice)?.label ??
-					undefined);
 	const offered =
 		units.data && passage
 			? unitsForPassage(units.data, passage.revealPosition)
 			: null;
+	// Wait for the units, so nothing is selected before the picker is shown.
+	const mine = units.data
+		? positionChoice(position.data, offered?.units ?? units.data)
+		: null;
+	const selected = choice === undefined ? mine : choice;
+	const chosenLabel =
+		selected === null
+			? undefined
+			: selected === "whole"
+				? null
+				: (units.data?.find((u) => `unit:${u.endPosition}` === selected)
+						?.label ?? undefined);
 
 	return (
 		<Dialog
@@ -418,7 +427,7 @@ export function NewConversationDialog({
 			onOpenChange={(next) => {
 				if (busy) return;
 				setOpen(next);
-				setChoice(null);
+				setChoice(undefined);
 				setModel(null);
 				setError(null);
 			}}
@@ -444,11 +453,8 @@ export function NewConversationDialog({
 				) : (
 					<ScopeChoices
 						units={offered?.units ?? units.data}
-						value={choice}
-						position={positionChoice(
-							position.data,
-							offered?.units ?? units.data,
-						)}
+						value={selected}
+						position={mine}
 						onChange={(c) => {
 							setChoice(c);
 							setError(null);
@@ -488,17 +494,19 @@ export function NewConversationDialog({
 					<Button
 						type="button"
 						disabled={
-							choice === null || busy || (model !== null && !model.model.trim())
+							selected === null ||
+							busy ||
+							(model !== null && !model.model.trim())
 						}
 						onClick={async () => {
-							if (choice === null) return;
+							if (selected === null) return;
 							setBusy(true);
 							setError(null);
 							try {
 								const created = await create({
 									data: {
 										editionId,
-										scope: toScope(choice),
+										scope: toScope(selected),
 										...(model && { selection: model }),
 									},
 								});
@@ -566,7 +574,8 @@ export function WidenScope({
 	const widen = useServerFn(widenScopeFn);
 	const offerPosition = usePositionOffer();
 	const [open, setOpen] = useState(false);
-	const [choice, setChoice] = useState<Choice | null>(null);
+	// undefined: untouched, so a later reading position is shown selected.
+	const [choice, setChoice] = useState<Choice | null | undefined>(undefined);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const units = useQuery({
@@ -574,9 +583,18 @@ export function WidenScope({
 		queryFn: () => getReadingUnitsFn({ data: { editionId: book.editionId } }),
 		enabled: open,
 	});
+	const position = useQuery({
+		queryKey: ["reading-position", book.editionId],
+		queryFn: () =>
+			getReadingPositionFn({ data: { editionId: book.editionId } }),
+		enabled: open,
+	});
 	if (book.maxPosition === null) return null;
 	const bound = book.maxPosition;
 	const later = units.data?.filter((u) => u.endPosition > bound) ?? [];
+	// Only units past the bound are offered, so an earlier position yields null.
+	const mine = units.data ? positionChoice(position.data, later) : null;
+	const selected = choice === undefined ? mine : choice;
 
 	return (
 		<Dialog
@@ -584,7 +602,7 @@ export function WidenScope({
 			onOpenChange={(next) => {
 				if (busy) return;
 				setOpen(next);
-				setChoice(null);
+				setChoice(undefined);
 				setError(null);
 			}}
 		>
@@ -616,7 +634,8 @@ export function WidenScope({
 				) : (
 					<ScopeChoices
 						units={later}
-						value={choice}
+						value={selected}
+						position={mine}
 						onChange={(c) => {
 							setChoice(c);
 							setError(null);
@@ -636,9 +655,9 @@ export function WidenScope({
 					</DialogClose>
 					<Button
 						type="button"
-						disabled={choice === null || busy}
+						disabled={selected === null || busy}
 						onClick={async () => {
-							if (choice === null) return;
+							if (selected === null) return;
 							setBusy(true);
 							setError(null);
 							try {
@@ -646,21 +665,21 @@ export function WidenScope({
 									data: {
 										conversationId,
 										editionId: book.editionId,
-										scope: toScope(choice),
+										scope: toScope(selected),
 									},
 								});
 								if (result.widened || result.reason === "not_wider") {
 									// not_wider: another tab already widened past this; show the current scope.
 									await router.invalidate();
 									setOpen(false);
-									setChoice(null);
+									setChoice(undefined);
 									if (result.widened)
 										offerPosition?.({
 											editionId: book.editionId,
 											title: book.title,
-											choice: toScope(choice),
+											choice: toScope(selected),
 											label:
-												later.find((u) => `unit:${u.endPosition}` === choice)
+												later.find((u) => `unit:${u.endPosition}` === selected)
 													?.label ?? null,
 										});
 								} else if (result.reason === "stale_scope") {
