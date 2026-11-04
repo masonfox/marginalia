@@ -218,7 +218,10 @@ test.describe("library", () => {
 test.describe("library browsing", () => {
 	// Seeded straight into the database: ready books with an available file,
 	// half of them reading. Removed afterwards.
-	const prefix = `E2E Shelf ${randomUUID().slice(0, 8)}`;
+	const runId = randomUUID().slice(0, 8);
+	const prefix = `E2E Shelf ${runId}`;
+	// File rows live under a per-run folder so concurrent runs don't delete each other's.
+	const shelfDir = `e2e-shelf/${runId}/`;
 	const COUNT = 200;
 	const READING = COUNT / 2;
 	const stateOf = (i: number) =>
@@ -241,9 +244,9 @@ test.describe("library browsing", () => {
 		);
 		await db.query(
 			`insert into library_files (source_id, rel_path, size, mtime, sha256)
-			 select $1, 'e2e-shelf/' || sha256 || '.epub', 1, now(), sha256
+			 select $1, $3 || sha256 || '.epub', 1, now(), sha256
 			 from editions where title like $2 || ' %'`,
-			[sourceId, prefix],
+			[sourceId, prefix, shelfDir],
 		);
 		for (const row of rows) {
 			const state = stateOf(Number(row.title.slice(-3)));
@@ -260,9 +263,9 @@ test.describe("library browsing", () => {
 		await db.query("delete from editions where title like $1 || ' %'", [
 			prefix,
 		]);
-		await db.query(
-			"delete from library_files where rel_path like 'e2e-shelf/%'",
-		);
+		await db.query("delete from library_files where rel_path like $1 || '%'", [
+			shelfDir,
+		]);
 	});
 
 	test.beforeEach(async ({ page }) => login(page));
