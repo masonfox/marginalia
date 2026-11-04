@@ -1,76 +1,50 @@
 # Marginalia
 
-Marginalia is a self-hosted companion for reading your own EPUBs. It turns each book into precise, ordered, searchable passages, each with a stable citation locator. On top of that foundation it offers AI discussion of a book, with citations you can verify.
+**A spoiler-safe reading companion for your own ebooks.**
 
-This release (0.1) provides the text foundation and a small reading UI:
+Discuss a book you're halfway through with an AI that only knows what you've read so far, quotes the actual text, and tells you when your reading doesn't hold up.
 
-- **Import** EPUB 2 and EPUB 3 files by upload, or by scanning read-only library folders. Books are identified by content, so each edition is imported once. **Delete** a book from its page; a book from a library folder stays deleted until you upload the same file again.
-- **Library**: search your books by title or author, and filter them by Not started, Reading, Finished, or Needs attention. Each book shows one status badge, either its reading state or an import problem (Processing, Failed with a Retry, or Unavailable). Search and filter stay in the address bar, and more books load as you scroll.
-- **Structure**: metadata, cover, table of contents, spine-ordered sections, block-level passages, and footnotes and endnotes. Each passage has a reading-order position.
-- **Citation locators** like `3f9a1c07b2de:v1:12.47`. They stay valid when the parser improves, because old locators forward to the passage that now holds their text.
-- **Search** with PostgreSQL full-text search, using language-aware stemming, phrases, and highlighted snippets.
-- **AI conversations** (optional): discuss a book with a model you configure (OpenAI, Anthropic, Google, or a local OpenAI-compatible endpoint). The assistant searches the book through tools, separates quoted evidence from its own interpretation, pushes back on weak readings, and every quote it cites is checked against the text on the server. Unverifiable citations are flagged. Passages and messages go to the configured provider; see [AI conversations](docs/deployment.md#ai-conversations). Each conversation is limited to the part of each book you choose, so the assistant cannot read past it.
-- **Book Guide**: browse what preprocessing found in a book. Chapters lists chapter summaries with linked citations, Index lists characters, places, objects, and motifs (with merges you confirm, and aliases that stay separate until their reveal), and Notes holds your own Markdown notes. Correct or hide anything that is wrong, and see subjects as margin glosses in the reader. The Guide never shows anything past the point you have read, unless you peek for one visit. Conversations use your corrections and notes as guidance, never as evidence. See [Book Guide and reading position](docs/deployment.md#book-guide-and-reading-position).
-- **Reading position**: one chapter (or "Finished") per book that you set yourself. It only moves forward unless you move it back, and it is the Guide's default, never a conversation's limit. It is **shared by everyone who signs in**, so in a multi-reader household one reader advancing it can spoil the book for another; see [Sharing an instance](docs/deployment.md#sharing-an-instance).
-- **Optional single-password login**, persistent sessions, and login rate limiting.
-- **One container plus PostgreSQL**, for `amd64` and `arm64`.
+## Why not just ask a chatbot?
 
-## Running it
+General-purpose chatbots make poor book-club partners:
 
-See **[docs/deployment.md](docs/deployment.md)** for setup, every configuration variable, the instance password, volumes, external PostgreSQL, reverse proxies with HTTPS, and upgrades.
+- **They spoil things.** They've absorbed summaries of the whole book, and they don't know where you are in it.
+- **They misquote.** Quotes are often paraphrased, merged, or made up.
+- **They agree with you.** Suggest a theory and they'll usually find it insightful.
 
-The short version:
+Marginalia is built around those problems:
+
+- **It only sees what you've read.** You choose how far each conversation can go, and search enforces that limit on the server, so text past your point never reaches the model. The model is also told not to use outside knowledge of later events, but that part depends on the model following its instructions, so a very well-known book can still leak through what the model already knows.
+- **Every quote is checked.** The assistant cites specific passages, and the server checks each quote against your copy of the book. Any it can't verify are flagged. Quotes from the book are always visibly separate from the assistant's own interpretation.
+- **It disagrees when the text does.** Suggest a theory and it looks for evidence on both sides. When the book doesn't support your reading, it says so and points to the passages that cut against it.
+
+## Who it's for
+
+Readers who keep their own ebook library, would rather self-host than upload books to a service, and want a thinking partner for long, dense, or re-read-worthy fiction.
+
+Marginalia has one shared password and no per-reader profiles, so it fits a single reader, or a household reading at the same pace, best. Everyone who signs in shares the same reading position and notes. See [Sharing an instance](docs/deployment.md#sharing-an-instance).
+
+## What you get
+
+- **Library.** Import EPUB files (EPUB 2 and 3) by upload, or point Marginalia at a folder it scans read-only. Search by title or author, and filter by Not started, Reading, Finished, or Needs attention.
+- **Conversations.** Bring your own model: OpenAI, Anthropic, Google, or a local OpenAI-compatible endpoint such as Ollama, added in Settings. Each conversation is limited to the part of the book you choose, and each reply shows what it searched, what it cited, and an estimated cost. Passages and messages go to the provider you configure. See [AI conversations](docs/deployment.md#ai-conversations).
+- **Book Guide.** Chapter summaries with linked citations, an index of characters, places, objects, and motifs, and your own Markdown notes, all hidden past your reading position. Correct or hide anything the AI got wrong, and see characters and places as glosses in the margin while you read. See [Book Guide and reading position](docs/deployment.md#book-guide-and-reading-position).
+- **Reader and search.** Read any passage, and search within a book with language-aware full-text search and highlighted snippets.
+- **Self-hosted.** One container plus PostgreSQL, for `amd64` and `arm64`, with optional password login. The library, reader, and search work with no AI provider at all.
+
+## Quick start
 
 ```sh
-cp .env.example .env    # set AUTH_PASSWORD (a long passphrase) and MARGINALIA_LIBRARY_DIR
+cp .env.example .env    # set MARGINALIA_SECRET_KEY, AUTH_PASSWORD, POSTGRES_PASSWORD, and MARGINALIA_LIBRARY_DIR
 docker compose up -d    # then open http://localhost:3000
 ```
 
+Generate `MARGINALIA_SECRET_KEY` with `openssl rand -base64 32`, then add an AI provider in **Settings** once the app is running.
+
 Without `AUTH_PASSWORD`, anyone who can reach the instance can use it. Only do that on a trusted network or behind an authenticating proxy. Serve Marginalia over HTTPS whenever it is reachable from beyond a trusted network.
 
-## Development
+See **[docs/deployment.md](docs/deployment.md)** for every configuration variable, volumes, external PostgreSQL, reverse proxies with HTTPS, and upgrades.
 
-Requirements: Node.js 22.9+, pnpm (via Corepack), and Docker (integration tests start PostgreSQL with Testcontainers).
+## Contributing
 
-```sh
-pnpm install
-docker run -d --name marginalia-dev-db -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=marginalia -p 5433:5432 pgvector/pgvector:pg17
-cp .env.development.example .env.development   # local settings, gitignored
-pnpm dev
-```
-
-`pnpm dev` and `pnpm db:migrate` read `.env.development` if it exists. In a git worktree without its own copy, they read the main checkout's, and relative paths in it (such as `MARGINALIA_DATA_DIR`) resolve against the main checkout, so worktrees share its database and data. Variables already set in your shell take precedence. Production never reads this file.
-
-Dependencies are not shared between worktrees, because a branch can change them. Each worktree runs its own `pnpm install`, which pnpm makes fast by linking files from its shared store. Worktrees created by [Orca](https://github.com/stablyai/orca) run that install automatically through the setup hook in `orca.yaml`.
-
-| Command | What it does |
-| --- | --- |
-| `pnpm typecheck` / `pnpm lint` | TypeScript (strict) and Biome, including module-boundary rules |
-| `pnpm test:unit` | Parser, matching, config, and other pure tests |
-| `pnpm test:integration` | Database-backed tests (needs Docker) |
-| `pnpm test:e2e` | Playwright checks against a running instance (see `playwright.config.ts`) |
-| `pnpm db:generate` | Generate a migration after changing a Drizzle schema |
-
-### Layout
-
-A modular monolith. Each module exposes only its `index.ts`, and Biome rejects deep imports between modules.
-
-```
-src/
-  routes/          TanStack Start pages and API routes (thin)
-  fns/             server functions called by the UI
-  server/          config, logging, database, migrations, job queue, boot, request guard
-  modules/
-    access/        instance password, sessions, login rate limit, request guard
-    library/       sources, files, editions, upload, folder scanning
-    epub/          pure EPUB parser: bytes → structure (no database)
-    catalog/       storing parsed structure, locator forwarding on reparse
-    retrieval/     search, citation resolution, quote verification (read-only)
-    ai/            language model selection from environment configuration
-    conversation/  conversations, retrieval tools, citations, chat streaming
-    guide/         reading position, subjects, corrections, reader notes, glosses
-```
-
-### Parser versions
-
-`PARSER_VERSION` in `src/modules/epub/types.ts` is part of every locator. A golden snapshot test pins the parser's output for a committed public-domain book (`test/fixtures/standard-ebooks.epub`, from [Standard Ebooks](https://standardebooks.org), CC0). If that test fails after a parser change, bump `PARSER_VERSION`, which starts a new golden file, instead of editing the existing one. Editions parsed with an older version can then be reparsed. Their old locators keep resolving.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, commands, and code layout.
