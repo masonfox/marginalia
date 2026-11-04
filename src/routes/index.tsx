@@ -1,7 +1,9 @@
 import {
 	infiniteQueryOptions,
 	keepPreviousData,
+	queryOptions,
 	useInfiniteQuery,
+	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
 import {
@@ -14,10 +16,14 @@ import { useServerFn } from "@tanstack/react-start";
 import { BookOpen, RefreshCw, Search, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
+import { ConversationRow } from "#/components/conversation-list";
+import { HomeNav } from "#/components/home-nav";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
+import { listRecentConversationsFn } from "#/fns/conversations";
 import { listShelfFn, rescanLibrary, retryFailedImport } from "#/fns/library";
+import { useSentinel } from "#/hooks/use-sentinel";
 import {
 	MAX_SHELF_QUERY,
 	SHELF_FILTERS,
@@ -48,6 +54,15 @@ const shelfQuery = ({ q, status }: ShelfSearch) => {
 	});
 };
 
+/** Conversations shown in the Continue section. */
+const CONTINUE_COUNT = 3;
+
+/** The most recently active conversations across all books, for Continue. */
+const continueQuery = queryOptions({
+	queryKey: ["conversations", "recent", CONTINUE_COUNT],
+	queryFn: () => listRecentConversationsFn({ data: { limit: CONTINUE_COUNT } }),
+});
+
 /** Invalid values fall back to no search or filter rather than an error page. */
 const searchSchema = z.object({
 	q: z.string().max(MAX_SHELF_QUERY).optional().catch(undefined),
@@ -57,8 +72,14 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/")({
 	validateSearch: searchSchema,
 	loaderDeps: ({ search }) => ({ q: search.q, status: search.status }),
+	// Continue ignores the search and filter: once cached, a new search does
+	// not refetch it (the section refetches when it mounts and after changes).
+	// Its failure leaves the library usable, so it never fails the page.
 	loader: ({ context, deps }) =>
-		context.queryClient.ensureInfiniteQueryData(shelfQuery(deps)),
+		Promise.all([
+			context.queryClient.ensureInfiniteQueryData(shelfQuery(deps)),
+			context.queryClient.ensureQueryData(continueQuery).catch(() => null),
+		]),
 	component: LibraryPage,
 });
 
@@ -112,7 +133,8 @@ function LibraryPage() {
 
 	return (
 		<main className="mx-auto max-w-5xl px-4 py-8">
-			<div className="flex flex-wrap items-end justify-between gap-4">
+			<HomeNav />
+			<div className="mt-6 flex flex-wrap items-end justify-between gap-4">
 				<div>
 					<h1 className="font-serif text-3xl font-semibold">Library</h1>
 					<p
@@ -127,6 +149,8 @@ function LibraryPage() {
 					<UploadControl maxUploadMb={shell.maxUploadMb} />
 				</div>
 			</div>
+
+			<ContinueConversations />
 
 			{total === 0 ? (
 				<div className="mt-12 rounded-lg border border-dashed p-10 text-center">
@@ -168,7 +192,10 @@ function LibraryPage() {
 							</Button>
 						</div>
 					) : (
-						<ul className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4">
+						<ul
+							className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4"
+							data-testid="library-books"
+						>
 							{items.map((e) => (
 								<li key={e.id} className="flex flex-col">
 									<Link
@@ -222,25 +249,38 @@ function LibraryPage() {
 }
 
 /**
- * Calls `onVisible` when the returned element comes within about one screen
- * of the viewport, while `enabled`. Re-arming (enabled turning true again)
- * re-checks visibility, so a short page keeps loading until it fills.
+ * The most recently active conversations across all books, with a link to
+ * all of them. Not shown before the first conversation, or if they cannot
+ * be loaded: the library is still usable without it.
  */
-function useSentinel(onVisible: () => void, enabled: boolean) {
-	const ref = useRef<HTMLDivElement>(null);
-	useEffect(() => {
-		const el = ref.current;
-		if (!el || !enabled) return;
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (entries.some((e) => e.isIntersecting)) onVisible();
-			},
-			{ rootMargin: "100% 0px" },
-		);
-		observer.observe(el);
-		return () => observer.disconnect();
-	}, [onVisible, enabled]);
-	return ref;
+function ContinueConversations() {
+	const { data } = useQuery(continueQuery);
+	const conversations = data?.items ?? [];
+	if (conversations.length === 0) return null;
+	return (
+		<section
+			aria-labelledby="continue-conversations"
+			className="mt-6 space-y-2"
+			data-testid="continue-conversations"
+		>
+			<div className="flex items-baseline justify-between gap-4">
+				<h2 id="continue-conversations" className="font-medium">
+					Continue
+				</h2>
+				<Link
+					to="/conversations"
+					className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline pointer-coarse:py-3"
+				>
+					See all conversations
+				</Link>
+			</div>
+			<ul className="divide-y rounded-md border">
+				{conversations.map((c) => (
+					<ConversationRow key={c.id} bookLabel="books" conversation={c} />
+				))}
+			</ul>
+		</section>
+	);
 }
 
 function SearchBox({
