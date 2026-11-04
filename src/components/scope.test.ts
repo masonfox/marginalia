@@ -74,6 +74,20 @@ const checked = (dialog: Element) =>
 		(r) => r.checked,
 	);
 
+/** A reading position that resolves only when the test says so. */
+function deferredPosition() {
+	let resolve: (at: ReadingPosition | null) => void = () => {};
+	mocks.position.mockReturnValue(
+		new Promise<ReadingPosition | null>((r) => {
+			resolve = r;
+		}),
+	);
+	return async (at: ReadingPosition | null) => {
+		await act(async () => resolve(at));
+		await settle();
+	};
+}
+
 async function settle() {
 	await act(async () => {
 		await new Promise((r) => setTimeout(r, 0));
@@ -268,6 +282,28 @@ describe("NewConversationDialog", () => {
 			data: { editionId: EDITION, scope: { kind: "unit", endPosition: 9 } },
 		});
 	});
+
+	it("keeps a pick made before the position loads", async () => {
+		const resolvePosition = deferredPosition();
+		mocks.create.mockResolvedValue({ id: "c1" });
+		const dialog = await open();
+		await pick(dialog, "unit:9");
+		await resolvePosition(atChapter(1));
+		expect(checked(dialog).map((r) => r.value)).toEqual(["unit:9"]);
+		await act(async () => start(dialog).click());
+		expect(mocks.create).toHaveBeenCalledWith({
+			data: { editionId: EDITION, scope: { kind: "unit", endPosition: 9 } },
+		});
+	});
+
+	it("selects a position that loads after the units", async () => {
+		const resolvePosition = deferredPosition();
+		const dialog = await open();
+		expect(checked(dialog)).toEqual([]);
+		await resolvePosition(atChapter(1));
+		expect(checked(dialog).map((r) => r.value)).toEqual(["unit:19"]);
+		expect(start(dialog).disabled).toBe(false);
+	});
 });
 
 describe("WidenScope", () => {
@@ -333,5 +369,31 @@ describe("WidenScope", () => {
 		expect(dialog.querySelectorAll("[data-reading-position]")).toHaveLength(0);
 		expect(checked(dialog)).toEqual([]);
 		expect(widen(dialog).disabled).toBe(true);
+	});
+
+	it("keeps a pick made before the position loads", async () => {
+		const resolvePosition = deferredPosition();
+		mocks.widen.mockResolvedValue({ widened: true });
+		const dialog = await open();
+		await pick(dialog, "unit:19");
+		await resolvePosition(atChapter(2));
+		expect(checked(dialog).map((r) => r.value)).toEqual(["unit:19"]);
+		await act(async () => widen(dialog).click());
+		expect(mocks.widen).toHaveBeenCalledWith({
+			data: {
+				conversationId: "c1",
+				editionId: EDITION,
+				scope: { kind: "unit", endPosition: 19 },
+			},
+		});
+	});
+
+	it("selects a position that loads after the units", async () => {
+		const resolvePosition = deferredPosition();
+		const dialog = await open();
+		expect(checked(dialog)).toEqual([]);
+		await resolvePosition(atChapter(2));
+		expect(checked(dialog).map((r) => r.value)).toEqual(["unit:29"]);
+		expect(widen(dialog).disabled).toBe(false);
 	});
 });
