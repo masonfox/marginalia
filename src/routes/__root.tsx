@@ -28,7 +28,28 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 			},
 			{ title: "Marginalia" },
 		],
-		links: [{ rel: "stylesheet", href: appCss }],
+		links: [
+			{ rel: "stylesheet", href: appCss },
+			{ rel: "icon", href: "/favicon.ico?v=2", sizes: "any" },
+			{
+				rel: "icon",
+				type: "image/png",
+				sizes: "16x16",
+				href: "/assets/brand/icon-16.png?v=2",
+			},
+			{
+				rel: "icon",
+				type: "image/png",
+				sizes: "32x32",
+				href: "/assets/brand/icon-32.png?v=2",
+			},
+			{
+				rel: "apple-touch-icon",
+				sizes: "180x180",
+				href: "/assets/brand/icon-180.png?v=2",
+			},
+			{ rel: "manifest", href: "/assets/brand/site.webmanifest" },
+		],
 	}),
 	loader: () => getShellInfo(),
 	staleTime: Number.POSITIVE_INFINITY,
@@ -76,8 +97,20 @@ function AppShell() {
 				<div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
 					<Link
 						to="/"
-						className="font-serif text-xl font-semibold tracking-tight"
+						className="flex shrink-0 items-center gap-2 font-serif text-xl font-semibold tracking-tight"
 					>
+						<span
+							className="flex size-10 items-center justify-center overflow-hidden"
+							aria-hidden="true"
+						>
+							<img
+								src="/assets/brand/logo.png"
+								alt=""
+								width={72}
+								height={72}
+								className="size-[72px] max-w-none shrink-0"
+							/>
+						</span>
 						Marginalia
 					</Link>
 					{/* Icon-only below sm, each still named for assistive tech. */}
