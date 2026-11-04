@@ -908,6 +908,68 @@ test.describe("Discuss tab", () => {
 		expect(chatRequests).toBe(1);
 	});
 
+	test("a reload right after landing sends the handed-over question once and consumes the flag", async ({
+		page,
+	}) => {
+		let chatRequests = 0;
+		let hold = true;
+		let release = () => {};
+		const held = new Promise<void>((r) => {
+			release = r;
+		});
+		await page.route("**/api/chat", async (route) => {
+			chatRequests++;
+			// The first send never reaches the server, so nothing is stored.
+			if (chatRequests === 1) return route.abort();
+			if (hold) await held;
+			return fulfillReply(route, "Held reply.").catch(() => {});
+		});
+		await openDiscuss(page);
+		await question(page).fill("What is the spectre?");
+		await send(page);
+		await choose(page, "II: Proletarians and Communists");
+		await sheet(page).getByRole("button", { name: "Send" }).click();
+		await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/);
+		const conversationId = page.url().split("/c/")[1] as string;
+		await expect.poll(() => chatRequests).toBe(1);
+		const autoSendFlag = () =>
+			page.evaluate(
+				() => (window.history.state as { autoSend?: boolean } | null)?.autoSend,
+			);
+		await expect.poll(autoSendFlag).toBeUndefined();
+
+		// Recreate the moment of landing, before the handoff ran: the saved
+		// question and the history flag are both still there.
+		await page.evaluate(
+			({ key }) => {
+				sessionStorage.setItem(
+					key,
+					JSON.stringify({ v: 1, text: "Reloaded question", attachment: null }),
+				);
+				window.history.replaceState(
+					{ ...window.history.state, autoSend: true },
+					"",
+				);
+			},
+			{ key: `marginalia:composer:${conversationId}` },
+		);
+		await page.reload();
+		await expect.poll(() => chatRequests).toBe(2);
+		await expect(
+			page.locator("li").filter({ hasText: "Reloaded question" }).last(),
+		).toBeVisible();
+		await expect.poll(autoSendFlag).toBeUndefined();
+		expect(await storedDraft(page, conversationId)).toBeNull();
+
+		// The reply is still pending: reloading now must not send it again.
+		await page.reload();
+		await page.waitForLoadState("networkidle");
+		await expect(page.getByLabel("Message", { exact: true })).toHaveValue("");
+		expect(chatRequests).toBe(2);
+		hold = false;
+		release();
+	});
+
 	test("a half-written question survives switching tabs", async ({ page }) => {
 		const tabs = page.getByRole("navigation", { name: "Book" });
 		await openDiscuss(page);
