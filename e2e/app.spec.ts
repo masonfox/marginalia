@@ -507,6 +507,46 @@ test.describe("book page", () => {
 		await expect(page.getByLabel("Search text")).toBeVisible();
 	});
 
+	test("the current tab and Guide section are visibly marked, not only by aria-current", async ({
+		page,
+	}) => {
+		const { id } = await manifesto();
+		const look = (link: Locator) =>
+			link.evaluate((el) => {
+				const style = getComputedStyle(el);
+				return { border: style.borderBottomColor, text: style.color };
+			});
+		// Alpha of a computed `rgb(...)`, `rgba(...)`, `oklch(... / a)` or
+		// `color(... / a)`: transparent computes to alpha 0.
+		const alpha = (color: string) => {
+			if (color === "transparent") return 0;
+			const slash = color.match(/\/\s*([\d.]+)(%?)\s*\)$/);
+			if (slash) return Number(slash[1]) / (slash[2] ? 100 : 1);
+			const rgba = color.match(/^rgba\(([^)]+)\)$/);
+			if (rgba) return Number(rgba[1].split(",")[3]);
+			return 1;
+		};
+		const expectMarked = async (current: Locator, other: Locator) => {
+			await expect(current).toHaveAttribute("aria-current", "page");
+			const on = await look(current);
+			const off = await look(other);
+			expect(alpha(on.border)).toBeGreaterThan(0);
+			expect(on.border).not.toBe(off.border);
+			expect(on.text).not.toBe(off.text);
+		};
+
+		await page.goto(`/books/${id}`);
+		await expectMarked(tab(page, "Discuss"), tab(page, "About"));
+
+		await page.goto(`/books/${id}/guide/chapters`);
+		await expectMarked(tab(page, "Guide"), tab(page, "Contents"));
+		const guide = page.getByRole("navigation", { name: "Guide" });
+		await expectMarked(
+			guide.getByRole("link", { name: "Chapters", exact: true }),
+			guide.getByRole("link", { name: "Notes", exact: true }),
+		);
+	});
+
 	test("every Guide URL opens inside the book page with the Guide tab current", async ({
 		page,
 	}) => {

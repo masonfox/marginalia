@@ -210,10 +210,9 @@ function GuideLayout() {
 						key={to}
 						to={to}
 						params={{ editionId: edition.id }}
-						className="-mb-px border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground"
-						activeProps={{
-							className: "border-primary font-medium text-foreground",
-						}}
+						// Current from the router's aria-current, not activeProps: see
+						// TAB in book-page.tsx.
+						className="-mb-px border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground aria-[current=page]:border-primary aria-[current=page]:font-medium aria-[current=page]:text-foreground"
 					>
 						{label}
 					</Link>

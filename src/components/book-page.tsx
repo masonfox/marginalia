@@ -73,9 +73,14 @@ export function BookHeader() {
 	);
 }
 
+/**
+ * The current tab is styled from the router's `aria-current="page"` rather
+ * than `activeProps` classes: those are appended to these, and Tailwind orders
+ * same-property utilities itself, so `border-transparent` and
+ * `text-muted-foreground` would still win.
+ */
 const TAB =
-	"-mb-px shrink-0 border-b-2 border-transparent px-3 py-2 whitespace-nowrap text-muted-foreground hover:text-foreground pointer-coarse:py-3";
-const ACTIVE = { className: "border-primary font-medium text-foreground" };
+	"-mb-px shrink-0 border-b-2 border-transparent px-3 py-2 whitespace-nowrap text-muted-foreground hover:text-foreground pointer-coarse:py-3 aria-[current=page]:border-primary aria-[current=page]:font-medium aria-[current=page]:text-foreground";
 
 /**
  * The book's tabs as links: each is a page with its own URL, and the router
@@ -96,7 +101,6 @@ export function BookTabs() {
 				params={params}
 				activeOptions={{ exact: true, includeSearch: false }}
 				className={TAB}
-				activeProps={ACTIVE}
 			>
 				Discuss
 			</Link>
@@ -106,7 +110,6 @@ export function BookTabs() {
 					params={params}
 					activeOptions={{ includeSearch: false }}
 					className={TAB}
-					activeProps={ACTIVE}
 				>
 					Guide
 				</Link>
@@ -116,16 +119,10 @@ export function BookTabs() {
 				params={params}
 				activeOptions={{ includeSearch: false }}
 				className={TAB}
-				activeProps={ACTIVE}
 			>
 				Contents
 			</Link>
-			<Link
-				to="/books/$editionId/about"
-				params={params}
-				className={TAB}
-				activeProps={ACTIVE}
-			>
+			<Link to="/books/$editionId/about" params={params} className={TAB}>
 				About
 			</Link>
 		</nav>
