@@ -524,6 +524,8 @@ function ComposerForm({
 					<AutogrowTextarea
 						value={draft}
 						onValueChange={setDraft}
+						// The submitted text is handed over as is; later edits would be lost.
+						readOnly={creating}
 						onKeyDown={(e) => {
 							if (e.nativeEvent.isComposing) return;
 							// On desktop Enter sends; Shift+Enter, and Enter on touch, fall

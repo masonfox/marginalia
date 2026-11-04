@@ -393,6 +393,46 @@ describe("BookComposer", () => {
 		expect(state({})).toEqual({ autoSend: true });
 	});
 
+	it("locks the question while the conversation is being created", async () => {
+		mocks.reading = fakeReading(at(2));
+		let resolve: (value: { id: string }) => void = () => {};
+		mocks.create.mockReturnValue(
+			new Promise((r) => {
+				resolve = r;
+			}),
+		);
+		render(<BookComposer editionId="e1" status={OK_STATUS} />);
+		await type(question(), "Question A");
+		await click(button("Send"));
+		expect(question().readOnly).toBe(true);
+		await act(async () => resolve({ id: "c3" }));
+		expect(
+			JSON.parse(sessionStorage.getItem("marginalia:composer:c3") ?? ""),
+		).toMatchObject({ text: "Question A" });
+		expect(mocks.navigate).toHaveBeenCalledTimes(1);
+	});
+
+	it("unlocks the question for a retry when creation fails", async () => {
+		mocks.reading = fakeReading(at(2));
+		let reject: (reason: Error) => void = () => {};
+		mocks.create.mockReturnValue(
+			new Promise((_, r) => {
+				reject = r;
+			}),
+		);
+		render(<BookComposer editionId="e1" status={OK_STATUS} />);
+		await type(question(), "Question A");
+		await click(button("Send"));
+		expect(question().readOnly).toBe(true);
+		await act(async () => reject(new Error("offline")));
+		expect(question().readOnly).toBe(false);
+		expect(question().value).toBe("Question A");
+		expect(mocks.navigate).not.toHaveBeenCalled();
+		expect(document.body.textContent).toContain(
+			"Could not start a conversation",
+		);
+	});
+
 	it("keeps the message and asks again after a stale choice", async () => {
 		mocks.reading = fakeReading(at(2));
 		mocks.create.mockResolvedValue({ error: "stale_scope" });
