@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+	type PollableShelfPage,
 	SHELF_STATUS_CLASS,
 	SHELF_STATUS_LABEL,
 	SHELF_STATUSES,
+	type ShelfStatus,
 	shelfCountLabel,
 	shelfFilterOptions,
+	shouldPollShelf,
 } from "./shelf-status";
 
 describe("status badge", () => {
@@ -62,5 +65,50 @@ describe("count", () => {
 		expect(shelfCountLabel(12, 12, false)).toBe("12 books");
 		expect(shelfCountLabel(12, 3, true)).toBe("3 of 12 books");
 		expect(shelfCountLabel(1, 0, true)).toBe("0 of 1 book");
+	});
+});
+
+describe("shouldPollShelf", () => {
+	const page = (
+		processing: number | null,
+		...statuses: ShelfStatus[]
+	): PollableShelfPage => ({
+		processing,
+		items: statuses.map((status) => ({ status })),
+	});
+
+	it("polls while the first page counts a book as processing", () => {
+		expect(shouldPollShelf([page(1, "reading")])).toBe(true);
+	});
+
+	it("polls while a loaded book shows Processing after the count reaches 0", () => {
+		expect(shouldPollShelf([page(0, "processing")])).toBe(true);
+	});
+
+	it("polls while a book on a later page shows Processing", () => {
+		expect(
+			shouldPollShelf([
+				page(0, "reading", "finished"),
+				page(null, "not-started", "processing"),
+			]),
+		).toBe(true);
+	});
+
+	it("stops when nothing is processing", () => {
+		expect(
+			shouldPollShelf([
+				page(0, "reading", "failed"),
+				page(null, "finished", "unavailable"),
+			]),
+		).toBe(false);
+	});
+
+	it("ignores the null counts of later pages", () => {
+		expect(shouldPollShelf([page(0), page(null)])).toBe(false);
+	});
+
+	it("does not poll before any page loads", () => {
+		expect(shouldPollShelf(undefined)).toBe(false);
+		expect(shouldPollShelf([])).toBe(false);
 	});
 });

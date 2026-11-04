@@ -91,3 +91,25 @@ export function shelfCountLabel(
 ): string {
 	return narrowed ? `${matching} of ${books(total)}` : books(total);
 }
+
+/** The parts of a loaded shelf page that the polling decision reads. */
+export interface PollableShelfPage {
+	/** Processing count; null on cursor pages, which skip the counts. */
+	processing: number | null;
+	items: readonly { status: ShelfStatus }[];
+}
+
+/**
+ * Keep polling while the first page counts a book as processing, or any
+ * loaded book still shows Processing. Rows and counts are separate reads, so
+ * a row can show Processing after the count is already 0.
+ */
+export function shouldPollShelf(
+	pages: readonly PollableShelfPage[] | undefined,
+): boolean {
+	if (!pages?.length) return false;
+	return (
+		(pages[0].processing ?? 0) > 0 ||
+		pages.some((p) => p.items.some((b) => b.status === "processing"))
+	);
+}
