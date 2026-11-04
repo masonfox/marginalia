@@ -278,7 +278,9 @@ test.describe("library browsing", () => {
 
 	test.beforeEach(async ({ page }) => login(page));
 
-	const cards = (page: Page) => page.getByRole("main").getByRole("listitem");
+	// The books, not the Continue section's conversations above them.
+	const cards = (page: Page) =>
+		page.getByTestId("library-books").getByRole("listitem");
 	const count = (page: Page) => page.getByTestId("library-count");
 
 	test("search narrows the list, keeps history, and survives a reload", async ({
@@ -1078,6 +1080,270 @@ test.describe("conversation list", () => {
 		} finally {
 			await db.query("delete from conversations where id=$1", [id]);
 		}
+	});
+});
+
+test.describe("conversations home", () => {
+	// Conversations other than these may exist in the library being tested, so
+	// seeded rows are dated an hour ahead and found by their run's prefix.
+	const runId = randomUUID().slice(0, 8);
+	const prefix = `E2E Home ${runId}`;
+	const created: string[] = [];
+	let restoreAi: (() => Promise<void>) | undefined;
+	let editionId: string;
+	let restorePosition: () => Promise<void>;
+
+	test.beforeAll(async ({ browser }) => {
+		restoreAi = await snapshotAiSettings();
+		const context = await browser.newContext({
+			baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
+		});
+		const page = await context.newPage();
+		await login(page);
+		await configureFakeChatDefault(page);
+		await context.close();
+	});
+	test.afterAll(async () => {
+		await restoreAi?.();
+	});
+	test.beforeEach(async ({ page }) => {
+		editionId = (await manifesto()).id;
+		restorePosition = await snapshotPosition(editionId);
+		// Without a position, a first question asks for the scope.
+		await db.query("delete from reading_positions where edition_id = $1", [
+			editionId,
+		]);
+		await login(page);
+	});
+	test.afterEach(async () => {
+		await db.query("delete from conversations where id = any($1::uuid[])", [
+			created.splice(0),
+		]);
+		await db.query("delete from conversations where title like $1 || '%'", [
+			prefix,
+		]);
+		await db.query("delete from editions where title like $1 || '%'", [prefix]);
+		await restorePosition();
+	});
+
+	/** Seeds `count` conversations about the Manifesto, most recently active first. */
+	const seed = async (count: number) => {
+		const { rows } = await db.query<{ id: string; title: string }>(
+			`insert into conversations (title, created_at, updated_at)
+			 select $1 || ' ' || lpad(g::text, 3, '0'),
+			        now() + interval '1 hour' + g * interval '1 second',
+			        now() + interval '1 hour' + g * interval '1 second'
+			 from generate_series(1, $2::int) g
+			 returning id, title`,
+			[prefix, count],
+		);
+		await db.query(
+			`insert into conversation_editions (conversation_id, edition_id, ordinal)
+			 select id, $2, 0 from conversations where title like $1 || ' %'`,
+			[prefix, editionId],
+		);
+		return rows.sort((a, b) => b.title.localeCompare(a.title));
+	};
+	const rowFor = (scope: Locator | Page, id: string) =>
+		scope.getByTestId("conversation-row").filter({
+			// Relative to the row: a locator from the page root, not from `scope`.
+			has: ("page" in scope ? scope.page() : scope).locator(
+				`a[href="/c/${id}"]`,
+			),
+		});
+	const continueSection = (page: Page) =>
+		page.getByTestId("continue-conversations");
+	const homeNav = (page: Page) =>
+		page.getByRole("navigation", { name: "Home" });
+	const statusButton = (page: Page, name: string) =>
+		page
+			.getByRole("group", { name: "Filter by status" })
+			.getByRole("button", { name });
+
+	test("continues a conversation started from a book, then switches to Conversations and back to a filtered library", async ({
+		page,
+	}) => {
+		await page.route("**/api/chat", (route) =>
+			fulfillReply(route, "The spectre is communism."),
+		);
+		await page.goto(`/books/${editionId}`);
+		await page.waitForLoadState("networkidle");
+		await page.getByLabel("Your question").fill("What is the spectre?");
+		await page
+			.getByTestId("book-composer")
+			.getByRole("button", { name: "Send", exact: true })
+			.click();
+		const sheet = page.getByTestId("composer-scope-sheet");
+		await sheet.getByRole("radio", { name: "Whole book" }).check();
+		await sheet.getByRole("button", { name: "Send" }).click();
+		await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/);
+		const id = page.url().split("/c/")[1] as string;
+		created.push(id);
+		await expect(page.getByText("The spectre is communism.")).toBeVisible();
+
+		await page.getByRole("link", { name: "Marginalia" }).click();
+		await expect(page).toHaveURL("/");
+		const latest = continueSection(page)
+			.getByTestId("conversation-row")
+			.first();
+		await expect(latest.locator(`a[href="/c/${id}"]`)).toBeVisible();
+		await expect(latest.getByTestId("conversation-books")).toContainText(
+			"The Communist Manifesto · Whole book",
+		);
+		await latest.locator(`a[href="/c/${id}"]`).click();
+		await expect(page).toHaveURL(`/c/${id}`);
+
+		await page.getByRole("link", { name: "Marginalia" }).click();
+		await expect(
+			homeNav(page).getByRole("link", { name: "Library" }),
+		).toHaveAttribute("aria-current", "page");
+		await statusButton(page, "Reading").click();
+		await expect(page).toHaveURL(
+			(url) => url.searchParams.get("status") === "reading",
+		);
+		await homeNav(page).getByRole("link", { name: "Conversations" }).click();
+		await expect(page).toHaveURL("/conversations");
+		await expect(
+			homeNav(page).getByRole("link", { name: "Conversations" }),
+		).toHaveAttribute("aria-current", "page");
+		await expect(rowFor(page, id)).toBeVisible();
+
+		await page.goBack();
+		await expect(page).toHaveURL(
+			(url) =>
+				url.pathname === "/" && url.searchParams.get("status") === "reading",
+		);
+		await expect(statusButton(page, "Reading")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+	});
+
+	test("Continue shows the three most recent, ignores the search, and updates after a rename and a delete", async ({
+		page,
+	}) => {
+		const seeded = await seed(5);
+		const [first, second, , fourth] = seeded;
+		if (!first || !second || !fourth) throw new Error("seeded too few");
+		await page.goto("/");
+		await page.waitForLoadState("networkidle");
+		const section = continueSection(page);
+		await expect(section.getByTestId("conversation-title")).toHaveText(
+			seeded.slice(0, 3).map((c) => c.title),
+		);
+		await expect(
+			section.getByRole("link", { name: "See all conversations" }),
+		).toHaveAttribute("href", "/conversations");
+
+		await searchLibrary(page, `${prefix} no such book`);
+		await expect(page.getByText("No books match")).toBeVisible();
+		await expect(section.getByTestId("conversation-title")).toHaveText(
+			seeded.slice(0, 3).map((c) => c.title),
+		);
+
+		await rowFor(section, first.id)
+			.getByRole("button", { name: `Actions for “${first.title}”` })
+			.click();
+		await page.getByRole("menuitem", { name: "Rename" }).click();
+		const rename = page.getByTestId("rename-conversation-dialog");
+		await rename.getByLabel("Conversation title").fill(`${prefix} renamed`);
+		await rename.getByRole("button", { name: "Save" }).click();
+		await expect(rename).toBeHidden();
+		await expect(
+			rowFor(section, first.id).getByTestId("conversation-title"),
+		).toHaveText(`${prefix} renamed`);
+
+		await rowFor(section, second.id)
+			.getByRole("button", { name: `Actions for “${second.title}”` })
+			.click();
+		await page.getByRole("menuitem", { name: "Delete" }).click();
+		await page
+			.getByRole("alertdialog")
+			.getByRole("button", { name: "Delete", exact: true })
+			.click();
+		await expect(rowFor(section, second.id)).toHaveCount(0);
+		await expect(rowFor(section, fourth.id)).toBeVisible();
+		await expect(section.getByTestId("conversation-row")).toHaveCount(3);
+	});
+
+	test("the conversations page scrolls through every conversation once, even as one becomes active", async ({
+		page,
+	}) => {
+		const seeded = await seed(65);
+		await page.goto("/conversations");
+		await page.waitForLoadState("networkidle");
+		const titles = page
+			.getByTestId("conversation-title")
+			.filter({ hasText: prefix });
+		await expect(titles).toHaveCount(30);
+
+		// A conversation already shown receives a message in another tab.
+		const shown = seeded[2];
+		if (!shown) throw new Error("seeded too few");
+		await db.query(
+			"update conversations set updated_at = now() + interval '2 hours' where id = $1",
+			[shown.id],
+		);
+		while ((await titles.count()) < seeded.length) {
+			await page.mouse.wheel(0, 4000);
+			await page.waitForTimeout(100);
+		}
+		await page.waitForLoadState("networkidle");
+		await expect(titles).toHaveCount(seeded.length);
+		expect(await titles.allTextContents()).toEqual(seeded.map((c) => c.title));
+		await expect(page.getByText("Loading more…")).toHaveCount(0);
+	});
+
+	test("rows name several books, and the navigation fits one row on a phone", async ({
+		page,
+	}) => {
+		const [only] = await seed(1);
+		if (!only) throw new Error("seeded too few");
+		const { rows: extra } = await db.query<{ id: string }>(
+			`insert into editions (sha256, short_id, title, authors, status)
+			 select sha, substr(sha, 1, 16), $1 || ' Book ' || g, '[]'::jsonb, 'ready'
+			 from (
+			   select g, md5($1 || g) || md5(g || $1) as sha
+			   from generate_series(1, 2) g
+			 ) s
+			 order by g
+			 returning id`,
+			[prefix],
+		);
+		await db.query(
+			`insert into conversation_editions (conversation_id, edition_id, ordinal, max_position, scope_label)
+			 values ($1, $2, 1, 10, 'Part One'), ($1, $3, 2, null, null)`,
+			[only.id, extra[0]?.id, extra[1]?.id],
+		);
+		await page.setViewportSize({ width: 360, height: 740 });
+		await page.goto("/conversations");
+		await page.waitForLoadState("networkidle");
+		const row = rowFor(page, only.id);
+		await expect(row.getByTestId("conversation-books")).toContainText(
+			"The Communist Manifesto +2",
+		);
+		await expect(row.locator(`a[href="/c/${only.id}"]`)).toHaveAccessibleName(
+			new RegExp(
+				`The Communist Manifesto, whole book; ${prefix} Book 1, through Part One; ${prefix} Book 2, whole book`,
+			),
+		);
+
+		const nav = homeNav(page);
+		const library = await nav
+			.getByRole("link", { name: "Library" })
+			.boundingBox();
+		const all = await nav
+			.getByRole("link", { name: "Conversations" })
+			.boundingBox();
+		if (!library || !all) throw new Error("navigation not shown");
+		expect(library.y).toBe(all.y);
+		expect(all.x + all.width).toBeLessThanOrEqual(360);
+		expect(library.height).toBeGreaterThanOrEqual(36);
+		expect(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= window.innerWidth,
+			),
+		).toBe(true);
 	});
 });
 
@@ -2034,7 +2300,7 @@ test.describe("phone layout", () => {
 			page,
 		}) => {
 			// Two columns, whether or not the library holds a second book yet.
-			const grid = page.locator("main ul").first();
+			const grid = page.getByTestId("library-books");
 			await expect(grid.locator("> li").first()).toBeVisible();
 			expect(
 				await grid.evaluate(
