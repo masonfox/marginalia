@@ -5,7 +5,6 @@ import {
 	DeleteConversation,
 	RenameConversationDialog,
 } from "#/components/conversation-controls";
-import { scopeText } from "#/components/scope";
 import { Button } from "#/components/ui/button";
 import {
 	DropdownMenu,
@@ -13,7 +12,11 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
-import type { ConversationSummary } from "#/modules/conversation";
+import { conversationBooksLabel, scopeText } from "#/lib/conversation-books";
+import type {
+	ConversationSummary,
+	RecentConversation,
+} from "#/modules/conversation";
 
 /**
  * A book's conversations, most recently active first (as listed by the
@@ -37,7 +40,7 @@ export function ConversationList({
 			) : (
 				<ul className="divide-y rounded-md border">
 					{conversations.map((c) => (
-						<ConversationRow key={c.id} conversation={c} />
+						<ConversationRow key={c.id} bookLabel="scope" conversation={c} />
 					))}
 				</ul>
 			)}
@@ -45,16 +48,41 @@ export function ConversationList({
 	);
 }
 
-function ConversationRow({
-	conversation: c,
-}: {
-	conversation: ConversationSummary;
-}) {
+/**
+ * How a row names the conversation's books: `scope` on a book's own list,
+ * where only that book's scope is shown, and `books` on lists across books.
+ */
+export type ConversationRowProps =
+	| { bookLabel: "scope"; conversation: ConversationSummary }
+	| { bookLabel: "books"; conversation: RecentConversation };
+
+/**
+ * One conversation in a list: opens it when selected, with rename and
+ * delete in its actions menu. Every list refreshes after either.
+ */
+export function ConversationRow(props: ConversationRowProps) {
+	const c = props.conversation;
 	const router = useRouter();
 	const [renaming, setRenaming] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 	const messages = `${c.messageCount} message${c.messageCount === 1 ? "" : "s"}`;
 	const updated = new Date(c.updatedAt);
+	const books =
+		props.bookLabel === "books"
+			? conversationBooksLabel(props.conversation.books)
+			: null;
+	const scope =
+		props.bookLabel === "scope"
+			? scopeText(props.conversation.scopeLabel)
+			: null;
+	const lastActive = (
+		<>
+			{messages} · last active{" "}
+			<time dateTime={updated.toISOString()} suppressHydrationWarning>
+				{updated.toLocaleString()}
+			</time>
+		</>
+	);
 	return (
 		<li
 			className="flex items-start gap-1 hover:bg-accent/40"
@@ -71,15 +99,24 @@ function ConversationRow({
 				>
 					{c.title}
 				</span>
-				<span className="block truncate text-xs text-muted-foreground">
-					<span data-testid="conversation-scope">
-						{scopeText(c.scopeLabel)}
-					</span>{" "}
-					· {messages} · last active{" "}
-					<time dateTime={updated.toISOString()} suppressHydrationWarning>
-						{updated.toLocaleString()}
-					</time>
-				</span>
+				{books ? (
+					<>
+						<span
+							className="relative block truncate text-xs text-muted-foreground"
+							data-testid="conversation-books"
+						>
+							<span aria-hidden>{books.text}</span>
+							<span className="sr-only">{books.description}</span>
+						</span>
+						<span className="block truncate text-xs text-muted-foreground">
+							{lastActive}
+						</span>
+					</>
+				) : (
+					<span className="block truncate text-xs text-muted-foreground">
+						<span data-testid="conversation-scope">{scope}</span> · {lastActive}
+					</span>
+				)}
 				<span
 					className="mt-0.5 block truncate text-sm text-muted-foreground"
 					data-testid="conversation-preview"

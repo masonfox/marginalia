@@ -30,9 +30,7 @@ import type { ReadingPosition } from "#/modules/guide";
 import type { AiSelection } from "#/server/config";
 import { usePositionOffer } from "./conversation-controls";
 
-/** "Through Chapter 22" or "Whole book". */
-export const scopeText = (label: string | null) =>
-	label === null ? "Whole book" : `Through ${label}`;
+export { scopeText } from "#/lib/conversation-books";
 
 export type Choice = "whole" | `unit:${number}`;
 
