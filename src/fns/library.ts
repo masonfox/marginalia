@@ -13,7 +13,7 @@ import {
 	requestRescan,
 	retryImport,
 } from "#/modules/library";
-import { listShelf, SHELF_PAGE_SIZE } from "#/modules/shelf";
+import { listReadingShelf, listShelf, SHELF_PAGE_SIZE } from "#/modules/shelf";
 import { appContext } from "#/server/context";
 
 /** What every page's shell needs. Never includes the password itself. */
@@ -48,6 +48,17 @@ export const listShelfFn = createServerFn({ method: "GET" })
 	.handler(({ data }) =>
 		listShelf(appContext().db, { ...data, limit: SHELF_PAGE_SIZE }),
 	);
+
+/** Books on the dashboard's Reading section. */
+export const READING_SHELF_LIMIT = 4;
+
+/**
+ * The books being read, most recently updated position first, and the
+ * library's edition count, for the dashboard.
+ */
+export const listReadingShelfFn = createServerFn({ method: "GET" }).handler(
+	() => listReadingShelf(appContext().db, { limit: READING_SHELF_LIMIT }),
+);
 
 export const getEditionFn = createServerFn({ method: "GET" })
 	.validator(z.object({ editionId: z.uuid() }))
