@@ -7,8 +7,7 @@ import {
 	Scripts,
 	useRouterState,
 } from "@tanstack/react-router";
-import { LogOut, Settings } from "lucide-react";
-import { HomeNav } from "#/components/home-nav";
+import { HeaderMenu, HomeNav } from "#/components/home-nav";
 import { NewConversation } from "#/components/new-conversation";
 import { Button } from "#/components/ui/button";
 import { getShellInfo } from "#/fns/library";
@@ -96,8 +95,8 @@ function AppShell() {
 	return (
 		<div className="min-h-screen">
 			<header className="border-b">
-				{/* Below sm the navigation wraps onto its own row under the app name. */}
-				<div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+				{/* One row at every width. */}
+				<div className="mx-auto flex max-w-5xl items-center gap-x-4 px-4 py-3">
 					<Link
 						to="/"
 						className="flex shrink-0 items-center gap-2 font-serif text-xl font-semibold tracking-tight"
@@ -116,10 +115,8 @@ function AppShell() {
 						</span>
 						Marginalia
 					</Link>
-					{/* Icon-only below sm, each still named for assistive tech. */}
-					{!onLogin && (
-						<HomeNav className="max-sm:order-last max-sm:basis-full" />
-					)}
+					{/* Below sm the navigation, Settings, and Log out are in the menu. */}
+					{!onLogin && <HomeNav className="max-sm:hidden" />}
 					{!onLogin && (
 						<div className="ml-auto flex items-center gap-1">
 							<NewConversation />
@@ -127,27 +124,21 @@ function AppShell() {
 								asChild
 								variant="ghost"
 								size="sm"
-								className="max-sm:size-11 max-sm:px-0"
+								className="max-sm:hidden"
 							>
-								<Link to="/settings" aria-label="Settings">
-									<Settings aria-hidden className="sm:hidden" />
-									<span className="max-sm:sr-only">Settings</span>
-								</Link>
+								<Link to="/settings">Settings</Link>
 							</Button>
 							{shell.authEnabled && (
-								<form method="post" action="/logout">
-									<Button
-										type="submit"
-										variant="ghost"
-										size="sm"
-										aria-label="Log out"
-										className="max-sm:size-11 max-sm:px-0"
-									>
-										<LogOut aria-hidden className="sm:hidden" />
-										<span className="max-sm:sr-only">Log out</span>
+								<form method="post" action="/logout" className="max-sm:hidden">
+									<Button type="submit" variant="ghost" size="sm">
+										Log out
 									</Button>
 								</form>
 							)}
+							<HeaderMenu
+								authEnabled={shell.authEnabled}
+								className="sm:hidden"
+							/>
 						</div>
 					)}
 				</div>
