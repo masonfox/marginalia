@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { LogOut, Settings } from "lucide-react";
 import { HomeNav } from "#/components/home-nav";
+import { NewConversation } from "#/components/new-conversation";
 import { Button } from "#/components/ui/button";
 import { getShellInfo } from "#/fns/library";
 import appCss from "../styles.css?url";
@@ -121,6 +122,7 @@ function AppShell() {
 					)}
 					{!onLogin && (
 						<div className="ml-auto flex items-center gap-1">
+							<NewConversation />
 							<Button
 								asChild
 								variant="ghost"
