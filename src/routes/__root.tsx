@@ -99,20 +99,8 @@ function AppShell() {
 				<div className="mx-auto flex max-w-5xl items-center gap-x-4 px-4 py-3">
 					<Link
 						to="/"
-						className="flex shrink-0 items-center gap-2 font-serif text-xl font-semibold tracking-tight"
+						className="shrink-0 font-serif text-xl font-semibold tracking-tight"
 					>
-						<span
-							className="flex size-10 items-center justify-center overflow-hidden"
-							aria-hidden="true"
-						>
-							<img
-								src="/assets/brand/logo.png"
-								alt=""
-								width={72}
-								height={72}
-								className="size-[72px] max-w-none shrink-0"
-							/>
-						</span>
 						Marginalia
 					</Link>
 					{/* Below sm the navigation, Settings, and Log out are in the menu. */}
