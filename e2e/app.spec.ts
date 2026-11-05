@@ -47,8 +47,18 @@ async function login(page: Page) {
 	await page.waitForLoadState("networkidle");
 }
 
-/** Types into the library search and waits for the URL to follow. */
+/** Opens the Library page, ready for interaction. */
+async function openLibrary(page: Page, search = "") {
+	await page.goto(`/library${search}`);
+	await page.waitForLoadState("networkidle");
+}
+
+/**
+ * Types into the library search (opening the Library first if needed) and
+ * waits for the URL to follow.
+ */
 async function searchLibrary(page: Page, text: string) {
+	if (new URL(page.url()).pathname !== "/library") await openLibrary(page);
 	await page
 		.getByRole("searchbox", { name: "Search by title or author" })
 		.fill(text);
@@ -101,7 +111,10 @@ test.describe("logging in and out", () => {
 });
 
 test.describe("library", () => {
-	test.beforeEach(async ({ page }) => login(page));
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+		await openLibrary(page);
+	});
 
 	test("an upload goes from processing to ready without a reload", async ({
 		page,
@@ -206,7 +219,10 @@ test.describe("library", () => {
 
 		await page.getByRole("button", { name: "Delete book" }).click();
 		await dialog.getByRole("button", { name: "Delete", exact: true }).click();
-		await expect(page).toHaveURL("/");
+		await expect(page).toHaveURL("/library");
+		await expect(
+			page.getByRole("heading", { name: "Library", level: 1 }),
+		).toBeVisible();
 		await expect(card).toHaveCount(0);
 
 		for (const tab of ["", "/about", "/contents", "/guide/chapters"]) {
@@ -276,9 +292,12 @@ test.describe("library browsing", () => {
 		]);
 	});
 
-	test.beforeEach(async ({ page }) => login(page));
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+		await openLibrary(page);
+	});
 
-	// The books, not the Continue section's conversations above them.
+	// The library's book cards.
 	const cards = (page: Page) =>
 		page.getByTestId("library-books").getByRole("listitem");
 	const count = (page: Page) => page.getByTestId("library-count");
@@ -308,7 +327,7 @@ test.describe("library browsing", () => {
 		await searchLibrary(page, `${prefix} no such book`);
 		await expect(page.getByText("No books match")).toBeVisible();
 		await page.getByRole("button", { name: "Clear search and filter" }).click();
-		await expect(page).toHaveURL("/");
+		await expect(page).toHaveURL("/library");
 		await expect(
 			page.getByRole("searchbox", { name: "Search by title or author" }),
 		).toHaveValue("");
@@ -335,8 +354,7 @@ test.describe("library browsing", () => {
 	test("scrolling loads every book once, and back restores the list", async ({
 		page,
 	}) => {
-		await page.goto(`/?q=${encodeURIComponent(prefix)}&status=reading`);
-		await page.waitForLoadState("networkidle");
+		await openLibrary(page, `?q=${encodeURIComponent(prefix)}&status=reading`);
 		await expect(count(page)).toHaveText(new RegExp(`^${READING} of `));
 		await expect(cards(page)).toHaveCount(60);
 		// Scroll until every reading book is loaded; loading then stops.
@@ -364,6 +382,123 @@ test.describe("library browsing", () => {
 		);
 		await expect(cards(page)).toHaveCount(READING);
 		await expect(page.getByRole("link", { name: last })).toBeInViewport();
+	});
+});
+
+test.describe("dashboard", () => {
+	// Seeded books being read, with positions set in the future so they are
+	// the most recently updated in a shared database. Removed afterwards.
+	const runId = randomUUID().slice(0, 8);
+	const prefix = `E2E Dashboard ${runId}`;
+	const shelfDir = `e2e-dashboard/${runId}/`;
+	/** Book n's position was updated n hours before the newest. */
+	const titleOf = (n: number) => `${prefix} ${n}`;
+	const ids: string[] = [];
+
+	test.beforeAll(async () => {
+		const { id: sourceId } = await one<{ id: number }>(
+			"select id from library_sources where kind = 'upload' limit 1",
+		);
+		const { rows } = await db.query<{ id: string; n: number }>(
+			`insert into editions (sha256, short_id, title, authors, status)
+			 select sha, substr(sha, 1, 16), $1 || ' ' || g, '["Dash Author"]'::jsonb, 'ready'
+			 from (
+			   select g, md5($1 || g) || md5(g || $1) as sha
+			   from generate_series(1, 5) g
+			 ) s
+			 returning id, substr(title, length($1) + 2)::int as n`,
+			[prefix],
+		);
+		await db.query(
+			`insert into library_files (source_id, rel_path, size, mtime, sha256)
+			 select $1, $3 || sha256 || '.epub', 1, now(), sha256
+			 from editions where title like $2 || ' %'`,
+			[sourceId, prefix, shelfDir],
+		);
+		for (const row of rows.sort((a, b) => a.n - b.n)) {
+			ids.push(row.id);
+			await db.query(
+				`insert into reading_positions (edition_id, max_position, scope_label, updated_at)
+				 values ($1, 1, $2, now() + interval '1 day' - make_interval(hours => $3))`,
+				[row.id, `Chapter ${row.n}`, row.n],
+			);
+		}
+	});
+
+	test.afterAll(async () => {
+		await db.query("delete from editions where title like $1 || ' %'", [
+			prefix,
+		]);
+		await db.query("delete from library_files where rel_path like $1 || '%'", [
+			shelfDir,
+		]);
+	});
+
+	test.beforeEach(async ({ page }) => login(page));
+
+	const readingCards = (page: Page) =>
+		page.getByTestId("reading-shelf").getByTestId("reading-book");
+
+	test("Reading shows the four most recently updated books, each with its position", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await page.goto("/");
+		await page.waitForLoadState("networkidle");
+		await expect(
+			page.getByRole("heading", { name: "Dashboard", level: 1 }),
+		).toBeVisible();
+		await expect(page.getByRole("heading", { name: "Reading" })).toBeVisible();
+		await expect(readingCards(page)).toHaveCount(4);
+		await expect(readingCards(page).getByRole("heading")).toHaveText(
+			[1, 2, 3, 4].map(titleOf),
+		);
+		const first = readingCards(page).first();
+		await expect(first).toContainText("Dash Author");
+		await expect(first).toContainText("Through Chapter 1");
+		await expect(
+			page
+				.getByTestId("reading-shelf")
+				.getByRole("link", { name: "See all books you're reading" }),
+		).toHaveAttribute("href", "/library?status=reading");
+		// No library list or its controls on the dashboard.
+		await expect(page.getByTestId("library-books")).toHaveCount(0);
+		await expect(page.getByTestId("status-filter")).toHaveCount(0);
+
+		await first.getByRole("link").click();
+		await expect(page).toHaveURL(`/books/${ids[0]}`);
+	});
+
+	test("Reading shows two books at 360 pixels", async ({ page }) => {
+		await page.setViewportSize({ width: 360, height: 740 });
+		await page.goto("/");
+		await page.waitForLoadState("networkidle");
+		await expect(readingCards(page)).toHaveCount(4);
+		await expect(readingCards(page).filter({ visible: true })).toHaveCount(2);
+		// Hidden cards are not exposed to assistive technology either.
+		await expect(
+			page.getByTestId("reading-shelf").getByRole("heading", { level: 3 }),
+		).toHaveText([1, 2].map(titleOf));
+	});
+
+	test("an old library URL opens the Library with its search and filter, replacing the root URL", async ({
+		page,
+	}) => {
+		await page.goto("/conversations");
+		await page.waitForLoadState("networkidle");
+		await page.goto("/?q=woolf&status=finished");
+		await expect(page).toHaveURL("/library?q=woolf&status=finished");
+		await page.waitForLoadState("networkidle");
+		await expect(
+			page.getByRole("searchbox", { name: "Search by title or author" }),
+		).toHaveValue("woolf");
+		await expect(
+			page
+				.getByRole("group", { name: "Filter by status" })
+				.getByRole("button", { name: "Finished" }),
+		).toHaveAttribute("aria-pressed", "true");
+		await page.goBack();
+		await expect(page).toHaveURL("/conversations");
 	});
 });
 
@@ -1213,6 +1348,11 @@ test.describe("conversations home", () => {
 		await expect(
 			homeNav(page).getByRole("link", { name: "Dashboard" }),
 		).toHaveAttribute("aria-current", "page");
+		await homeNav(page).getByRole("link", { name: "Library" }).click();
+		await expect(page).toHaveURL("/library");
+		await expect(
+			homeNav(page).getByRole("link", { name: "Library" }),
+		).toHaveAttribute("aria-current", "page");
 		await statusButton(page, "Reading").click();
 		await expect(page).toHaveURL(
 			(url) => url.searchParams.get("status") === "reading",
@@ -1227,15 +1367,20 @@ test.describe("conversations home", () => {
 		await page.goBack();
 		await expect(page).toHaveURL(
 			(url) =>
-				url.pathname === "/" && url.searchParams.get("status") === "reading",
+				url.pathname === "/library" &&
+				url.searchParams.get("status") === "reading",
 		);
 		await expect(statusButton(page, "Reading")).toHaveAttribute(
 			"aria-pressed",
 			"true",
 		);
+		// Library stays current whatever its search and filter.
+		await expect(
+			homeNav(page).getByRole("link", { name: "Library" }),
+		).toHaveAttribute("aria-current", "page");
 	});
 
-	test("Continue shows the three most recent, ignores the search, and updates after a rename and a delete", async ({
+	test("Continue on the dashboard shows the three most recent and updates after a rename and a delete", async ({
 		page,
 	}) => {
 		const seeded = await seed(5);
@@ -1251,11 +1396,11 @@ test.describe("conversations home", () => {
 			section.getByRole("link", { name: "See all conversations" }),
 		).toHaveAttribute("href", "/conversations");
 
-		await searchLibrary(page, `${prefix} no such book`);
-		await expect(page.getByText("No books match")).toBeVisible();
-		await expect(section.getByTestId("conversation-title")).toHaveText(
-			seeded.slice(0, 3).map((c) => c.title),
-		);
+		// The library list and its controls are on the Library page.
+		await expect(
+			page.getByRole("searchbox", { name: "Search by title or author" }),
+		).toHaveCount(0);
+		await expect(page.locator("#upload")).toHaveCount(0);
 
 		await rowFor(section, first.id)
 			.getByRole("button", { name: `Actions for “${first.title}”` })
@@ -1310,7 +1455,7 @@ test.describe("conversations home", () => {
 		await expect(page.getByText("Loading more…")).toHaveCount(0);
 	});
 
-	test("rows name several books, and the navigation fits one row on a phone", async ({
+	test("rows name several books, and the header is one row with the menu on a phone", async ({
 		page,
 	}) => {
 		const [only] = await seed(1);
@@ -1344,23 +1489,28 @@ test.describe("conversations home", () => {
 			),
 		);
 
-		const nav = homeNav(page);
-		const library = await nav
-			.getByRole("link", { name: "Dashboard" })
-			.boundingBox();
-		const all = await nav
-			.getByRole("link", { name: "Conversations" })
-			.boundingBox();
+		// Below sm the navigation is in the header's menu, on the app name's row.
+		await expect(homeNav(page)).toBeHidden();
+		const menuButton = page
+			.getByRole("banner")
+			.getByRole("button", { name: "Menu" });
+		const menu = await menuButton.boundingBox();
 		const brand = await page
 			.getByRole("banner")
 			.getByRole("link", { name: "Marginalia" })
 			.boundingBox();
-		if (!library || !all || !brand) throw new Error("navigation not shown");
-		expect(library.y).toBe(all.y);
-		// Below sm the navigation takes its own row under the app name.
-		expect(library.y).toBeGreaterThanOrEqual(brand.y + brand.height);
-		expect(all.x + all.width).toBeLessThanOrEqual(360);
-		expect(library.height).toBeGreaterThanOrEqual(36);
+		if (!menu || !brand) throw new Error("header not shown");
+		expect(
+			Math.abs(menu.y + menu.height / 2 - (brand.y + brand.height / 2)),
+		).toBeLessThan(2);
+		expect(menu.x + menu.width).toBeLessThanOrEqual(360);
+		await menuButton.click();
+		const items = page.getByRole("menu").getByRole("menuitem");
+		await expect(items.and(page.locator('[aria-current="page"]'))).toHaveText([
+			"Conversations",
+		]);
+		await page.keyboard.press("Escape");
+		await expect(page.getByRole("menu")).toHaveCount(0);
 		expect(
 			await page.evaluate(
 				() => document.documentElement.scrollWidth <= window.innerWidth,
@@ -1532,6 +1682,7 @@ test.describe("new conversation from the header", () => {
 			[
 				header.getByRole("link", { name: "Marginalia" }),
 				header.getByRole("link", { name: "Dashboard" }),
+				header.getByRole("link", { name: "Library" }),
 				header.getByRole("link", { name: "Conversations" }),
 				newConversation(page),
 				header.getByRole("link", { name: "Settings" }),
@@ -1544,6 +1695,11 @@ test.describe("new conversation from the header", () => {
 		for (const m of middles)
 			expect(Math.abs(m - (middles[0] ?? 0))).toBeLessThan(2);
 		await expect(newConversation(page)).toHaveText("New conversation");
+		await expect(header.getByRole("button", { name: "Menu" })).toBeHidden();
+		if (PASSWORD)
+			await expect(
+				header.getByRole("button", { name: "Log out" }),
+			).toBeVisible();
 
 		if (!PASSWORD) return;
 		await page.context().clearCookies();
@@ -2479,30 +2635,24 @@ test.describe("phone layout", () => {
 		});
 		test.beforeEach(async ({ page }) => login(page));
 
-		test("the app header is one row of named icon controls, with the navigation below", async ({
+		test("the app header is one row of named icon controls, with the navigation in a menu", async ({
 			page,
 		}) => {
-			const brand = page.getByRole("link", { name: "Marginalia" });
-			const newConversation = page
-				.getByRole("banner")
-				.getByRole("button", { name: "New conversation" });
-			const settings = page.getByRole("link", { name: "Settings" });
-			const logOut = page.getByRole("button", { name: "Log out" });
+			const header = page.getByRole("banner");
+			const brand = header.getByRole("link", { name: "Marginalia" });
+			const newConversation = header.getByRole("button", {
+				name: "New conversation",
+			});
+			const menuButton = header.getByRole("button", { name: "Menu" });
 			await expect(newConversation).toBeVisible();
-			await expect(settings).toBeVisible();
+			await expect(menuButton).toBeVisible();
 			await expectTouchTarget(newConversation);
-			await expectTouchTarget(settings);
+			await expectTouchTarget(menuButton);
 			// Icon-only: the visible label is for assistive tech alone.
 			expect((await newConversation.boundingBox())?.width).toBeLessThan(60);
-			const controls = [brand, newConversation, settings];
-			// Log out is offered only when the instance has a password.
-			if (PASSWORD) {
-				await expect(logOut).toBeVisible();
-				await expectTouchTarget(logOut);
-				controls.push(logOut);
-			}
+			expect((await menuButton.boundingBox())?.width).toBeLessThan(60);
 			const middles = await Promise.all(
-				controls.map(async (l) => {
+				[brand, newConversation, menuButton].map(async (l) => {
 					const b = await l.boundingBox();
 					return (b?.y ?? 0) + (b?.height ?? 0) / 2;
 				}),
@@ -2510,20 +2660,78 @@ test.describe("phone layout", () => {
 			for (const m of middles)
 				expect(Math.abs(m - (middles[0] ?? 0))).toBeLessThan(2);
 			const row = page.locator("body > div > header > div").first();
-			// Brand row (40px) plus the navigation row (44px touch targets) and padding.
-			expect((await row.boundingBox())?.height).toBeLessThan(130);
-			const nav = row.getByRole("navigation", { name: "Main" });
-			const navBox = await nav.boundingBox();
-			const brandBox = await brand.boundingBox();
-			if (!navBox || !brandBox) throw new Error("no header boxes");
-			expect(navBox.y).toBeGreaterThanOrEqual(brandBox.y + brandBox.height);
-			await expectTouchTarget(nav.getByRole("link", { name: "Dashboard" }));
+			// One row: the 44px touch targets and padding.
+			expect((await row.boundingBox())?.height).toBeLessThan(80);
+			// No navigation, Settings, or Log out outside the menu.
+			await expect(
+				header.getByRole("navigation", { name: "Main" }),
+			).toBeHidden();
+			await expect(header.getByRole("link", { name: "Settings" })).toBeHidden();
+			await expect(
+				header.getByRole("button", { name: "Log out" }),
+			).toBeHidden();
 			await expectNoHorizontalScroll(page);
+
+			await expect(menuButton).toHaveAttribute("aria-expanded", "false");
+			await menuButton.click();
+			// While the menu is open, Radix hides the rest of the page from
+			// assistive tech, so find the button by its label instead.
+			await expect(
+				page.locator('header button[aria-label="Menu"]'),
+			).toHaveAttribute("aria-expanded", "true");
+			const menu = page.getByRole("menu");
+			const items = menu.getByRole("menuitem");
+			// Log out is offered only when the instance has a password.
+			await expect(items).toHaveText([
+				"Dashboard",
+				"Library",
+				"Conversations",
+				"Settings",
+				...(PASSWORD ? ["Log out"] : []),
+			]);
+			await expect(menu.getByRole("separator")).toHaveCount(1);
+			await expect(items.and(page.locator('[aria-current="page"]'))).toHaveText(
+				["Dashboard"],
+			);
+			// Measure once the opening zoom has finished.
+			await menu.evaluate((el) =>
+				Promise.all(el.getAnimations().map((a) => a.finished)),
+			);
+			for (let i = 0; i < (await items.count()); i++)
+				await expectTouchTarget(items.nth(i));
+
+			await items.filter({ hasText: "Library" }).click();
+			await expect(page).toHaveURL("/library");
+			await expect(menu).toHaveCount(0);
+			await expect(
+				page.getByRole("heading", { name: "Library", level: 1 }),
+			).toBeVisible();
+
+			// Nothing is current on a book's page.
+			const { id } = await manifesto();
+			await page.goto(`/books/${id}`);
+			await page.waitForLoadState("networkidle");
+			await menuButton.click();
+			await expect(items.first()).toBeVisible();
+			await expect(
+				items.and(page.locator('[aria-current="page"]')),
+			).toHaveCount(0);
+
+			// Escape closes the menu and returns focus to its button.
+			await page.keyboard.press("Escape");
+			await expect(menu).toHaveCount(0);
+			await expect(menuButton).toBeFocused();
+
+			if (!PASSWORD) return;
+			await menuButton.click();
+			await items.filter({ hasText: "Log out" }).click();
+			await expect(page).toHaveURL(/\/login$/);
 		});
 
 		test("the library shows two books a row, one row of filters, and the upload", async ({
 			page,
 		}) => {
+			await openLibrary(page);
 			// Two columns, whether or not the library holds a second book yet.
 			const grid = page.getByTestId("library-books");
 			await expect(grid.locator("> li").first()).toBeVisible();
