@@ -10,6 +10,7 @@ The page at `/` is titled Dashboard but is really the library with a Continue se
 - **Old library URLs redirect.** `/` with a `q` or `status` search redirects to `/library` with the same search and filter. **BREAKING** for anyone relying on the library list living at `/`; bookmarks keep working through the redirect.
 - **Three-entry navigation.** The header navigation becomes Dashboard, Library, Conversations.
 - **Phone header becomes one row with a menu.** On narrow viewports the header holds the app name, the icon-only New conversation control, and a "Menu" button. The menu lists Dashboard, Library, and Conversations (current page marked), then Settings and, when a password is set, Log out. The second navigation row is removed. Wider viewports are unchanged apart from the third entry.
+- **Clearer conversation rows.** Rows in lists across books start with a small stack of the conversation's book covers. Every conversation row shows its title, its preview, and one quiet line with its books or scope and a relative last-active time (exact time on hover); the message count is no longer shown.
 
 Non-goals: surfacing failed or processing imports on the dashboard (they stay under the Library's Needs attention filter); actions on Reading cards beyond opening the book; tracking actual reading activity (the shelf orders by when the position was last changed); changing the conversations page; a setting for which page opens first.
 
@@ -23,6 +24,7 @@ None.
 
 - `library-browsing`: The library list, search, filter, and empty state move to a Library page at `/library`; the dashboard at `/` holds Continue and a new Reading section; old `/` search URLs redirect; the header navigation gains a Library entry; deleting a book returns to the Library.
 - `responsive-layout`: On narrow viewports the app header becomes one row whose navigation, Settings, and Log out are in a menu, replacing the second navigation row.
+- `literary-conversations`: Conversation rows drop the message count, show when they were last active relative to now, and, in lists across books, show a stack of the books' covers.
 
 ## Impact
 

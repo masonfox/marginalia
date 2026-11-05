@@ -26,3 +26,8 @@
 
 - [x] 5.1 Update remaining e2e tests and docs that open `/` expecting the library list (search, filter, scroll and back, upload) to use `/library`; verify `pnpm test:e2e` passes
 - [x] 5.2 Run `pnpm lint`, `pnpm typecheck`, and `pnpm test`; verify all pass
+
+## 6. Conversation rows
+
+- [x] 6.1 Return `hasCover` for each book from `listRecentConversations` and show a `CoverStack` at the start of rows in lists across books; verify with integration and component tests
+- [x] 6.2 Show rows as title, preview, and a line with the books or scope and a relative last-active time, without the message count; verify `pnpm lint`, `pnpm typecheck`, and `pnpm test` pass
