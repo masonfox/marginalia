@@ -20,11 +20,19 @@ When at least one conversation exists, the library page SHALL show a "Continue" 
 - **THEN** the Continue section still shows the most recent conversations
 
 ### Requirement: Dashboard and conversations navigation
-The page at the site root, which holds the Continue section and the library list, SHALL be titled "Dashboard". It and the conversations page SHALL share a navigation with two entries, Dashboard and Conversations, that switches between them and marks the current page for assistive technology. The library's search and filter URLs at the site root SHALL keep working. The app name in the header SHALL lead to the dashboard, and the back links on the book and conversation pages SHALL lead to it and be labeled "Dashboard". On narrow viewports the navigation SHALL fit on one row with touch-sized targets.
+The page at the site root, which holds the Continue section and the library list, SHALL be titled "Dashboard". The app header SHALL hold a navigation with two entries, Dashboard and Conversations, on every page except the login page. The entry for the current page SHALL be marked for assistive technology, and on other pages, such as a book or a conversation, neither entry SHALL be marked. The library's search and filter URLs at the site root SHALL keep working. The app name in the header SHALL lead to the dashboard. The book page SHALL NOT show its own link back to the dashboard. On narrow viewports the navigation SHALL take its own row in the header, below the app name, with both entries on that row and touch-sized targets (see responsive-layout).
 
 #### Scenario: Switch to conversations
 - **WHEN** the reader selects Conversations from the dashboard
 - **THEN** the conversations page opens and Conversations is marked as the current page
+
+#### Scenario: From a book to conversations
+- **WHEN** the reader is on a book's page and selects Conversations in the header
+- **THEN** the conversations page opens
+
+#### Scenario: Nothing marked on other pages
+- **WHEN** the reader opens a conversation
+- **THEN** the header shows Dashboard and Conversations and neither is marked as the current page
 
 #### Scenario: Back to a filtered library
 - **WHEN** the reader filters the library to Reading, goes to Conversations, and then uses the browser's back action
@@ -32,4 +40,4 @@ The page at the site root, which holds the Continue section and the library list
 
 #### Scenario: Navigation on a phone
 - **WHEN** the reader opens the library at 360 pixels wide
-- **THEN** both navigation entries are visible on one row without horizontal page scrolling
+- **THEN** both navigation entries are visible on one row below the app name, without horizontal page scrolling

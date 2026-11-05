@@ -6,7 +6,7 @@ Conversations can only be found from the book they are filed under: the book pag
 
 - **Continue on the library.** The library page opens with a short "Continue" list of the most recently active conversations across all books, with a link to see all of them. It is hidden when there are no conversations, and does not change the library list, search, or filter below it.
 - **Conversations page.** A new `/conversations` page lists every conversation, most recently active first, loading more as the reader scrolls. Each row shows the title, its book or books with scope, message count, last active time, and the last-message preview the book page already uses, with the same rename and delete actions.
-- **Dashboard / Conversations navigation.** The page at `/` (Continue plus the library list) is titled Dashboard, and it and the conversations page share a two-item navigation, Dashboard and Conversations. Back links from book and conversation pages say "Dashboard". The library list stays at `/`, so existing links (including `?q=` and `?status=`) keep working.
+- **Dashboard / Conversations navigation in the header.** The page at `/` (Continue plus the library list) is titled Dashboard. The app header holds a two-item navigation, Dashboard and Conversations, on every page except login: beside the app name on wider screens, on its own row below it on phones. The book page drops its own back link. The library list stays at `/`, so existing links (including `?q=` and `?status=`) keep working.
 - **Multi-book labels.** A conversation with one book shows its title and scope. With two books, both titles. With three or more, the first title and "+N". Every book and its scope is in the row's accessible name.
 
 Non-goals: a setting for which page opens first (the library always does); a global "start a conversation" action and starting conversations about several books (change `start-multi-book-conversations`); searching or filtering conversations; conversation counts on library cards; changing the book page's conversation list.
@@ -20,12 +20,13 @@ None.
 ### Modified Capabilities
 
 - `literary-conversations`: Conversations can be listed across all books, not only per book, and rows label conversations about several books.
-- `library-browsing`: The library page shows recently active conversations and links to the conversations page, and the two pages share a navigation.
+- `library-browsing`: The library page, now titled Dashboard, shows recently active conversations and links to the conversations page, and the app header navigates between the two.
+- `responsive-layout`: On phones the app header takes a second row for the navigation.
 
 ## Impact
 
 - **Server** (`src/modules/conversation/repository.ts`, `src/fns/conversations.ts`): a paged query over all conversations, most recently active first, returning each conversation's books with their scopes and the existing preview. A new server function exposes it.
 - **Database**: an index on `conversations (updated_at, created_at, id)` for the ordering; one migration, no data changes.
-- **UI**: a new `src/routes/conversations.tsx`, a Continue section and the shared navigation on `src/routes/index.tsx`, and a list row in `conversation-list.tsx` that can show several books.
+- **UI**: a new `src/routes/conversations.tsx`, a Continue section on `src/routes/index.tsx`, the navigation in the app header (`src/routes/__root.tsx`), and a list row in `conversation-list.tsx` that can show several books.
 - **Tests**: integration tests for the query (ordering, paging, multi-book books, previews), unit tests for the book label, and an e2e flow from the library's Continue list.
-- **Depends on** `rework-book-page` (complete, not yet archived): the deltas build on its versions of the conversation list requirements.
+- **Builds on** the archived `rework-book-page`: the deltas build on its conversation list and responsive-layout requirements.

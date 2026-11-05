@@ -33,10 +33,12 @@ The library loader prefetches `listRecentConversationsFn({ limit: 3 })` alongsid
 ### D5. One row component with a book label
 `ConversationRow` moves out of `ConversationList` so all three lists use it. It takes a `bookLabel` mode: on the book page the row keeps showing that book's scope only, while on Continue and the conversations page it shows the label from a pure `conversationBooksLabel(books)` helper (one book: title and `scopeText`; two: both titles; three or more: first title "+N"), and the accessible name lists every title with its scope. The helper is unit tested.
 
-### D6. Navigation is a page-level component, not part of the app header
-A `HomeNav` with two `Link`s (Library `/`, Conversations `/conversations`) is rendered at the top of both pages, using `aria-current="page"` via the router's active state. Keeping it out of `__root.tsx` leaves the compact header requirement untouched and keeps book and chat pages free of it. The Library link has no search params; the browser's back action restores the filtered library, as the URL holds the search and filter.
+### D6. Navigation lives in the app header, on its own row on phones
+A `HomeNav` with two `Link`s (Dashboard `/`, Conversations `/conversations`) is rendered by `__root.tsx` on every page except login, using `aria-current="page"` from the router's active state, so on book and conversation pages neither entry is current. The header row is `flex-wrap`: on wider screens the nav sits beside the app name and the icon controls are pushed right; below `sm` the nav is `order-last basis-full`, taking a second row. Entries are filled pills rather than underlined tabs, so the current state reads the same in both layouts. The book page's "← Dashboard" link is removed as redundant; the conversation page keeps its link to the book. The Dashboard link has no search params; the browser's back action restores the filtered library, as the URL holds the search and filter.
 
-*Alternative:* tabs in the shell header. Rejected for now: the header must stay one row on phones, and change `start-multi-book-conversations` adds a button to it.
+*Alternative:* nav at the top of the two pages only. Tried first and rejected after use: switching from a book or a conversation took two steps, and the header is where readers look for it.
+
+*Alternative:* one header row on phones with icon-only tabs, or with the app name hidden. Rejected: icon tabs are easy to misread, and with the name hidden the row has no room for the New conversation control that `start-multi-book-conversations` adds.
 
 ## Risks / Trade-offs
 

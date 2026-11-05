@@ -8,6 +8,7 @@ import {
 	useRouterState,
 } from "@tanstack/react-router";
 import { LogOut, Settings } from "lucide-react";
+import { HomeNav } from "#/components/home-nav";
 import { Button } from "#/components/ui/button";
 import { getShellInfo } from "#/fns/library";
 import appCss from "../styles.css?url";
@@ -94,7 +95,8 @@ function AppShell() {
 	return (
 		<div className="min-h-screen">
 			<header className="border-b">
-				<div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
+				{/* Below sm the navigation wraps onto its own row under the app name. */}
+				<div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
 					<Link
 						to="/"
 						className="flex shrink-0 items-center gap-2 font-serif text-xl font-semibold tracking-tight"
@@ -115,7 +117,10 @@ function AppShell() {
 					</Link>
 					{/* Icon-only below sm, each still named for assistive tech. */}
 					{!onLogin && (
-						<div className="flex items-center gap-1">
+						<HomeNav className="max-sm:order-last max-sm:basis-full" />
+					)}
+					{!onLogin && (
+						<div className="ml-auto flex items-center gap-1">
 							<Button
 								asChild
 								variant="ghost"

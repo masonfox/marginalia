@@ -416,8 +416,9 @@ function ConversationPage() {
 					onCancel={() => setNoteExcerpt(null)}
 				/>
 				<header className="border-b pb-4 max-sm:pb-3" data-testid="chat-header">
-					<p className="text-sm">
-						{conversation.books[0] ? (
+					{/* With no books left, the header's navigation is the way out. */}
+					{conversation.books[0] && (
+						<p className="text-sm">
 							<Link
 								to="/books/$editionId"
 								params={{ editionId: conversation.books[0].editionId }}
@@ -425,12 +426,8 @@ function ConversationPage() {
 							>
 								← Conversations
 							</Link>
-						) : (
-							<Link to="/" className="text-muted-foreground hover:underline">
-								← Dashboard
-							</Link>
-						)}
-					</p>
+						</p>
+					)}
 					{/* Below sm: the title and the books take one line each. */}
 					<h1
 						className="mt-2 font-serif text-2xl font-semibold max-sm:mt-1 max-sm:truncate max-sm:text-xl"

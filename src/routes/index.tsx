@@ -17,7 +17,6 @@ import { BookOpen, RefreshCw, Search, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ConversationRow } from "#/components/conversation-list";
-import { HomeNav } from "#/components/home-nav";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -133,8 +132,7 @@ function LibraryPage() {
 
 	return (
 		<main className="mx-auto max-w-5xl px-4 py-8">
-			<HomeNav />
-			<div className="mt-6 flex flex-wrap items-end justify-between gap-4">
+			<div className="flex flex-wrap items-end justify-between gap-4">
 				<div>
 					<h1 className="font-serif text-3xl font-semibold">Dashboard</h1>
 					<p

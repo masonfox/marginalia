@@ -3,7 +3,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { MessagesSquare } from "lucide-react";
 import { useCallback } from "react";
 import { ConversationRow } from "#/components/conversation-list";
-import { HomeNav } from "#/components/home-nav";
 import { Button } from "#/components/ui/button";
 import { listRecentConversationsFn } from "#/fns/conversations";
 import { useSentinel } from "#/hooks/use-sentinel";
@@ -40,8 +39,7 @@ function ConversationsPage() {
 
 	return (
 		<main className="mx-auto max-w-5xl px-4 py-8">
-			<HomeNav />
-			<h1 className="mt-6 font-serif text-3xl font-semibold">Conversations</h1>
+			<h1 className="font-serif text-3xl font-semibold">Conversations</h1>
 			{list.isError && !list.data ? (
 				<p role="alert" className="mt-6 text-sm text-destructive-foreground">
 					Couldn't load conversations.{" "}

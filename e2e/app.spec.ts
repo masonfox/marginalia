@@ -1154,7 +1154,7 @@ test.describe("conversations home", () => {
 	const continueSection = (page: Page) =>
 		page.getByTestId("continue-conversations");
 	const homeNav = (page: Page) =>
-		page.getByRole("navigation", { name: "Home" });
+		page.getByRole("banner").getByRole("navigation", { name: "Main" });
 	const statusButton = (page: Page, name: string) =>
 		page
 			.getByRole("group", { name: "Filter by status" })
@@ -1192,6 +1192,10 @@ test.describe("conversations home", () => {
 		);
 		await latest.locator(`a[href="/c/${id}"]`).click();
 		await expect(page).toHaveURL(`/c/${id}`);
+		// The header's navigation is on every page; neither entry is current here.
+		await expect(homeNav(page).locator('a[aria-current="page"]')).toHaveCount(
+			0,
+		);
 
 		await page.getByRole("link", { name: "Marginalia" }).click();
 		await expect(
@@ -1335,8 +1339,14 @@ test.describe("conversations home", () => {
 		const all = await nav
 			.getByRole("link", { name: "Conversations" })
 			.boundingBox();
-		if (!library || !all) throw new Error("navigation not shown");
+		const brand = await page
+			.getByRole("banner")
+			.getByRole("link", { name: "Marginalia" })
+			.boundingBox();
+		if (!library || !all || !brand) throw new Error("navigation not shown");
 		expect(library.y).toBe(all.y);
+		// Below sm the navigation takes its own row under the app name.
+		expect(library.y).toBeGreaterThanOrEqual(brand.y + brand.height);
 		expect(all.x + all.width).toBeLessThanOrEqual(360);
 		expect(library.height).toBeGreaterThanOrEqual(36);
 		expect(
@@ -2273,7 +2283,7 @@ test.describe("phone layout", () => {
 		});
 		test.beforeEach(async ({ page }) => login(page));
 
-		test("the app header is one row of named icon controls", async ({
+		test("the app header is one row of named icon controls, with the navigation below", async ({
 			page,
 		}) => {
 			const brand = page.getByRole("link", { name: "Marginalia" });
@@ -2292,7 +2302,14 @@ test.describe("phone layout", () => {
 			for (const m of middles)
 				expect(Math.abs(m - (middles[0] ?? 0))).toBeLessThan(2);
 			const row = page.locator("body > div > header > div").first();
-			expect((await row.boundingBox())?.height).toBeLessThan(80);
+			// Brand row (40px) plus the navigation row (44px touch targets) and padding.
+			expect((await row.boundingBox())?.height).toBeLessThan(130);
+			const nav = row.getByRole("navigation", { name: "Main" });
+			const navBox = await nav.boundingBox();
+			const brandBox = await brand.boundingBox();
+			if (!navBox || !brandBox) throw new Error("no header boxes");
+			expect(navBox.y).toBeGreaterThanOrEqual(brandBox.y + brandBox.height);
+			await expectTouchTarget(nav.getByRole("link", { name: "Dashboard" }));
 			await expectNoHorizontalScroll(page);
 		});
 
