@@ -1121,6 +1121,7 @@ export function BookPicker({
 								size="sm"
 								variant="outline"
 								onClick={loadMore}
+								className="pointer-coarse:min-h-11 pointer-coarse:min-w-11"
 							>
 								Try again
 							</Button>
