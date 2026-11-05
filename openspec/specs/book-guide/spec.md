@@ -55,7 +55,7 @@ The Guide SHALL show a unit summary or an observation only when its unit's end p
 - **THEN** the corrected text is shown in place of the generated text
 
 ### Requirement: Chapters view
-The Chapters view SHALL list the unit summaries within the bound in reading order, each with its unit label and summary. Each citation SHALL link to its passage in the reader, and unverified citations SHALL be marked as unverified. A unit within the bound that has no current summary SHALL be shown as not yet summarized. Reader notes attached to a unit and visible at the bound SHALL be shown with that unit.
+The Chapters view SHALL list the unit summaries within the bound latest first, starting with the last unit within the bound and ending with the first, each with its unit label and summary. Each citation SHALL link to its passage in the reader, and unverified citations SHALL be marked as unverified. A unit within the bound that has no current summary SHALL be shown as not yet summarized. Reader notes attached to a unit and visible at the bound SHALL be shown with that unit.
 
 #### Scenario: Citation link
 - **WHEN** the reader clicks a citation on a Chapter 2 summary
