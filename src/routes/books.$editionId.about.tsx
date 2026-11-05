@@ -482,8 +482,11 @@ function DeleteBook({
 								await Promise.all([
 									queryClient.invalidateQueries({ queryKey: ["editions"] }),
 									queryClient.invalidateQueries({ queryKey: ["shelf"] }),
+									queryClient.invalidateQueries({
+										queryKey: ["reading-shelf"],
+									}),
 								]);
-								await navigate({ to: "/" });
+								await navigate({ to: "/library" });
 							} catch {
 								setError("The book could not be deleted. Please try again.");
 								setBusy(false);

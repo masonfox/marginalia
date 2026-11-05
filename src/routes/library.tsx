@@ -1,9 +1,7 @@
 import {
 	infiniteQueryOptions,
 	keepPreviousData,
-	queryOptions,
 	useInfiniteQuery,
-	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
 import {
@@ -16,11 +14,10 @@ import { useServerFn } from "@tanstack/react-start";
 import { BookOpen, RefreshCw, Search, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { ConversationRow } from "#/components/conversation-list";
+import { BookCover } from "#/components/book-cover";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
-import { listRecentConversationsFn } from "#/fns/conversations";
 import { listShelfFn, rescanLibrary, retryFailedImport } from "#/fns/library";
 import { useSentinel } from "#/hooks/use-sentinel";
 import {
@@ -53,32 +50,18 @@ const shelfQuery = ({ q, status }: ShelfSearch) => {
 	});
 };
 
-/** Conversations shown in the Continue section. */
-const CONTINUE_COUNT = 3;
-
-/** The most recently active conversations across all books, for Continue. */
-const continueQuery = queryOptions({
-	queryKey: ["conversations", "recent", CONTINUE_COUNT],
-	queryFn: () => listRecentConversationsFn({ data: { limit: CONTINUE_COUNT } }),
-});
-
 /** Invalid values fall back to no search or filter rather than an error page. */
 const searchSchema = z.object({
 	q: z.string().max(MAX_SHELF_QUERY).optional().catch(undefined),
 	status: z.enum(SHELF_FILTERS).optional().catch(undefined),
 });
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/library")({
+	head: () => ({ meta: [{ title: "Library · Marginalia" }] }),
 	validateSearch: searchSchema,
 	loaderDeps: ({ search }) => ({ q: search.q, status: search.status }),
-	// Continue ignores the search and filter: once cached, a new search does
-	// not refetch it (the section refetches when it mounts and after changes).
-	// Its failure leaves the library usable, so it never fails the page.
 	loader: ({ context, deps }) =>
-		Promise.all([
-			context.queryClient.ensureInfiniteQueryData(shelfQuery(deps)),
-			context.queryClient.ensureQueryData(continueQuery).catch(() => null),
-		]),
+		context.queryClient.ensureInfiniteQueryData(shelfQuery(deps)),
 	component: LibraryPage,
 });
 
@@ -87,7 +70,7 @@ const rootApi = getRouteApi("__root__");
 function LibraryPage() {
 	const shell = rootApi.useLoaderData();
 	const { q, status } = Route.useSearch();
-	const navigate = useNavigate({ from: "/" });
+	const navigate = useNavigate({ from: "/library" });
 	const setSearch = useCallback(
 		(next: ShelfSearch) =>
 			navigate({
@@ -134,7 +117,7 @@ function LibraryPage() {
 		<main className="mx-auto max-w-5xl px-4 py-8">
 			<div className="flex flex-wrap items-end justify-between gap-4">
 				<div>
-					<h1 className="font-serif text-3xl font-semibold">Dashboard</h1>
+					<h1 className="font-serif text-3xl font-semibold">Library</h1>
 					<p
 						className="mt-1 text-sm text-muted-foreground"
 						data-testid="library-count"
@@ -147,8 +130,6 @@ function LibraryPage() {
 					<UploadControl maxUploadMb={shell.maxUploadMb} />
 				</div>
 			</div>
-
-			<ContinueConversations />
 
 			{total === 0 ? (
 				<div className="mt-12 rounded-lg border border-dashed p-10 text-center">
@@ -201,7 +182,11 @@ function LibraryPage() {
 										params={{ editionId: e.id }}
 										className="group block"
 									>
-										<Cover id={e.id} title={e.title} hasCover={e.hasCover} />
+										<BookCover
+											id={e.id}
+											title={e.title}
+											hasCover={e.hasCover}
+										/>
 										<h2 className="mt-2 line-clamp-2 font-medium break-words group-hover:underline">
 											{e.title}
 										</h2>
@@ -243,41 +228,6 @@ function LibraryPage() {
 				</>
 			)}
 		</main>
-	);
-}
-
-/**
- * The most recently active conversations across all books, with a link to
- * all of them. Not shown before the first conversation, or if they cannot
- * be loaded: the library is still usable without it.
- */
-function ContinueConversations() {
-	const { data } = useQuery(continueQuery);
-	const conversations = data?.items ?? [];
-	if (conversations.length === 0) return null;
-	return (
-		<section
-			aria-labelledby="continue-conversations"
-			className="mt-6 space-y-2"
-			data-testid="continue-conversations"
-		>
-			<div className="flex items-baseline justify-between gap-4">
-				<h2 id="continue-conversations" className="font-medium">
-					Continue
-				</h2>
-				<Link
-					to="/conversations"
-					className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline pointer-coarse:py-3"
-				>
-					See all conversations
-				</Link>
-			</div>
-			<ul className="divide-y rounded-md border">
-				{conversations.map((c) => (
-					<ConversationRow key={c.id} bookLabel="books" conversation={c} />
-				))}
-			</ul>
-		</section>
 	);
 }
 
@@ -357,40 +307,15 @@ function StatusFilter({
 	);
 }
 
-function Cover({
-	id,
-	title,
-	hasCover,
-}: {
-	id: string;
-	title: string;
-	hasCover: boolean;
-}) {
-	if (hasCover) {
-		return (
-			<img
-				src={`/api/covers/${id}`}
-				alt=""
-				loading="lazy"
-				className="aspect-[2/3] w-full rounded-md border object-cover"
-			/>
-		);
-	}
-	return (
-		<div
-			aria-hidden
-			className="flex aspect-[2/3] w-full items-center justify-center rounded-md border bg-muted p-3 text-center font-serif text-sm text-muted-foreground"
-		>
-			{title}
-		</div>
-	);
-}
-
-/** After an upload or retry: the list, and anything else showing editions. */
+/**
+ * After an upload or retry: the list, the dashboard's Reading shelf, and
+ * anything else showing editions.
+ */
 function invalidateLibrary(queryClient: ReturnType<typeof useQueryClient>) {
 	return Promise.all([
 		queryClient.invalidateQueries({ queryKey: ["editions"] }),
 		queryClient.invalidateQueries({ queryKey: ["shelf"] }),
+		queryClient.invalidateQueries({ queryKey: ["reading-shelf"] }),
 	]);
 }
 
