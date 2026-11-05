@@ -7,7 +7,8 @@ import {
 	Scripts,
 	useRouterState,
 } from "@tanstack/react-router";
-import { LogOut, Settings } from "lucide-react";
+import { HeaderMenu, HomeNav } from "#/components/home-nav";
+import { NewConversation } from "#/components/new-conversation";
 import { Button } from "#/components/ui/button";
 import { getShellInfo } from "#/fns/library";
 import appCss from "../styles.css?url";
@@ -61,7 +62,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 			<p className="mt-2 text-muted-foreground">
 				There is nothing here.{" "}
 				<Link to="/" className="underline">
-					Back to the library
+					Back to the dashboard
 				</Link>
 				.
 			</p>
@@ -94,53 +95,38 @@ function AppShell() {
 	return (
 		<div className="min-h-screen">
 			<header className="border-b">
-				<div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
+				{/* One row at every width. */}
+				<div className="mx-auto flex max-w-5xl items-center gap-x-4 px-4 py-3">
 					<Link
 						to="/"
-						className="flex shrink-0 items-center gap-2 font-serif text-xl font-semibold tracking-tight"
+						className="shrink-0 font-serif text-xl font-semibold tracking-tight"
 					>
-						<span
-							className="flex size-10 items-center justify-center overflow-hidden"
-							aria-hidden="true"
-						>
-							<img
-								src="/assets/brand/logo.png"
-								alt=""
-								width={72}
-								height={72}
-								className="size-[72px] max-w-none shrink-0"
-							/>
-						</span>
 						Marginalia
 					</Link>
-					{/* Icon-only below sm, each still named for assistive tech. */}
+					{/* Below sm the navigation, Settings, and Log out are in the menu. */}
+					{!onLogin && <HomeNav className="max-sm:hidden" />}
 					{!onLogin && (
-						<div className="flex items-center gap-1">
+						<div className="ml-auto flex items-center gap-1">
+							<NewConversation />
 							<Button
 								asChild
 								variant="ghost"
 								size="sm"
-								className="max-sm:size-11 max-sm:px-0"
+								className="max-sm:hidden"
 							>
-								<Link to="/settings" aria-label="Settings">
-									<Settings aria-hidden className="sm:hidden" />
-									<span className="max-sm:sr-only">Settings</span>
-								</Link>
+								<Link to="/settings">Settings</Link>
 							</Button>
 							{shell.authEnabled && (
-								<form method="post" action="/logout">
-									<Button
-										type="submit"
-										variant="ghost"
-										size="sm"
-										aria-label="Log out"
-										className="max-sm:size-11 max-sm:px-0"
-									>
-										<LogOut aria-hidden className="sm:hidden" />
-										<span className="max-sm:sr-only">Log out</span>
+								<form method="post" action="/logout" className="max-sm:hidden">
+									<Button type="submit" variant="ghost" size="sm">
+										Log out
 									</Button>
 								</form>
 							)}
+							<HeaderMenu
+								authEnabled={shell.authEnabled}
+								className="sm:hidden"
+							/>
 						</div>
 					)}
 				</div>

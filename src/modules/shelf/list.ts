@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import {
 	decodeShelfCursor,
 	encodeShelfCursor,
@@ -183,5 +183,57 @@ export async function listShelf(
 		matching: after ? null : (counts?.matching ?? 0),
 		needsAttention: after ? null : (counts?.needsAttention ?? 0),
 		processing: after ? null : (counts?.processing ?? 0),
+	};
+}
+
+export interface ReadingShelfItem {
+	id: string;
+	title: string;
+	authors: string[];
+	hasCover: boolean;
+	/** The reading position's label, such as "Chapter 3". */
+	scopeLabel: string | null;
+}
+
+export interface ReadingShelf {
+	items: ReadingShelfItem[];
+	/** Editions in the library, whatever their status. */
+	total: number;
+}
+
+/**
+ * The books being read (the list's Reading status), most recently updated
+ * reading position first, with the library's edition count. Never pages.
+ */
+export async function listReadingShelf(
+	db: Executor,
+	{ limit }: { limit: number },
+): Promise<ReadingShelf> {
+	const joined = eq(readingPositions.editionId, editions.id);
+	const [rows, [counts]] = await Promise.all([
+		db
+			.select({
+				id: editions.id,
+				title: editions.title,
+				authors: editions.authors,
+				coverPath: editions.coverPath,
+				scopeLabel: readingPositions.scopeLabel,
+			})
+			.from(editions)
+			.leftJoin(readingPositions, joined)
+			.where(eq(statusSql, "reading"))
+			.orderBy(desc(readingPositions.updatedAt), asc(editions.id))
+			.limit(Math.max(1, Math.min(Math.trunc(limit), 500))),
+		db.select({ total: sql<number>`count(*)::int` }).from(editions),
+	]);
+	return {
+		items: rows.map((r) => ({
+			id: r.id,
+			title: r.title,
+			authors: r.authors,
+			hasCover: r.coverPath !== null,
+			scopeLabel: r.scopeLabel,
+		})),
+		total: counts?.total ?? 0,
 	};
 }

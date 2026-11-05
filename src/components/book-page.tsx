@@ -22,12 +22,7 @@ export function BookHeader() {
 	const { edition, isReady } = useBook();
 	return (
 		<header className="lg:sticky lg:top-6 lg:self-start">
-			<p className="text-sm">
-				<Link to="/" className="text-muted-foreground hover:underline">
-					← Library
-				</Link>
-			</p>
-			<div className="mt-3 flex gap-4 lg:flex-col">
+			<div className="flex gap-4 lg:flex-col">
 				{edition.coverPath && (
 					<img
 						src={`/api/covers/${edition.id}`}

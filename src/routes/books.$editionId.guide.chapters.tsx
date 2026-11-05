@@ -19,7 +19,11 @@ export const Route = createFileRoute("/books/$editionId/guide/chapters")({
 	component: ChaptersView,
 });
 
-/** Unit summaries within the bound, in reading order. */
+/**
+ * Unit summaries within the bound, latest first: the last unit the reader's
+ * position covers leads, back to the first. The query keeps reading order;
+ * only this view reverses it.
+ */
 function ChaptersView() {
 	const { editionId, bound, preprocessed, onStaleBound } = useGuide();
 	const [showHidden, setShowHidden] = useState(false);
@@ -43,7 +47,7 @@ function ChaptersView() {
 		return <p className="text-sm text-muted-foreground">Loading chapters…</p>;
 	if (chapters.isError || !chapters.data.ok)
 		return <GuideError>Could not load the chapters.</GuideError>;
-	const list = chapters.data.chapters;
+	const list = [...chapters.data.chapters].reverse();
 	const hiddenCount = list.filter(
 		(c) => c.summary?.correction?.action === "suppress",
 	).length;

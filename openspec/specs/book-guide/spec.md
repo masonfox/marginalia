@@ -7,15 +7,19 @@ Lets a reader browse what has been derived about a book (unit summaries, a subje
 ## Requirements
 
 ### Requirement: Guide for a book
-Every ready edition SHALL have a Guide reachable from its detail page, with three views: Chapters, Index, and Notes. When the edition has no current preprocessing, Chapters and Index SHALL say so and point to preprocessing on the detail page, and Notes SHALL still work. The Guide SHALL work whether or not an AI provider is configured, and SHALL make no model calls.
+Every ready edition SHALL have a Guide, shown as the Guide tab of its book page under the book page's shared header, with three views: Chapters, Index, and Notes. Each view SHALL keep its existing URL. The Guide tab SHALL show preprocessing status and actions (see library-browsing). When the edition has no current preprocessing, Chapters and Index SHALL say so and point to the preprocessing action on the same tab, and Notes SHALL still work. The Guide SHALL work whether or not an AI provider is configured, and SHALL make no model calls.
 
 #### Scenario: Open the Guide
 - **WHEN** a reader opens the Guide of a preprocessed book
-- **THEN** Chapters, Index, and Notes views are offered
+- **THEN** Chapters, Index, and Notes views are offered under the book page header, with the Guide tab marked as current
 
 #### Scenario: Not preprocessed
 - **WHEN** a reader opens the Guide of a book with no current preprocessing
-- **THEN** Chapters and Index say no guide data exists yet, and Notes is still usable
+- **THEN** Chapters and Index say no guide data exists yet and point to the preprocessing action on the Guide tab, and Notes is still usable
+
+#### Scenario: Existing Guide links
+- **WHEN** a reader opens a Guide chapters, index, subject, or note URL saved before this change
+- **THEN** the same view opens, now within the book page's Guide tab
 
 ### Requirement: Guide bound
 The Guide SHALL show nothing derived or reader-authored until a bound is established. When the edition has a reading position, the bound SHALL default to it. When the position is unset, the Guide SHALL ask the reader on each visit to choose a reading unit or whole book, with nothing preselected. The current bound SHALL always be visible as "Through <unit label>" or "Whole book".
@@ -51,7 +55,7 @@ The Guide SHALL show a unit summary or an observation only when its unit's end p
 - **THEN** the corrected text is shown in place of the generated text
 
 ### Requirement: Chapters view
-The Chapters view SHALL list the unit summaries within the bound in reading order, each with its unit label and summary. Each citation SHALL link to its passage in the reader, and unverified citations SHALL be marked as unverified. A unit within the bound that has no current summary SHALL be shown as not yet summarized. Reader notes attached to a unit and visible at the bound SHALL be shown with that unit.
+The Chapters view SHALL list the unit summaries within the bound latest first, starting with the last unit within the bound and ending with the first, each with its unit label and summary. Each citation SHALL link to its passage in the reader, and unverified citations SHALL be marked as unverified. A unit within the bound that has no current summary SHALL be shown as not yet summarized. Reader notes attached to a unit and visible at the bound SHALL be shown with that unit.
 
 #### Scenario: Citation link
 - **WHEN** the reader clicks a citation on a Chapter 2 summary

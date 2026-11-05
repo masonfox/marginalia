@@ -442,21 +442,30 @@ function ConversationPage() {
 					onCancel={() => setNoteExcerpt(null)}
 				/>
 				<header className="border-b pb-4 max-sm:pb-3" data-testid="chat-header">
-					<p className="text-sm">
-						{conversation.books[0] ? (
+					{/* With no books left, the header's navigation is the way out. */}
+					{/* Several books: the conversations page, where it is listed with every other. */}
+					{conversation.books.length > 1 ? (
+						<p className="text-sm">
 							<Link
-								to="/books/$editionId"
-								params={{ editionId: conversation.books[0].editionId }}
+								to="/conversations"
 								className="text-muted-foreground hover:underline"
 							>
 								← Conversations
 							</Link>
-						) : (
-							<Link to="/" className="text-muted-foreground hover:underline">
-								← Library
-							</Link>
-						)}
-					</p>
+						</p>
+					) : (
+						conversation.books[0] && (
+							<p className="text-sm">
+								<Link
+									to="/books/$editionId"
+									params={{ editionId: conversation.books[0].editionId }}
+									className="text-muted-foreground hover:underline"
+								>
+									← Conversations
+								</Link>
+							</p>
+						)
+					)}
 					{/* Below sm: the title and the books take one line each. */}
 					<h1
 						className="mt-2 font-serif text-2xl font-semibold max-sm:mt-1 max-sm:truncate max-sm:text-xl"
@@ -542,6 +551,7 @@ function ConversationPage() {
 						<div className="mt-3">
 							<ScopeNotice
 								labels={conversation.books.map((b) => b.scopeLabel)}
+								titles={conversation.books.map((b) => b.title)}
 							/>
 						</div>
 					</div>

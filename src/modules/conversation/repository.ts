@@ -8,8 +8,17 @@ import {
 	lt,
 	notExists,
 	type SQL,
+	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
+import { z } from "zod";
+import { MAX_CONVERSATION_BOOKS } from "#/lib/conversation-books";
+import {
+	CONVERSATIONS_PAGE_SIZE,
+	type ConversationCursor,
+	decodeConversationCursor,
+	encodeConversationCursor,
+} from "#/lib/conversation-cursor";
 import { previewText } from "#/lib/preview-text";
 import { getReadingUnits } from "#/modules/catalog";
 import { editions } from "#/modules/library";
@@ -44,6 +53,23 @@ export interface ConversationBook {
 /** How far the reader has read in a book: a reading unit, by its end position, or the whole book. */
 export type Scope = { kind: "whole" } | { kind: "unit"; endPosition: number };
 
+export const scopeSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("whole") }),
+	z.object({ kind: z.literal("unit"), endPosition: z.number().int() }),
+]);
+
+export { MAX_CONVERSATION_BOOKS };
+
+/** A new conversation's books with their scopes: 1 to MAX_CONVERSATION_BOOKS, distinct, in the reader's order. */
+export const newConversationBooksSchema = z
+	.array(z.object({ editionId: z.uuid(), scope: scopeSchema }))
+	.min(1)
+	.max(MAX_CONVERSATION_BOOKS)
+	.refine(
+		(books) => new Set(books.map((b) => b.editionId)).size === books.length,
+		"Books must be distinct",
+	);
+
 /** A stored bound: null for whole book. */
 export type ResolvedScope = { maxPosition: number; scopeLabel: string } | null;
 
@@ -52,7 +78,6 @@ export interface ConversationSummary {
 	title: string;
 	createdAt: Date;
 	updatedAt: Date;
-	messageCount: number;
 	/** Scope of the listed book in this conversation; null means whole book. */
 	scopeLabel: string | null;
 	/** Plain text of the latest message that has text; null when none does. */
@@ -136,12 +161,13 @@ async function insertConversation(
 	return row;
 }
 
-/** Conversations that include the edition, most recently active first. */
-export async function listConversationsForEdition(
-	db: Executor,
-	editionId: string,
-): Promise<ConversationSummary[]> {
-	const count = sql<number>`(select count(*)::int from ${messages} where ${messages.conversationId} = ${conversations.id})`;
+/**
+ * The columns every conversation list shares: the message count and the
+ * source of the preview. Join `latest` laterally (`leftJoinLateral(latest,
+ * sql\`true\`)`) to a query over `conversations`, select `columns`, and pass
+ * each row's `previewSource` through `toPreview`.
+ */
+function listColumns(db: Executor) {
 	// The latest message with a non-empty text part, walking the (conversation_id, seq) index backwards.
 	const latest = db
 		.select({ parts: messages.parts })
@@ -155,20 +181,34 @@ export async function listConversationsForEdition(
 		.orderBy(desc(messages.seq))
 		.limit(1)
 		.as("latest_text");
-	const rows = await db
-		.select({
+	return {
+		latest,
+		columns: {
 			id: conversations.id,
 			title: conversations.title,
 			createdAt: conversations.createdAt,
 			updatedAt: conversations.updatedAt,
-			messageCount: count,
-			scopeLabel: conversationEditions.scopeLabel,
 			previewSource: sql<string | null>`(
 				select left(string_agg(e.p->>'text', E'\\n\\n' order by e.o), ${PREVIEW_SOURCE_CHARS}::int)
 				from json_array_elements(${latest.parts}) with ordinality as e(p, o)
 				where e.p->>'type' = 'text'
 			)`,
-		})
+		},
+	};
+}
+
+/** A list row's preview from its `previewSource`. */
+const toPreview = (source: string | null): string | null =>
+	(source && previewText(source)) || null;
+
+/** Conversations that include the edition, most recently active first. */
+export async function listConversationsForEdition(
+	db: Executor,
+	editionId: string,
+): Promise<ConversationSummary[]> {
+	const { latest, columns } = listColumns(db);
+	const rows = await db
+		.select({ ...columns, scopeLabel: conversationEditions.scopeLabel })
 		.from(conversations)
 		.innerJoin(
 			conversationEditions,
@@ -179,8 +219,114 @@ export async function listConversationsForEdition(
 		.orderBy(desc(conversations.updatedAt), desc(conversations.createdAt));
 	return rows.map(({ previewSource, ...row }) => ({
 		...row,
-		preview: (previewSource && previewText(previewSource)) || null,
+		preview: toPreview(previewSource),
 	}));
+}
+
+/** A book as named in a list of conversations across books. */
+export interface ConversationListBook {
+	editionId: string;
+	title: string;
+	/** Whether the edition has a cover image at `/api/covers/<editionId>`. */
+	hasCover: boolean;
+	/** The reading unit the conversation is scoped through; null means whole book. */
+	scopeLabel: string | null;
+}
+
+export interface RecentConversation
+	extends Omit<ConversationSummary, "scopeLabel"> {
+	/** The conversation's books in their stored order. */
+	books: ConversationListBook[];
+}
+
+export interface RecentConversationPage {
+	items: RecentConversation[];
+	/** Opaque; pass back as `cursor` for the next page. Null after the last page. */
+	nextCursor: string | null;
+}
+
+export class InvalidConversationCursorError extends Error {
+	constructor() {
+		super("Invalid conversations cursor");
+		this.name = "InvalidConversationCursorError";
+	}
+}
+
+/** A timestamptz at full (microsecond) precision, which a JS Date would lose. */
+const timestampKeySql = (column: SQLWrapper) =>
+	sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
+/**
+ * One page of every conversation, whatever its books, most recently active
+ * first, then most recently created. Paging is keyset on (updated_at,
+ * created_at, id), so a conversation that becomes active after it was listed
+ * moves above the cursor and is not returned again.
+ */
+export async function listRecentConversations(
+	db: Executor,
+	{
+		cursor,
+		limit = CONVERSATIONS_PAGE_SIZE,
+	}: { cursor?: string; limit?: number } = {},
+): Promise<RecentConversationPage> {
+	let after: ConversationCursor | null = null;
+	if (cursor !== undefined) {
+		after = decodeConversationCursor(cursor);
+		if (!after) throw new InvalidConversationCursorError();
+	}
+	const pageSize = Math.max(
+		1,
+		Math.min(Math.trunc(limit), CONVERSATIONS_PAGE_SIZE),
+	);
+	const { latest, columns } = listColumns(db);
+	const rows = await db
+		.select({
+			...columns,
+			books: sql<ConversationListBook[]>`coalesce((
+				select json_agg(json_build_object(
+					'editionId', ${editions.id},
+					'title', ${editions.title},
+					'hasCover', ${editions.coverPath} is not null,
+					'scopeLabel', ${conversationEditions.scopeLabel}
+				) order by ${conversationEditions.ordinal})
+				from ${conversationEditions}
+				inner join ${editions} on ${editions.id} = ${conversationEditions.editionId}
+				where ${conversationEditions.conversationId} = ${conversations.id}
+			), '[]'::json)`,
+			updatedKey: timestampKeySql(conversations.updatedAt),
+			createdKey: timestampKeySql(conversations.createdAt),
+		})
+		.from(conversations)
+		.leftJoinLateral(latest, sql`true`)
+		.where(
+			after
+				? sql`(${conversations.updatedAt}, ${conversations.createdAt}, ${conversations.id}) < (${after.u}::timestamptz, ${after.c}::timestamptz, ${after.i}::uuid)`
+				: undefined,
+		)
+		.orderBy(
+			desc(conversations.updatedAt),
+			desc(conversations.createdAt),
+			desc(conversations.id),
+		)
+		.limit(pageSize + 1);
+	const page = rows.slice(0, pageSize);
+	const last = page.at(-1);
+	return {
+		items: page.map(
+			({ previewSource, updatedKey: _u, createdKey: _c, ...row }) => ({
+				...row,
+				preview: toPreview(previewSource),
+			}),
+		),
+		nextCursor:
+			rows.length > pageSize && last
+				? encodeConversationCursor({
+						u: last.updatedKey,
+						c: last.createdKey,
+						i: last.id,
+					})
+				: null,
+	};
 }
 
 /** The books a conversation is scoped to, in order. */
@@ -418,33 +564,57 @@ export async function resolveScope(
 		: undefined;
 }
 
+/** A book a new conversation is about, with the reader's chosen scope for it. */
+export interface NewConversationBook {
+	editionId: string;
+	scope: Scope;
+}
+
+export type CreateConversationResult =
+	| { id: string }
+	| { error: "not_ready" | "stale_scope"; editionId: string };
+
 /**
- * Starts a conversation about one ready book with the reader's chosen scope
- * and, optionally, its own model (checked by the caller).
- * Returns null when the book does not exist or is not ready, and
- * `stale_scope` when the chosen unit is no longer one of the book's units.
+ * Starts a conversation about one or more distinct ready books, each with the
+ * reader's chosen scope, in the given order, and optionally its own model
+ * (checked by the caller). All or nothing: returns `not_ready` for the first
+ * book, in the given order, that is missing or not ready, and `stale_scope`
+ * for the first whose chosen unit is no longer one of its units.
  */
-export async function createConversationForEdition(
+export async function createConversationForEditions(
 	db: Database,
-	editionId: string,
-	scope: Scope,
+	books: NewConversationBook[],
 	model?: AiSelection,
-): Promise<{ id: string } | { error: "stale_scope" } | null> {
+): Promise<CreateConversationResult> {
+	const ids = books.map((b) => b.editionId);
+	if (ids.length === 0)
+		throw new Error("a conversation needs at least one book");
+	if (new Set(ids).size !== ids.length)
+		throw new Error("a conversation's books must be distinct");
 	return db.transaction(async (tx) => {
-		// Conflicts with the lock replaceEditionStructure takes, so units cannot change before the insert.
-		const [edition] = await tx
+		// Conflicts with the lock replaceEditionStructure takes, so units cannot
+		// change before the insert. Locking in id order keeps two creations, or a
+		// creation and a reparse, over the same books from deadlocking.
+		const rows = await tx
 			.select({ id: editions.id, status: editions.status })
 			.from(editions)
-			.where(eq(editions.id, editionId))
+			.where(inArray(editions.id, ids))
+			.orderBy(asc(editions.id))
 			.for("share");
-		if (!edition || edition.status !== "ready") return null;
-		const resolved = await resolveScope(tx, editionId, scope);
-		if (resolved === undefined) return { error: "stale_scope" as const };
-		return insertConversation(tx, {
-			editionIds: [editionId],
-			scopes: { [editionId]: resolved },
-			model,
-		});
+		const ready = new Set(
+			rows.filter((r) => r.status === "ready").map((r) => r.id),
+		);
+		const missing = ids.find((id) => !ready.has(id));
+		if (missing !== undefined)
+			return { error: "not_ready" as const, editionId: missing };
+		const scopes: Record<string, ResolvedScope> = {};
+		for (const { editionId, scope } of books) {
+			const resolved = await resolveScope(tx, editionId, scope);
+			if (resolved === undefined)
+				return { error: "stale_scope" as const, editionId };
+			scopes[editionId] = resolved;
+		}
+		return insertConversation(tx, { editionIds: ids, scopes, model });
 	});
 }
 

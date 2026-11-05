@@ -12,17 +12,27 @@ import {
 	vi,
 } from "vitest";
 import type { Choice } from "#/components/scope";
+import { newConversationDraftId } from "#/lib/composer-draft";
 import type { ReadingUnit } from "#/modules/catalog";
 import type { ConversationSummary } from "#/modules/conversation";
 import type { ReadingPosition } from "#/modules/guide";
 import type { AiStatus } from "#/modules/settings";
-import { BookComposer, ScopeSheet, ScopeStrip } from "./book-composer";
+import {
+	BookComposer,
+	Composer,
+	ScopeSheet,
+	ScopeStrip,
+} from "./book-composer";
 import { DiscussView } from "./discuss";
 
 const mocks = vi.hoisted(() => ({
 	create: vi.fn(),
 	navigate: vi.fn(),
 	reading: null as unknown,
+	/** Reading positions by book; books not listed use `reading`. */
+	readings: {} as Record<string, unknown>,
+	shelf: vi.fn(),
+	edition: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -60,9 +70,14 @@ vi.mock("#/fns/guide", () => ({
 	setReadingPositionFn: vi.fn(),
 }));
 vi.mock("#/fns/settings", () => ({ listModelsFn: vi.fn() }));
+vi.mock("#/fns/library", () => ({
+	listShelfFn: (...args: unknown[]) => mocks.shelf(...args),
+	getEditionFn: (...args: unknown[]) => mocks.edition(...args),
+}));
 vi.mock("#/hooks/use-reading-position", async (original) => ({
 	...(await original<typeof import("#/hooks/use-reading-position")>()),
-	useReadingPosition: () => mocks.reading,
+	useReadingPosition: (editionId: string) =>
+		mocks.readings[editionId] ?? mocks.reading,
 }));
 
 declare global {
@@ -142,6 +157,9 @@ beforeEach(() => {
 	sessionStorage.clear();
 	mocks.create.mockReset();
 	mocks.navigate.mockReset();
+	mocks.shelf.mockReset();
+	mocks.edition.mockReset();
+	mocks.readings = {};
 });
 
 afterEach(() => {
@@ -322,7 +340,9 @@ describe("BookComposer", () => {
 			"marginalia:composer:book:e1",
 			JSON.stringify({ v: 1, text: "Half a question", attachment: null }),
 		);
-		render(<BookComposer editionId="e1" status={OK_STATUS} />);
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
 		expect(question().value).toBe("Half a question");
 		await type(question(), "Half a question, finished");
 		expect(
@@ -334,7 +354,9 @@ describe("BookComposer", () => {
 	it("uses an earlier chapter once without saving or asking to move back", async () => {
 		const reading = fakeReading(at(4));
 		mocks.reading = reading;
-		render(<BookComposer editionId="e1" status={OK_STATUS} />);
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
 		expect(byTestId("composer-scope")?.textContent).toBe("Through Chapter 4");
 		await chooseInSheet("Chapter 2", "once");
 		expect(reading.save).not.toHaveBeenCalled();
@@ -351,7 +373,9 @@ describe("BookComposer", () => {
 		await type(question(), "Why?");
 		await click(button("Send"));
 		expect(mocks.create).toHaveBeenCalledWith({
-			data: { editionId: "e1", scope: { kind: "unit", endPosition: 20 } },
+			data: {
+				books: [{ editionId: "e1", scope: { kind: "unit", endPosition: 20 } }],
+			},
 		});
 		expect(reading.save).not.toHaveBeenCalled();
 	});
@@ -360,12 +384,16 @@ describe("BookComposer", () => {
 		const reading = fakeReading(at(4));
 		reading.save.mockResolvedValue("confirm");
 		mocks.reading = reading;
-		render(<BookComposer editionId="e1" status={OK_STATUS} />);
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
 		await chooseInSheet("Chapter 2", "save");
 		expect(reading.save).toHaveBeenCalledWith("unit:20");
 		// The hook now waits for confirmation; the composer shows its dialog.
 		mocks.reading = { ...reading, pendingMoveBack: "unit:20" };
-		render(<BookComposer editionId="e1" status={OK_STATUS} />);
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
 		expect(byTestId("move-back-dialog")?.textContent).toContain(
 			"back to Chapter 2",
 		);
@@ -374,7 +402,9 @@ describe("BookComposer", () => {
 
 	it("asks for a scope on send with no position, and dismissing creates nothing", async () => {
 		mocks.reading = fakeReading(null);
-		render(<BookComposer editionId="e1" status={OK_STATUS} />);
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
 		await type(question(), "Who is Hal?");
 		await click(button("Send"));
 		expect(
@@ -393,7 +423,9 @@ describe("BookComposer", () => {
 		const reading = fakeReading(null);
 		mocks.reading = reading;
 		mocks.create.mockResolvedValue({ id: "c9" });
-		render(<BookComposer editionId="e1" status={OK_STATUS} />);
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
 		await type(question(), "Who is Hal?");
 		await click(button("Send"));
 		await click(button("I'm partway through"));
@@ -401,7 +433,9 @@ describe("BookComposer", () => {
 		await click(button("Send", sheet()));
 		expect(reading.save).toHaveBeenCalledWith("unit:40");
 		expect(mocks.create).toHaveBeenCalledWith({
-			data: { editionId: "e1", scope: { kind: "unit", endPosition: 40 } },
+			data: {
+				books: [{ editionId: "e1", scope: { kind: "unit", endPosition: 40 } }],
+			},
 		});
 		expect(
 			JSON.parse(sessionStorage.getItem("marginalia:composer:c9") ?? ""),
@@ -429,7 +463,9 @@ describe("BookComposer", () => {
 			JSON.parse(
 				sessionStorage.getItem("marginalia:composer:book:e1") ?? "null",
 			);
-		render(<BookComposer editionId="e1" status={OK_STATUS} />);
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
 		await type(question(), "- Question A");
 		await click(button("Send"));
 		expect(question().readOnly).toBe(true);
@@ -462,7 +498,9 @@ describe("BookComposer", () => {
 				reject = r;
 			}),
 		);
-		render(<BookComposer editionId="e1" status={OK_STATUS} />);
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
 		await type(question(), "Question A");
 		await click(button("Send"));
 		expect(question().readOnly).toBe(true);
@@ -500,7 +538,13 @@ describe("BookComposer", () => {
 		it("keeps the question when every write throws, and a retry reuses the conversation", async () => {
 			mocks.reading = fakeReading(at(2));
 			mocks.create.mockResolvedValue({ id: "c1" });
-			render(<BookComposer editionId="e1" status={OK_STATUS} />);
+			render(
+				<BookComposer
+					editionId="e1"
+					title="Infinite Jest"
+					status={OK_STATUS}
+				/>,
+			);
 			await type(question(), "Who is Hal?");
 			const setItem = vi
 				.spyOn(Storage.prototype, "setItem")
@@ -527,7 +571,13 @@ describe("BookComposer", () => {
 		it("keeps the book draft when only the conversation's write fails", async () => {
 			mocks.reading = fakeReading(at(2));
 			mocks.create.mockResolvedValue({ id: "c1" });
-			render(<BookComposer editionId="e1" status={OK_STATUS} />);
+			render(
+				<BookComposer
+					editionId="e1"
+					title="Infinite Jest"
+					status={OK_STATUS}
+				/>,
+			);
 			await type(question(), "Who is Hal?");
 			expect(JSON.parse(sessionStorage.getItem(bookKey) ?? "")).toMatchObject({
 				text: "Who is Hal?",
@@ -561,7 +611,13 @@ describe("BookComposer", () => {
 			mocks.create
 				.mockResolvedValueOnce({ id: "c1" })
 				.mockResolvedValueOnce({ id: "c2" });
-			render(<BookComposer editionId="e1" status={OK_STATUS} />);
+			render(
+				<BookComposer
+					editionId="e1"
+					title="Infinite Jest"
+					status={OK_STATUS}
+				/>,
+			);
 			await type(question(), "Who is Hal?");
 			const blocked = vi
 				.spyOn(window, "sessionStorage", "get")
@@ -578,7 +634,11 @@ describe("BookComposer", () => {
 			await click(button("Send"));
 			expect(mocks.create).toHaveBeenCalledTimes(2);
 			expect(mocks.create.mock.calls[1][0]).toEqual({
-				data: { editionId: "e1", scope: { kind: "unit", endPosition: 20 } },
+				data: {
+					books: [
+						{ editionId: "e1", scope: { kind: "unit", endPosition: 20 } },
+					],
+				},
 			});
 			expect(handedOver("c2")).toMatchObject({ text: "Who is Hal?" });
 			expect(mocks.navigate.mock.calls[0][0]).toMatchObject({
@@ -589,8 +649,10 @@ describe("BookComposer", () => {
 
 	it("keeps the message and asks again after a stale choice", async () => {
 		mocks.reading = fakeReading(at(2));
-		mocks.create.mockResolvedValue({ error: "stale_scope" });
-		render(<BookComposer editionId="e1" status={OK_STATUS} />);
+		mocks.create.mockResolvedValue({ error: "stale_scope", editionId: "e1" });
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
 		await type(question(), "Still here?");
 		await click(button("Send"));
 		expect(mocks.navigate).not.toHaveBeenCalled();
@@ -601,6 +663,451 @@ describe("BookComposer", () => {
 	});
 });
 
+describe("Composer with several books", () => {
+	const IJ = { editionId: "e1", title: "Infinite Jest" };
+	const PK = { editionId: "e2", title: "The Pale King" };
+	const BROOM = { editionId: "e3", title: "The Broom of the System" };
+	const shelfItem = (
+		book: { editionId: string; title: string },
+		status = "not-started",
+	) => ({
+		id: book.editionId,
+		title: book.title,
+		authors: ["David Foster Wallace"],
+		status,
+		error: null,
+		hasCover: false,
+	});
+	const page = (items: unknown[], nextCursor: string | null = null) => ({
+		items,
+		nextCursor,
+		total: null,
+		matching: null,
+		needsAttention: null,
+		processing: null,
+	});
+
+	const row = (editionId: string) => {
+		const el = document.querySelector<HTMLElement>(
+			`[data-testid="composer-book"][data-edition-id="${editionId}"]`,
+		);
+		if (!el) throw new Error(`no book ${editionId}`);
+		return el;
+	};
+	const scopeOf = (editionId: string) =>
+		row(editionId).querySelector('[data-testid="composer-scope"]')?.textContent;
+	const titles = () =>
+		[...document.querySelectorAll('[data-testid="composer-book-title"]')].map(
+			(el) => el.textContent,
+		);
+	const sendButton = () =>
+		[...document.querySelectorAll("form button")].at(-1) as HTMLButtonElement;
+	const requestedBooks = () =>
+		(mocks.create.mock.calls[0]?.[0] as { data: { books: unknown[] } }).data
+			.books;
+	const composer = (initialBooks = [IJ, PK], draftId = "book:e1") =>
+		render(
+			<Composer
+				initialBooks={initialBooks}
+				draftId={draftId}
+				status={OK_STATUS}
+			/>,
+		);
+	const typeSearch = (text: string) =>
+		act(async () => {
+			const input = document.querySelector<HTMLInputElement>(
+				'input[aria-label="Search books"]',
+			);
+			if (!input) throw new Error("no search");
+			Object.getOwnPropertyDescriptor(
+				HTMLInputElement.prototype,
+				"value",
+			)?.set?.call(input, text);
+			input.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+	const options = () =>
+		[
+			...document.querySelectorAll<HTMLButtonElement>(
+				'[data-testid="book-picker-option"]',
+			),
+		].map((b) => b.querySelector("span")?.textContent);
+	/** Lets queries resolve; the query cache notifies on a timer. */
+	const settle = async () => {
+		for (let i = 0; i < 5; i++)
+			await act(() => new Promise((r) => setTimeout(r, 0)));
+	};
+	/** Opens the picker and lets its pages load. */
+	const openPicker = async () => {
+		await click(button("Add book"));
+		await settle();
+	};
+	const pick = async (title: string) => {
+		const found = [
+			...document.querySelectorAll<HTMLButtonElement>(
+				'[data-testid="book-picker-option"]',
+			),
+		].find((b) => b.querySelector("span")?.textContent === title);
+		if (!found) throw new Error(`no option ${title}`);
+		await click(found);
+	};
+
+	beforeAll(() => {
+		// The picker's sentinel is always in view in these tests.
+		globalThis.IntersectionObserver ??= class {
+			constructor(private callback: IntersectionObserverCallback) {}
+			observe() {
+				this.callback(
+					[{ isIntersecting: true } as IntersectionObserverEntry],
+					this as unknown as IntersectionObserver,
+				);
+			}
+			unobserve() {}
+			disconnect() {}
+			takeRecords() {
+				return [];
+			}
+		} as unknown as typeof IntersectionObserver;
+	});
+
+	it("sends each book with its own position, in the order they were added", async () => {
+		mocks.readings = {
+			e1: fakeReading(at(4)),
+			e2: fakeReading({ kind: "finished" }),
+		};
+		mocks.create.mockResolvedValue({ id: "c1" });
+		composer();
+		expect(titles()).toEqual(["Infinite Jest", "The Pale King"]);
+		expect(scopeOf("e1")).toBe("Through Chapter 4");
+		expect(scopeOf("e2")).toBe("Whole book");
+		await type(question(), "Compare them");
+		await click(button("Send"));
+		expect(mocks.create).toHaveBeenCalledWith({
+			data: {
+				books: [
+					{ editionId: "e1", scope: { kind: "unit", endPosition: 40 } },
+					{ editionId: "e2", scope: { kind: "whole" } },
+				],
+			},
+		});
+	});
+
+	it("changes one book's scope for this conversation only, leaving the other's", async () => {
+		const ij = fakeReading(at(4));
+		const pk = fakeReading(at(3));
+		mocks.readings = { e1: ij, e2: pk };
+		mocks.create.mockResolvedValue({ id: "c1" });
+		composer();
+		await click(button("Update", row("e1")));
+		expect(sheet().textContent).toContain(
+			"How far have you read in Infinite Jest?",
+		);
+		await click(button("I'm partway through"));
+		await click(radio("Chapter 2"));
+		await click(radio("Only for this conversation"));
+		await click(button("Use this scope"));
+		expect(scopeOf("e1")).toBe("Through Chapter 2 · this conversation only");
+		expect(scopeOf("e2")).toBe("Through Chapter 3");
+		expect(ij.save).not.toHaveBeenCalled();
+		expect(pk.save).not.toHaveBeenCalled();
+		await type(question(), "Why?");
+		await click(button("Send"));
+		expect(requestedBooks()).toEqual([
+			{ editionId: "e1", scope: { kind: "unit", endPosition: 20 } },
+			{ editionId: "e2", scope: { kind: "unit", endPosition: 30 } },
+		]);
+	});
+
+	it("asks only for the book without a position, then sends with both", async () => {
+		const pk = fakeReading(null);
+		mocks.readings = { e1: fakeReading(at(2)), e2: pk };
+		mocks.create.mockResolvedValue({ id: "c1" });
+		composer();
+		await type(question(), "Who is Hal?");
+		await click(button("Send"));
+		expect(sheet().textContent).toContain(
+			"How far have you read in The Pale King?",
+		);
+		expect(mocks.create).not.toHaveBeenCalled();
+		await click(button("I'm partway through"));
+		await click(radio("Chapter 4"));
+		await click(button("Send", sheet()));
+		expect(pk.save).toHaveBeenCalledWith("unit:40");
+		expect(requestedBooks()).toEqual([
+			{ editionId: "e1", scope: { kind: "unit", endPosition: 20 } },
+			{ editionId: "e2", scope: { kind: "unit", endPosition: 40 } },
+		]);
+	});
+
+	it("asks for each book without a position in turn", async () => {
+		mocks.readings = { e1: fakeReading(null), e2: fakeReading(null) };
+		mocks.create.mockResolvedValue({ id: "c1" });
+		composer();
+		await type(question(), "Who is Hal?");
+		await click(button("Send"));
+		expect(sheet().textContent).toContain("in Infinite Jest?");
+		await click(radio("Whole book"));
+		await click(radio("Only for this conversation"));
+		// Another book is waiting, so this one does not send yet.
+		await click(button("Use this scope", sheet()));
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(sheet().textContent).toContain("in The Pale King?");
+		await click(button("I'm partway through"));
+		await click(radio("Chapter 1"));
+		await click(radio("Only for this conversation"));
+		await click(button("Send", sheet()));
+		expect(requestedBooks()).toEqual([
+			{ editionId: "e1", scope: { kind: "whole" } },
+			{ editionId: "e2", scope: { kind: "unit", endPosition: 10 } },
+		]);
+	});
+
+	it("creates nothing when the second book's choices are dismissed, keeping the question and books", async () => {
+		mocks.readings = { e1: fakeReading(at(2)), e2: fakeReading(null) };
+		composer();
+		await type(question(), "Who is Hal?");
+		await click(button("Send"));
+		await click(button("Cancel", sheet()));
+		expect(byTestId("composer-scope-sheet")).toBeNull();
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(question().value).toBe("Who is Hal?");
+		expect(titles()).toEqual(["Infinite Jest", "The Pale King"]);
+		// Sending again asks again.
+		await click(button("Send"));
+		expect(sheet().textContent).toContain("in The Pale King?");
+	});
+
+	it("asks again for the book whose scope went stale", async () => {
+		mocks.readings = { e1: fakeReading(at(2)), e2: fakeReading(at(3)) };
+		mocks.create
+			.mockResolvedValueOnce({ error: "stale_scope", editionId: "e2" })
+			.mockResolvedValueOnce({ id: "c1" });
+		composer();
+		await type(question(), "Still here?");
+		await click(button("Send"));
+		expect(mocks.navigate).not.toHaveBeenCalled();
+		expect(sheet().textContent).toContain("in The Pale King?");
+		expect(sheet().textContent).toContain("chapters changed");
+		await click(button("I'm partway through"));
+		await click(radio("Chapter 5"));
+		await click(button("Send", sheet()));
+		expect(mocks.create.mock.calls[1]?.[0]).toEqual({
+			data: {
+				books: [
+					{ editionId: "e1", scope: { kind: "unit", endPosition: 20 } },
+					{ editionId: "e2", scope: { kind: "unit", endPosition: 50 } },
+				],
+			},
+		});
+	});
+
+	it("names the book that is no longer available", async () => {
+		mocks.readings = { e1: fakeReading(at(2)), e2: fakeReading(at(3)) };
+		mocks.create.mockResolvedValue({ error: "not_ready", editionId: "e2" });
+		composer();
+		await type(question(), "Hello?");
+		await click(button("Send"));
+		expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+			"The Pale King is no longer available",
+		);
+		expect(mocks.navigate).not.toHaveBeenCalled();
+	});
+
+	it("cannot send without a book and asks for one", async () => {
+		mocks.reading = fakeReading(at(2));
+		composer([], newConversationDraftId);
+		expect(byTestId("composer-no-book")?.textContent).toContain("Add a book");
+		await type(question(), "Which book is this from?");
+		expect(sendButton().getAttribute("aria-disabled")).toBe("true");
+		expect(sendButton().title).toBe("Add a book");
+		await click(sendButton());
+		expect(mocks.create).not.toHaveBeenCalled();
+	});
+
+	it("offers only ready books not already added, and adds the picked one", async () => {
+		mocks.reading = fakeReading(at(2));
+		mocks.shelf.mockResolvedValue(
+			page([
+				shelfItem(IJ, "reading"),
+				shelfItem({ editionId: "p1", title: "Processing" }, "processing"),
+				shelfItem({ editionId: "f1", title: "Failed" }, "failed"),
+				shelfItem(PK),
+			]),
+		);
+		mocks.create.mockResolvedValue({ id: "c1" });
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
+		// The only book on its own page stays.
+		expect(() => button("Remove Infinite Jest")).toThrow();
+		await openPicker();
+		expect(byTestId("book-picker")).toBeTruthy();
+		expect(options()).toEqual(["The Pale King"]);
+		await pick("The Pale King");
+		expect(byTestId("book-picker")).toBeNull();
+		expect(titles()).toEqual(["Infinite Jest", "The Pale King"]);
+		expect(button("Remove Infinite Jest")).toBeTruthy();
+		await type(question(), "Compare");
+		await click(button("Send"));
+		expect(requestedBooks()).toEqual([
+			{ editionId: "e1", scope: { kind: "unit", endPosition: 20 } },
+			{ editionId: "e2", scope: { kind: "unit", endPosition: 20 } },
+		]);
+	});
+
+	it("searches by the typed query and loads past pages of unusable books", async () => {
+		mocks.reading = fakeReading(at(2));
+		mocks.shelf.mockImplementation(
+			async ({ data }: { data: { q?: string; cursor?: string } }) =>
+				data.cursor === undefined
+					? page([shelfItem(IJ)], "next")
+					: page([shelfItem(BROOM)]),
+		);
+		composer([IJ], newConversationDraftId);
+		await openPicker();
+		await settle();
+		// The first page held only a book already added; the next one was loaded.
+		expect(mocks.shelf).toHaveBeenCalledWith({
+			data: { q: undefined, cursor: "next" },
+		});
+		expect(options()).toEqual(["The Broom of the System"]);
+		await typeSearch("pale");
+		await settle();
+		expect(mocks.shelf).toHaveBeenCalledWith({
+			data: { q: "pale", cursor: undefined },
+		});
+	});
+
+	it("keeps loaded books when a later page fails, and retries that page", async () => {
+		mocks.reading = fakeReading(at(2));
+		let failed = false;
+		mocks.shelf.mockImplementation(
+			async ({ data }: { data: { cursor?: string } }) => {
+				// A request takes a moment, as over the network, so the picker sees it in flight.
+				await new Promise((r) => setTimeout(r, 0));
+				if (data.cursor === undefined)
+					return page(
+						[
+							shelfItem(IJ),
+							shelfItem({ editionId: "p1", title: "Processing" }, "processing"),
+						],
+						"p2",
+					);
+				if (data.cursor === "p2") return page([shelfItem(PK)], "p3");
+				if (!failed) {
+					failed = true;
+					throw new Error("offline");
+				}
+				return page([shelfItem(BROOM)]);
+			},
+		);
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		await act(() =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<Composer
+						initialBooks={[IJ]}
+						draftId={newConversationDraftId}
+						status={OK_STATUS}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		await openPicker();
+		await settle();
+		// The failed page leaves the loaded books, a way to retry, and no further requests.
+		expect(options()).toEqual(["The Pale King"]);
+		expect(byTestId("book-picker")?.textContent).toContain(
+			"Couldn't load more books.",
+		);
+		const cursors = () =>
+			mocks.shelf.mock.calls.map(
+				([arg]) => (arg as { data: { cursor?: string } }).data.cursor,
+			);
+		await settle();
+		expect(cursors()).toEqual([undefined, "p2", "p3"]);
+		await click(button("Try again", byTestId("book-picker") ?? document));
+		await settle();
+		// The same page was asked for again.
+		expect(cursors()).toEqual([undefined, "p2", "p3", "p3"]);
+		expect(options()).toEqual(["The Pale King", "The Broom of the System"]);
+		expect(byTestId("book-picker")?.textContent).not.toContain(
+			"Couldn't load more books.",
+		);
+	});
+
+	it("removes a book before sending, and hides Add book at three books", async () => {
+		mocks.reading = fakeReading(at(2));
+		mocks.create.mockResolvedValue({ id: "c1" });
+		composer([IJ, PK, BROOM], newConversationDraftId);
+		expect(() => button("Add book")).toThrow();
+		const remove = button("Remove The Broom of the System");
+		// A native button, so the keyboard reaches and operates it.
+		expect(remove.tagName).toBe("BUTTON");
+		expect(remove.tabIndex).toBe(0);
+		await click(remove);
+		expect(button("Add book")).toBeTruthy();
+		await click(button("Remove The Pale King"));
+		expect(titles()).toEqual(["Infinite Jest"]);
+		// Nothing pins the last book outside its own page.
+		expect(button("Remove Infinite Jest")).toBeTruthy();
+		await type(question(), "Just one");
+		await click(button("Send"));
+		expect(requestedBooks()).toEqual([
+			{ editionId: "e1", scope: { kind: "unit", endPosition: 20 } },
+		]);
+	});
+
+	it("restores the chosen books and the question, dropping books no longer ready", async () => {
+		mocks.reading = fakeReading(at(2));
+		mocks.shelf.mockResolvedValue(page([shelfItem(IJ), shelfItem(PK)]));
+		composer([], newConversationDraftId);
+		await openPicker();
+		await pick("Infinite Jest");
+		await openPicker();
+		await pick("The Pale King");
+		await type(question(), "Half a question");
+		act(() => root.unmount());
+		root = createRoot(container);
+
+		// Reopened: The Pale King was deleted in the meantime.
+		mocks.edition.mockImplementation(
+			async ({ data }: { data: { editionId: string } }) =>
+				data.editionId === "e1" ? { edition: { status: "ready" } } : null,
+		);
+		composer([], newConversationDraftId);
+		expect(question().value).toBe("Half a question");
+		await settle();
+		expect(titles()).toEqual(["Infinite Jest"]);
+		expect(mocks.create).not.toHaveBeenCalled();
+	});
+
+	it("keeps the book page's draft without books until another is added", async () => {
+		mocks.reading = fakeReading(at(2));
+		mocks.shelf.mockResolvedValue(page([shelfItem(PK)]));
+		mocks.edition.mockResolvedValue({ edition: { status: "ready" } });
+		const stored = () =>
+			JSON.parse(sessionStorage.getItem("marginalia:composer:book:e1") ?? "");
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
+		await type(question(), "Hi");
+		expect(stored().books).toBeUndefined();
+		await openPicker();
+		await pick("The Pale King");
+		expect(stored().books).toEqual([IJ, PK]);
+		act(() => root.unmount());
+		root = createRoot(container);
+		render(
+			<BookComposer editionId="e1" title="Infinite Jest" status={OK_STATUS} />,
+		);
+		await settle();
+		expect(titles()).toEqual(["Infinite Jest", "The Pale King"]);
+		expect(question().value).toBe("Hi");
+	});
+});
+
 describe("Discuss without a usable model", () => {
 	const conversations: ConversationSummary[] = [
 		{
@@ -608,7 +1115,6 @@ describe("Discuss without a usable model", () => {
 			title: "On the dictionary",
 			createdAt: new Date(),
 			updatedAt: new Date(),
-			messageCount: 2,
 			scopeLabel: "Chapter 2",
 			preview: "Hal is reading the dictionary because",
 		},
@@ -636,6 +1142,7 @@ describe("Discuss without a usable model", () => {
 		render(
 			<DiscussView
 				editionId="e1"
+				title="Infinite Jest"
 				isReady
 				status={status as AiStatus}
 				conversations={conversations}

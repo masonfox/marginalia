@@ -192,7 +192,25 @@ export function PositionUpdateOffer() {
 	);
 }
 
-/** A rename button that swaps to an inline form. Refreshes the page data when saved. */
+/**
+ * Reloads the page data and every conversation list held in the query
+ * cache (the library's Continue section, the conversations page, a book's
+ * passage-reference picker), so a rename shows everywhere without a reload.
+ */
+function useRefreshConversations() {
+	const router = useRouter();
+	const queryClient = useQueryClient();
+	return () =>
+		Promise.all([
+			router.invalidate(),
+			queryClient.invalidateQueries({ queryKey: ["conversations"] }),
+		]);
+}
+
+/**
+ * A rename button that swaps to an inline form. Refreshes the page data and
+ * the conversation lists when saved.
+ */
 export function RenameConversation({
 	conversationId,
 	title,
@@ -200,7 +218,7 @@ export function RenameConversation({
 	conversationId: string;
 	title: string;
 }) {
-	const router = useRouter();
+	const refresh = useRefreshConversations();
 	const rename = useServerFn(renameConversationFn);
 	const [editing, setEditing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -230,7 +248,7 @@ export function RenameConversation({
 				try {
 					await rename({ data: { conversationId, title: next } });
 					setEditing(false);
-					await router.invalidate();
+					await refresh();
 				} catch {
 					setError("Could not rename. Please try again.");
 				}
@@ -263,7 +281,7 @@ export function RenameConversation({
 
 /**
  * A dialog to rename a conversation, opened from elsewhere (a row's actions
- * menu). Reloads the page data once renamed.
+ * menu). Refreshes the page data and the conversation lists once renamed.
  */
 export function RenameConversationDialog({
 	conversationId,
@@ -276,7 +294,7 @@ export function RenameConversationDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const router = useRouter();
+	const refresh = useRefreshConversations();
 	const rename = useServerFn(renameConversationFn);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -301,7 +319,7 @@ export function RenameConversationDialog({
 						setError(null);
 						try {
 							await rename({ data: { conversationId, title: next } });
-							await router.invalidate();
+							await refresh();
 							onOpenChange(false);
 						} catch {
 							setError("Could not rename. Please try again.");
@@ -362,6 +380,7 @@ export function DeleteConversation({
 	onOpenChange?: (open: boolean) => void;
 }) {
 	const remove = useServerFn(deleteConversationFn);
+	const queryClient = useQueryClient();
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	return (
@@ -409,6 +428,10 @@ export function DeleteConversation({
 							try {
 								await remove({ data: { conversationId } });
 								clearComposerDraft(conversationId);
+								// Lists across books; the caller refreshes its own page (or leaves it).
+								await queryClient.invalidateQueries({
+									queryKey: ["conversations"],
+								});
 								await onDeleted();
 							} catch {
 								setError("Could not delete. Please try again.");

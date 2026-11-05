@@ -90,11 +90,27 @@ The library view SHALL reflect status changes of in-progress imports without a m
 - **THEN** its status changes to ready within a few seconds without reloading the page
 
 ### Requirement: Book detail and table of contents
-The system SHALL show a book detail page with its metadata, sources (upload or library path, and whether each is available), passage count, parser version, and its nested table of contents, where each entry navigates to the passage it points to.
+The system SHALL show a book page made of a header shared by all of its tabs and four tabs: Discuss, Guide, Contents, and About. Each tab SHALL have its own URL, so it can be reloaded, linked, and reached with the browser's back and forward buttons. The book's URL SHALL open Discuss. The header SHALL show the cover when there is one, the title, the authors, and, when the edition is not ready, its import status and any import error. The tab bar SHALL mark the current tab, both visibly and to assistive technology, and SHALL be operable from the keyboard. The Contents tab SHALL show the nested table of contents, where each entry navigates to the passage it points to. The About tab SHALL show the description, metadata, sources (upload or library path, and whether each is available), passage count, and parser version. When the edition is not ready, the Guide tab SHALL NOT be offered, and Discuss SHALL show the import status instead of the composer.
 
 #### Scenario: Navigate to a chapter
-- **WHEN** a user selects a chapter in the table of contents
+- **WHEN** a user selects a chapter on the Contents tab
 - **THEN** the passage view opens at that chapter's first passage
+
+#### Scenario: Book opens on Discuss
+- **WHEN** a reader opens a ready book from the library
+- **THEN** the header and the Discuss tab are shown, and Discuss is marked as the current tab
+
+#### Scenario: Tab survives reload
+- **WHEN** a reader opens the About tab and reloads the page
+- **THEN** the About tab is shown again
+
+#### Scenario: Metadata on About
+- **WHEN** a reader opens the About tab
+- **THEN** the book's description, metadata, sources with availability, passage count, and parser version are shown
+
+#### Scenario: Book still importing
+- **WHEN** a reader opens a book that is still importing
+- **THEN** the header shows its import status, no Guide tab is offered, and Discuss shows no composer
 
 ### Requirement: Passage view by locator
 The system SHALL provide a shareable URL for any passage locator that displays the passage highlighted within its surrounding section text, along with its section title and position, and allows moving to the previous and next section.
@@ -116,7 +132,7 @@ The system SHALL provide a shareable URL for any passage locator that displays t
 - **THEN** the page states that the passage was moved or removed in a newer parse of the book and links to the book's table of contents
 
 ### Requirement: In-book search UI
-The system SHALL provide a search box on the book detail page that runs a full-text search within that edition and lists results with highlighted snippets and section titles, each linking to the passage view.
+The system SHALL provide a search box on the book's Contents tab that runs a full-text search within that edition and lists results with highlighted snippets and section titles, each linking to the passage view. The query SHALL be kept in the tab's URL. A book URL that carries a search query SHALL redirect to the Contents tab with the same query.
 
 #### Scenario: Search and open a result
 - **WHEN** a user searches within a book and selects a result
@@ -126,16 +142,20 @@ The system SHALL provide a search box on the book detail page that runs a full-t
 - **WHEN** a search matches nothing
 - **THEN** the UI states that no passages matched
 
+#### Scenario: Old search link
+- **WHEN** a user opens a book URL with a search query saved before this change
+- **THEN** they land on the Contents tab with that search run
+
 ### Requirement: Delete a book from its detail page
-The book detail page SHALL offer an action to delete the book. The action SHALL require explicit confirmation that names the book, states that the deletion cannot be undone, and, when the book has a source in a library directory, states that the file in that directory is kept and will be skipped by future scans. After a successful deletion the user SHALL be returned to the library list, which no longer shows the book.
+The book's About tab SHALL offer an action to delete the book. The action SHALL require explicit confirmation that names the book, states that the deletion cannot be undone, and, when the book has a source in a library directory, states that the file in that directory is kept and will be skipped by future scans. After a successful deletion the user SHALL be returned to the Library page, which no longer shows the book.
 
 #### Scenario: Confirm deletion
 - **WHEN** a user chooses to delete a book and confirms
-- **THEN** the book is deleted and the user is taken to the library list, which no longer includes it
+- **THEN** the book is deleted and the user is taken to the Library page, which no longer includes it
 
 #### Scenario: Cancel deletion
 - **WHEN** a user chooses to delete a book and then cancels the confirmation
-- **THEN** nothing is deleted and the book detail page remains open
+- **THEN** nothing is deleted and the About tab remains open
 
 #### Scenario: Confirmation for a book in a library directory
 - **WHEN** a user starts deleting a book that has a library directory source
@@ -143,41 +163,53 @@ The book detail page SHALL offer an action to delete the book. The action SHALL 
 
 #### Scenario: Book already deleted elsewhere
 - **WHEN** a user confirms deletion of a book that was deleted in another tab
-- **THEN** the user is taken to the library list without an error that blocks them
+- **THEN** the user is taken to the Library page without an error that blocks them
 
 #### Scenario: Open a deleted book's links
-- **WHEN** a user opens the detail page URL, cover URL, or a passage URL of a deleted book
+- **WHEN** a user opens the detail page URL, any tab URL, the cover URL, or a passage URL of a deleted book
 - **THEN** the page or response reports not found
 
 ### Requirement: Conversations entry point on book detail
-The book detail page SHALL link to conversations containing that book and SHALL offer starting a new one. Starting a new one SHALL ask the reader to choose the conversation's scope (one of the book's reading units, or whole book) before the conversation is created. The book deletion confirmation SHALL state that conversations about only that book are deleted too.
+For a ready edition, the Discuss tab SHALL show a composer for starting a new conversation about the book, followed by the list of conversations containing that book (see literary-conversations). Sending from the composer SHALL create the conversation with the scope shown in the composer (see reading-scope) and the chosen model, open it, and send the typed message as its first message. Each listed conversation SHALL open when selected, and SHALL offer rename and delete from one actions control. When AI is not configured, or the model a new conversation would use cannot be resolved, the composer SHALL be replaced by the notice that says so and points to Settings, and the list SHALL still be shown. The former conversation list URL SHALL redirect to the Discuss tab. The book deletion confirmation SHALL state that conversations about only that book are deleted too.
 
 #### Scenario: Start from a book
-- **WHEN** a reader opens a book's detail page, chooses to start a conversation, and picks a scope
-- **THEN** a new conversation about that book opens with that scope
+- **WHEN** a reader whose position in a book is Chapter 3 types a question on its Discuss tab and sends it
+- **THEN** a new conversation about that book, scoped through Chapter 3, opens with the question sent as its first message
 
 #### Scenario: Cancel scope choice
-- **WHEN** a reader chooses to start a conversation and then dismisses the scope choice
-- **THEN** no conversation is created and the book detail page remains open
+- **WHEN** a reader with no reading position sends a question from the composer and then dismisses the scope choice
+- **THEN** no conversation is created, the Discuss tab remains open, and the question is still in the composer
+
+#### Scenario: Continue a conversation
+- **WHEN** a reader selects a conversation in the Discuss tab's list
+- **THEN** that conversation opens
+
+#### Scenario: AI not configured
+- **WHEN** a reader opens the Discuss tab on an instance with no configured provider
+- **THEN** the setup notice is shown in place of the composer and the book's existing conversations are still listed
+
+#### Scenario: Old conversations link
+- **WHEN** a reader opens the book's former conversation list URL
+- **THEN** they are redirected to the book's Discuss tab
 
 #### Scenario: Deletion warns about conversations
 - **WHEN** a reader begins deleting a book that has conversations
 - **THEN** the confirmation says conversations about only that book will be deleted
 
 ### Requirement: Preprocessing on book detail
-When AI is configured, the book detail page SHALL show the edition's preprocessing status, progress while running, the model used, and its last error, together with the estimated spend (tokens and cost, labeled as an estimate). It SHALL offer an action to start preprocessing, or to regenerate it when stale, partly failed, or cancelled. The action SHALL warn that the whole book is sent to the provider. While a job is queued or running, the page SHALL instead offer an action to cancel it, noting that finished sections are kept. Status SHALL update without a manual reload while a job is active. When AI is not configured the page SHALL show no preprocessing status or action. Editions that are not ready SHALL NOT offer the action.
+When AI is configured, the book's Guide tab SHALL show the edition's preprocessing status, progress while running, the model used, and its last error, together with the estimated spend (tokens and cost, labeled as an estimate). It SHALL offer an action to start preprocessing, or to regenerate it when stale, partly failed, or cancelled. The action SHALL warn that the whole book is sent to the provider. While a job is queued or running, the tab SHALL instead offer an action to cancel it, noting that finished sections are kept. Status SHALL update without a manual reload while a job is active. When AI is not configured the tab SHALL show no preprocessing status or action. Editions that are not ready SHALL NOT offer the action.
 
 #### Scenario: Start from the page
-- **WHEN** a reader starts preprocessing on a ready book
+- **WHEN** a reader starts preprocessing on a ready book from its Guide tab
 - **THEN** status shows queued, then running with progress, then complete
 
 #### Scenario: Spend shown
 - **WHEN** preprocessing has completed
-- **THEN** the page shows its estimated cost and token counts
+- **THEN** the Guide tab shows its estimated cost and token counts
 
 #### Scenario: Stale
 - **WHEN** a book was reparsed after preprocessing
-- **THEN** the page shows it as stale with an action to regenerate
+- **THEN** the Guide tab shows it as stale with an action to regenerate
 
 #### Scenario: Cancel from the page
 - **WHEN** a reader cancels preprocessing that is running
@@ -224,14 +256,22 @@ The action SHALL be reachable and operable by pointer, touch, and keyboard, SHAL
 - **THEN** the reference action offers only "Copy link"
 
 ### Requirement: Reading position and Guide on book detail
-For a ready edition, the book detail page SHALL show the reading position (a unit label, "Finished", or "Not set") with a control to set, advance, move back, or clear it, following the reading-position rules. The page SHALL also show an entry point to the book's Guide. Editions that are not ready SHALL offer neither.
+For a ready edition, the book page header SHALL show the reading position on every tab: a unit label, "Finished", or "Not set". With it the header SHALL show progress: when a unit is set, which unit it is out of how many and a bar for the share of the book's passages through it; when finished, a full bar; when unset, no bar. The header SHALL offer a control to set, advance, move back, or clear the position, following the reading-position rules, and the header SHALL update as soon as the position changes anywhere on the page. The Guide SHALL be offered as a tab. Editions that are not ready SHALL offer neither.
 
 #### Scenario: Set position from the book page
-- **WHEN** a reader opens a ready book with no position and sets it to Chapter 3
-- **THEN** the page shows the position as Chapter 3
+- **WHEN** a reader opens a ready book with no position and sets it to Chapter 3 from the header
+- **THEN** the header shows the position as Chapter 3 with its progress
+
+#### Scenario: Progress shown
+- **WHEN** a book with 28 units has its position set to the 12th unit
+- **THEN** the header says it is unit 12 of 28 and shows a bar for the share of the book's passages through it
+
+#### Scenario: Position visible on every tab
+- **WHEN** a reader moves from Discuss to Contents
+- **THEN** the header still shows the reading position and its progress
 
 #### Scenario: Open the Guide
-- **WHEN** a reader follows the Guide entry point on a ready book
+- **WHEN** a reader selects the Guide tab on a ready book
 - **THEN** the book's Guide opens
 
 ### Requirement: Deletion warns about reader guide content
@@ -240,3 +280,125 @@ When an edition has reader notes, corrections, or confirmed subjects, the deleti
 #### Scenario: Book with notes
 - **WHEN** a reader begins deleting a book that has reader notes
 - **THEN** the confirmation says the book's notes and guide edits will be deleted
+
+### Requirement: Dashboard
+The page at the site root SHALL be titled "Dashboard" and SHALL show, in order, the Continue section and the Reading section. It SHALL NOT show the library list, its count, the library search, the status filter, or the upload and rescan actions; those are on the Library page. When the library holds no editions, the dashboard SHALL say that there are no books yet and SHALL link to the Library page to upload one. When the library holds editions but neither section has anything to show, the dashboard SHALL link to the Library page.
+
+#### Scenario: Dashboard with activity
+- **WHEN** the reader has recent conversations and is reading two books
+- **THEN** the dashboard shows the Continue section followed by the Reading section, and no search box, status filter, or upload action
+
+#### Scenario: Empty library
+- **WHEN** a reader opens the dashboard and no books have been imported
+- **THEN** the dashboard says there are no books yet and links to the Library page to upload one
+
+#### Scenario: Books but nothing in progress
+- **WHEN** the library holds books, none is being read, and no conversation exists
+- **THEN** the dashboard shows neither section and links to the Library page
+
+### Requirement: Reading section on the dashboard
+When at least one edition is in the Reading state (a ready edition with a reading position that is not finished, as on the library list), the dashboard SHALL show a "Reading" section listing those editions, most recently updated reading position first, with at most four on wider viewports and at most two on narrow viewports. Each book SHALL show its cover (or a placeholder), title, authors, and its reading position as "Through" followed by the position's label, and selecting it SHALL open the book's page. The section SHALL link to the Library page filtered to Reading. When no edition is in the Reading state, the section SHALL NOT be shown. Unavailable, processing, and failed editions SHALL NOT be shown in the section.
+
+#### Scenario: Most recent position first
+- **WHEN** the reader set a position in "Mrs Dalloway" yesterday and in "Infinite Jest" today
+- **THEN** the Reading section shows "Infinite Jest" before "Mrs Dalloway"
+
+#### Scenario: Position shown on the card
+- **WHEN** the reader's position in "Infinite Jest" is set through "Chapter 3"
+- **THEN** its card shows "Through Chapter 3", and selecting it opens the book's page
+
+#### Scenario: More books than fit
+- **WHEN** six books are being read and the reader opens the dashboard on a desktop
+- **THEN** the four with the most recently updated positions are shown, with a link that opens the Library filtered to Reading
+
+#### Scenario: On a phone
+- **WHEN** three books are being read and the reader opens the dashboard at 360 pixels wide
+- **THEN** two books are shown
+
+#### Scenario: Finished and unstarted books
+- **WHEN** the library holds only finished books and books with no reading position
+- **THEN** the dashboard shows no Reading section
+
+#### Scenario: Unavailable book with a position
+- **WHEN** a book with an unfinished reading position has no available source file
+- **THEN** it is not shown in the Reading section
+
+### Requirement: Continue conversations from the dashboard
+When at least one conversation exists, the dashboard SHALL show a "Continue" section with the three most recently active conversations, across all books, using the rows of the conversations page (see literary-conversations), and a link to the conversations page. When no conversation exists, the section SHALL NOT be shown. The section SHALL be shown whether or not AI is configured. Deleting or renaming a conversation from the section SHALL update it without a reload.
+
+#### Scenario: Pick up the latest conversation
+- **WHEN** the reader opens the dashboard after talking about "Infinite Jest" an hour ago
+- **THEN** that conversation is first in the Continue section, and selecting it opens it
+
+#### Scenario: More than three conversations
+- **WHEN** five conversations exist
+- **THEN** the Continue section shows the three most recently active and a link to see all conversations
+
+#### Scenario: No conversations
+- **WHEN** no conversation exists
+- **THEN** the dashboard shows no Continue section
+
+### Requirement: Dashboard, library, and conversations navigation
+The library list, its count, search, status filter, and the upload and rescan actions SHALL be on a Library page at `/library`, titled "Library", with the search and filter kept in that page's URL. Opening the site root with a library search or status filter in its URL SHALL redirect to the Library page with the same search and filter, without leaving the root URL in the browser history. The app header SHALL hold a navigation with three entries, Dashboard, Library, and Conversations, on every page except the login page. The entry for the current page SHALL be marked, visibly and for assistive technology; the Library entry SHALL be current whatever its search and filter, and on other pages, such as a book or a conversation, no entry SHALL be marked. The app name in the header SHALL lead to the dashboard. The book page SHALL NOT show its own link back to the dashboard or the library. On narrow viewports the navigation SHALL be in the header's menu (see responsive-layout).
+
+#### Scenario: Switch to the library
+- **WHEN** the reader selects Library from the dashboard
+- **THEN** the Library page opens with the full library list, and Library is marked as the current page
+
+#### Scenario: From a book to conversations
+- **WHEN** the reader is on a book's page and selects Conversations in the header
+- **THEN** the conversations page opens
+
+#### Scenario: Nothing marked on other pages
+- **WHEN** the reader opens a conversation
+- **THEN** the header offers Dashboard, Library, and Conversations and none is marked as the current page
+
+#### Scenario: Old library link
+- **WHEN** a reader opens the site root with a search for "woolf" and the Finished filter in its URL
+- **THEN** the Library page opens with "woolf" in the search box and Finished selected, and the browser's back action does not return to the root URL
+
+#### Scenario: Back to a filtered library
+- **WHEN** the reader filters the Library to Reading, goes to Conversations, and then uses the browser's back action
+- **THEN** the Library shows the Reading filter again
+
+#### Scenario: Filtered library marks Library
+- **WHEN** the reader opens the Library with a search active
+- **THEN** Library is marked as the current page
+
+### Requirement: Start a conversation from the header
+The app header SHALL offer a "New conversation" control on its right side, next to Settings, on every page except the login page. It SHALL open a dialog with the conversation composer holding no books, and the composer SHALL NOT be sendable until at least one book is added. Sending SHALL create the conversation, close the dialog, open the conversation, and send the typed message as its first message. Dismissing the dialog SHALL create nothing, and reopening it SHALL restore the typed message and the chosen books until the reader sends or clears them. When AI is not configured, or the model a new conversation would use cannot be resolved, the dialog SHALL show the notice that says so and points to Settings instead of the composer. On narrow viewports the control SHALL be icon-only with the accessible name "New conversation".
+
+#### Scenario: Start from the library
+- **WHEN** the reader selects New conversation on the library page, adds "Infinite Jest", types a question, and sends
+- **THEN** a conversation about "Infinite Jest" opens with the question sent as its first message
+
+#### Scenario: No book chosen
+- **WHEN** the reader types a question in the header's composer without adding a book
+- **THEN** the send action is unavailable and the composer asks for a book
+
+#### Scenario: Dismiss and reopen
+- **WHEN** the reader adds a book and types a question, closes the dialog, and opens it again
+- **THEN** the book and the question are still there and no conversation was created
+
+#### Scenario: AI not configured
+- **WHEN** the reader selects New conversation on an instance with no configured provider
+- **THEN** the dialog shows the setup notice pointing to Settings
+
+### Requirement: Choosing books in the composer
+The composer SHALL show the conversation's books above the message input, each with its title, its scope, and a control to remove it. While it holds fewer than three books it SHALL offer "Add book", which opens a picker that searches the library by title and author, lists only ready books not already in the composer, and loads more as the reader scrolls. The book page's Discuss composer SHALL start with that book and SHALL let the reader add others and remove any book except while it is the only one. Every control SHALL be reachable and operable by keyboard and touch.
+
+#### Scenario: Add a second book from the book page
+- **WHEN** on the "Infinite Jest" Discuss tab the reader adds "The Pale King" and sends a question
+- **THEN** the conversation is created with "Infinite Jest" first and "The Pale King" second
+
+#### Scenario: Picker hides unusable books
+- **WHEN** the reader opens Add book while one book is processing and "Infinite Jest" is already in the composer
+- **THEN** neither the processing book nor "Infinite Jest" is offered
+
+#### Scenario: Three books
+- **WHEN** the composer holds three books
+- **THEN** Add book is not offered
+
+#### Scenario: Remove a book
+- **WHEN** the reader removes the second of two books before sending
+- **THEN** the conversation is created with only the first book

@@ -9,11 +9,13 @@ import type { AiStatus } from "#/modules/settings";
  */
 export function DiscussView({
 	editionId,
+	title,
 	isReady,
 	status,
 	conversations,
 }: {
 	editionId: string;
+	title: string;
 	isReady: boolean;
 	status: AiStatus;
 	conversations: ConversationSummary[];
@@ -21,7 +23,7 @@ export function DiscussView({
 	return (
 		<div className="space-y-8">
 			{isReady ? (
-				<BookComposer editionId={editionId} status={status} />
+				<BookComposer editionId={editionId} title={title} status={status} />
 			) : (
 				<p
 					className="text-sm text-muted-foreground"

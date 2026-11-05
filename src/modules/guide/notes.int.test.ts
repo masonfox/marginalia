@@ -4,7 +4,7 @@ import { saveUnitResult, type UnitResult } from "#/modules/analysis";
 import { getReadingUnits, passages, type ReadingUnit } from "#/modules/catalog";
 import {
 	conversationEditions,
-	createConversationForEdition,
+	createConversationForEditions,
 	deleteConversation,
 } from "#/modules/conversation";
 import { type ParsedEdition, parseEpub } from "#/modules/epub";
@@ -323,9 +323,9 @@ describe("note edits", () => {
 
 	it("keeps the conversation a note was saved from until that conversation is deleted", async () => {
 		const id = await book();
-		const conversation = await createConversationForEdition(t.db, id, {
-			kind: "whole",
-		});
+		const conversation = await createConversationForEditions(t.db, [
+			{ editionId: id, scope: { kind: "whole" } },
+		]);
 		if (!conversation || "error" in conversation)
 			throw new Error("expected a conversation");
 		const saved = await created(
@@ -406,7 +406,9 @@ describe("bounded visibility", () => {
 		const conversationBound = async (
 			scope: { kind: "whole" } | ReturnType<typeof through>,
 		) => {
-			const conversation = await createConversationForEdition(t.db, id, scope);
+			const conversation = await createConversationForEditions(t.db, [
+				{ editionId: id, scope: scope },
+			]);
 			if (!conversation || "error" in conversation)
 				throw new Error("expected a conversation");
 			const [row] = await t.db

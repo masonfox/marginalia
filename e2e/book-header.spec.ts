@@ -34,6 +34,9 @@ test("the book header shows a long reading-position label in full on desktop, ta
 	page.on("pageerror", (e) => pageErrors.push(e.message));
 	await page.setViewportSize({ width: 1280, height: 800 });
 	await login(page);
+	// Upload is on the Library page.
+	await page.goto("/library");
+	await page.waitForLoadState("networkidle");
 
 	const title = `E2E Long Chapter ${randomUUID().slice(0, 8)}`;
 	await page.locator("#upload").setInputFiles({

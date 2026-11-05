@@ -12,6 +12,7 @@ import {
 import { createTestDb, type TestDb } from "../../../test/db";
 import {
 	InvalidShelfCursorError,
+	listReadingShelf,
 	listShelf,
 	type ShelfFilter,
 	type ShelfQuery,
@@ -319,5 +320,86 @@ describe("paging", () => {
 		}
 		const { nextCursor } = await listShelf(t.db, { limit: 1 });
 		expect(nextCursor && isValidShelfCursor(nextCursor)).toBe(true);
+	});
+});
+
+describe("reading shelf", () => {
+	freshDb();
+
+	/** Sets the book's position as last changed `minutesAgo` minutes ago. */
+	const touch = (id: string, minutesAgo: number) =>
+		t.db
+			.update(readingPositions)
+			.set({
+				updatedAt: sql`now() - make_interval(mins => ${minutesAgo})`,
+			})
+			.where(sql`${readingPositions.editionId} = ${id}`);
+
+	it("is empty with a zero total before any import", async () => {
+		expect(await listReadingShelf(t.db, { limit: 4 })).toEqual({
+			items: [],
+			total: 0,
+		});
+	});
+
+	it("lists books being read, most recently updated position first", async () => {
+		const dalloway = await addBook({
+			title: "Mrs Dalloway",
+			authors: ["Virginia Woolf"],
+			position: "reading",
+		});
+		const jest = await addBook({
+			title: "Infinite Jest",
+			authors: ["David Foster Wallace"],
+			position: "reading",
+		});
+		const orlando = await addBook({ title: "Orlando", position: "reading" });
+		await touch(dalloway, 60 * 24);
+		await touch(jest, 1);
+		await touch(orlando, 60);
+		// Excluded: not started, finished, unavailable, processing, failed.
+		await addBook({ title: "Fresh" });
+		await addBook({ title: "Done", position: "finished" });
+		await addBook({ title: "Gone", file: "missing", position: "reading" });
+		await addBook({ title: "No File", file: "none", position: "reading" });
+		await addBook({ title: "Busy", status: "processing", position: "reading" });
+		await addBook({ title: "Broken", status: "failed", position: "reading" });
+
+		const shelf = await listReadingShelf(t.db, { limit: 4 });
+		expect(shelf.total).toBe(9);
+		expect(shelf.items).toEqual([
+			{
+				id: jest,
+				title: "Infinite Jest",
+				authors: ["David Foster Wallace"],
+				hasCover: false,
+				scopeLabel: "Chapter 3",
+			},
+			expect.objectContaining({ id: orlando, title: "Orlando" }),
+			expect.objectContaining({ id: dalloway, title: "Mrs Dalloway" }),
+		]);
+		// The library's Reading filter agrees with the shelf.
+		expect((await titles({ status: "reading" })).sort()).toEqual(
+			shelf.items.map((i) => i.title).sort(),
+		);
+	});
+
+	it("returns at most the limit, keeping the most recent", async () => {
+		const ids: string[] = [];
+		for (let i = 0; i < 3; i++) {
+			const id = await addBook({ title: `Extra ${i}`, position: "reading" });
+			await touch(id, 0);
+			ids.push(id);
+		}
+		const shelf = await listReadingShelf(t.db, { limit: 4 });
+		expect(shelf.items).toHaveLength(4);
+		expect(
+			shelf.items
+				.slice(0, 3)
+				.map((i) => i.id)
+				.sort(),
+		).toEqual([...ids].sort());
+		expect(shelf.items[3]?.title).toBe("Infinite Jest");
+		expect(shelf.total).toBe(12);
 	});
 });

@@ -30,9 +30,7 @@ import type { ReadingPosition } from "#/modules/guide";
 import type { AiSelection } from "#/server/config";
 import { usePositionOffer } from "./conversation-controls";
 
-/** "Through Chapter 22" or "Whole book". */
-export const scopeText = (label: string | null) =>
-	label === null ? "Whole book" : `Through ${label}`;
+export { scopeText } from "#/lib/conversation-books";
 
 export type Choice = "whole" | `unit:${number}`;
 
@@ -305,12 +303,52 @@ function YourPosition() {
 	);
 }
 
+/** "“A”", "“A” and “B”", or "“A”, “B” and “C”". */
+function quotedList(items: string[]): string {
+	const q = items.map((i) => `“${i}”`);
+	const last = q.pop();
+	if (last === undefined) return "";
+	return q.length === 0 ? last : `${q.join(", ")} and ${last}`;
+}
+
 /**
  * What the assistant may reveal: a spoiler warning when any book is whole
- * book, otherwise a note on the scope's limits.
+ * book, otherwise a note on the scope's limits. Given `titles` (in the same
+ * order as `labels`) and both whole-book and bounded books, the warning names
+ * the books the assistant may reveal in full and the others with their scopes.
  */
-export function ScopeNotice({ labels }: { labels: (string | null)[] }) {
+export function ScopeNotice({
+	labels,
+	titles,
+}: {
+	labels: (string | null)[];
+	titles?: string[];
+}) {
 	if (labels.length === 0) return null;
+	if (titles?.length === labels.length) {
+		const whole = titles.filter((_, i) => labels[i] === null);
+		const bounded = titles.flatMap((title, i) => {
+			const label = labels[i];
+			return label == null ? [] : [`“${title}” only through “${label}”`];
+		});
+		if (whole.length > 0 && bounded.length > 0) {
+			return (
+				<p
+					className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-foreground"
+					data-testid="spoiler-notice"
+				>
+					<TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+					<span>
+						The assistant may reveal any part of {quotedList(whole)}. It can
+						read {bounded.join(", ")}, and is told not to discuss later events
+						there, but it may still know{" "}
+						{bounded.length > 1 ? "those books" : "that book"} from its
+						training.
+					</span>
+				</p>
+			);
+		}
+	}
 	if (labels.some((l) => l === null)) {
 		return (
 			<p
@@ -505,12 +543,11 @@ export function NewConversationDialog({
 							try {
 								const created = await create({
 									data: {
-										editionId,
-										scope: toScope(selected),
+										books: [{ editionId, scope: toScope(selected) }],
 										...(model && { selection: model }),
 									},
 								});
-								if (!created) {
+								if ("error" in created && created.error === "not_ready") {
 									setError("This book is not ready for conversations yet.");
 								} else if (
 									"error" in created &&

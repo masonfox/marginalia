@@ -4,6 +4,7 @@ import {
 	clearComposerDraft,
 	composerDraftKey,
 	loadComposerDraft,
+	newConversationDraftId,
 	saveComposerDraft,
 } from "./composer-draft";
 
@@ -70,6 +71,45 @@ describe("composer drafts", () => {
 		saveComposerDraft(id, passageDraft, storage);
 		clearComposerDraft(id, storage);
 		expect(storage.getItem(composerDraftKey(id))).toBeNull();
+	});
+
+	it("keeps the chosen books, even with no text, and drops more than three", () => {
+		const storage = memoryStorage();
+		const books = [
+			{ editionId: "e1", title: "Infinite Jest" },
+			{ editionId: "e2", title: "The Pale King" },
+		];
+		saveComposerDraft(
+			newConversationDraftId,
+			{ text: "", attachment: null, books },
+			storage,
+		);
+		expect(loadComposerDraft(newConversationDraftId, storage)).toEqual({
+			text: "",
+			attachment: null,
+			books,
+		});
+		saveComposerDraft(
+			newConversationDraftId,
+			{ text: "", attachment: null, books: [] },
+			storage,
+		);
+		expect(
+			storage.getItem(composerDraftKey(newConversationDraftId)),
+		).toBeNull();
+		storage.setItem(
+			composerDraftKey(newConversationDraftId),
+			JSON.stringify({
+				v: 1,
+				text: "Too many",
+				attachment: null,
+				books: [1, 2, 3, 4].map((n) => ({
+					editionId: `e${n}`,
+					title: `Book ${n}`,
+				})),
+			}),
+		);
+		expect(loadComposerDraft(newConversationDraftId, storage)).toBeNull();
 	});
 
 	it("discards malformed, unknown-version, and over-limit drafts", () => {

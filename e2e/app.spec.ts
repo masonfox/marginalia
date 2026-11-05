@@ -47,8 +47,18 @@ async function login(page: Page) {
 	await page.waitForLoadState("networkidle");
 }
 
-/** Types into the library search and waits for the URL to follow. */
+/** Opens the Library page, ready for interaction. */
+async function openLibrary(page: Page, search = "") {
+	await page.goto(`/library${search}`);
+	await page.waitForLoadState("networkidle");
+}
+
+/**
+ * Types into the library search (opening the Library first if needed) and
+ * waits for the URL to follow.
+ */
 async function searchLibrary(page: Page, text: string) {
+	if (new URL(page.url()).pathname !== "/library") await openLibrary(page);
 	await page
 		.getByRole("searchbox", { name: "Search by title or author" })
 		.fill(text);
@@ -101,7 +111,10 @@ test.describe("logging in and out", () => {
 });
 
 test.describe("library", () => {
-	test.beforeEach(async ({ page }) => login(page));
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+		await openLibrary(page);
+	});
 
 	test("an upload goes from processing to ready without a reload", async ({
 		page,
@@ -206,7 +219,10 @@ test.describe("library", () => {
 
 		await page.getByRole("button", { name: "Delete book" }).click();
 		await dialog.getByRole("button", { name: "Delete", exact: true }).click();
-		await expect(page).toHaveURL("/");
+		await expect(page).toHaveURL("/library");
+		await expect(
+			page.getByRole("heading", { name: "Library", level: 1 }),
+		).toBeVisible();
 		await expect(card).toHaveCount(0);
 
 		for (const tab of ["", "/about", "/contents", "/guide/chapters"]) {
@@ -276,9 +292,14 @@ test.describe("library browsing", () => {
 		]);
 	});
 
-	test.beforeEach(async ({ page }) => login(page));
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+		await openLibrary(page);
+	});
 
-	const cards = (page: Page) => page.getByRole("main").getByRole("listitem");
+	// The library's book cards.
+	const cards = (page: Page) =>
+		page.getByTestId("library-books").getByRole("listitem");
 	const count = (page: Page) => page.getByTestId("library-count");
 
 	test("search narrows the list, keeps history, and survives a reload", async ({
@@ -306,7 +327,7 @@ test.describe("library browsing", () => {
 		await searchLibrary(page, `${prefix} no such book`);
 		await expect(page.getByText("No books match")).toBeVisible();
 		await page.getByRole("button", { name: "Clear search and filter" }).click();
-		await expect(page).toHaveURL("/");
+		await expect(page).toHaveURL("/library");
 		await expect(
 			page.getByRole("searchbox", { name: "Search by title or author" }),
 		).toHaveValue("");
@@ -333,8 +354,7 @@ test.describe("library browsing", () => {
 	test("scrolling loads every book once, and back restores the list", async ({
 		page,
 	}) => {
-		await page.goto(`/?q=${encodeURIComponent(prefix)}&status=reading`);
-		await page.waitForLoadState("networkidle");
+		await openLibrary(page, `?q=${encodeURIComponent(prefix)}&status=reading`);
 		await expect(count(page)).toHaveText(new RegExp(`^${READING} of `));
 		await expect(cards(page)).toHaveCount(60);
 		// Scroll until every reading book is loaded; loading then stops.
@@ -362,6 +382,123 @@ test.describe("library browsing", () => {
 		);
 		await expect(cards(page)).toHaveCount(READING);
 		await expect(page.getByRole("link", { name: last })).toBeInViewport();
+	});
+});
+
+test.describe("dashboard", () => {
+	// Seeded books being read, with positions set in the future so they are
+	// the most recently updated in a shared database. Removed afterwards.
+	const runId = randomUUID().slice(0, 8);
+	const prefix = `E2E Dashboard ${runId}`;
+	const shelfDir = `e2e-dashboard/${runId}/`;
+	/** Book n's position was updated n hours before the newest. */
+	const titleOf = (n: number) => `${prefix} ${n}`;
+	const ids: string[] = [];
+
+	test.beforeAll(async () => {
+		const { id: sourceId } = await one<{ id: number }>(
+			"select id from library_sources where kind = 'upload' limit 1",
+		);
+		const { rows } = await db.query<{ id: string; n: number }>(
+			`insert into editions (sha256, short_id, title, authors, status)
+			 select sha, substr(sha, 1, 16), $1 || ' ' || g, '["Dash Author"]'::jsonb, 'ready'
+			 from (
+			   select g, md5($1 || g) || md5(g || $1) as sha
+			   from generate_series(1, 5) g
+			 ) s
+			 returning id, substr(title, length($1) + 2)::int as n`,
+			[prefix],
+		);
+		await db.query(
+			`insert into library_files (source_id, rel_path, size, mtime, sha256)
+			 select $1, $3 || sha256 || '.epub', 1, now(), sha256
+			 from editions where title like $2 || ' %'`,
+			[sourceId, prefix, shelfDir],
+		);
+		for (const row of rows.sort((a, b) => a.n - b.n)) {
+			ids.push(row.id);
+			await db.query(
+				`insert into reading_positions (edition_id, max_position, scope_label, updated_at)
+				 values ($1, 1, $2, now() + interval '1 day' - make_interval(hours => $3))`,
+				[row.id, `Chapter ${row.n}`, row.n],
+			);
+		}
+	});
+
+	test.afterAll(async () => {
+		await db.query("delete from editions where title like $1 || ' %'", [
+			prefix,
+		]);
+		await db.query("delete from library_files where rel_path like $1 || '%'", [
+			shelfDir,
+		]);
+	});
+
+	test.beforeEach(async ({ page }) => login(page));
+
+	const readingCards = (page: Page) =>
+		page.getByTestId("reading-shelf").getByTestId("reading-book");
+
+	test("Reading shows the four most recently updated books, each with its position", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await page.goto("/");
+		await page.waitForLoadState("networkidle");
+		await expect(
+			page.getByRole("heading", { name: "Dashboard", level: 1 }),
+		).toBeVisible();
+		await expect(page.getByRole("heading", { name: "Reading" })).toBeVisible();
+		await expect(readingCards(page)).toHaveCount(4);
+		await expect(readingCards(page).getByRole("heading")).toHaveText(
+			[1, 2, 3, 4].map(titleOf),
+		);
+		const first = readingCards(page).first();
+		await expect(first).toContainText("Dash Author");
+		await expect(first).toContainText("Through Chapter 1");
+		await expect(
+			page
+				.getByTestId("reading-shelf")
+				.getByRole("link", { name: "See all books you're reading" }),
+		).toHaveAttribute("href", "/library?status=reading");
+		// No library list or its controls on the dashboard.
+		await expect(page.getByTestId("library-books")).toHaveCount(0);
+		await expect(page.getByTestId("status-filter")).toHaveCount(0);
+
+		await first.getByRole("link").click();
+		await expect(page).toHaveURL(`/books/${ids[0]}`);
+	});
+
+	test("Reading shows two books at 360 pixels", async ({ page }) => {
+		await page.setViewportSize({ width: 360, height: 740 });
+		await page.goto("/");
+		await page.waitForLoadState("networkidle");
+		await expect(readingCards(page)).toHaveCount(4);
+		await expect(readingCards(page).filter({ visible: true })).toHaveCount(2);
+		// Hidden cards are not exposed to assistive technology either.
+		await expect(
+			page.getByTestId("reading-shelf").getByRole("heading", { level: 3 }),
+		).toHaveText([1, 2].map(titleOf));
+	});
+
+	test("an old library URL opens the Library with its search and filter, replacing the root URL", async ({
+		page,
+	}) => {
+		await page.goto("/conversations");
+		await page.waitForLoadState("networkidle");
+		await page.goto("/?q=woolf&status=finished");
+		await expect(page).toHaveURL("/library?q=woolf&status=finished");
+		await page.waitForLoadState("networkidle");
+		await expect(
+			page.getByRole("searchbox", { name: "Search by title or author" }),
+		).toHaveValue("woolf");
+		await expect(
+			page
+				.getByRole("group", { name: "Filter by status" })
+				.getByRole("button", { name: "Finished" }),
+		).toHaveAttribute("aria-pressed", "true");
+		await page.goBack();
+		await expect(page).toHaveURL("/conversations");
 	});
 });
 
@@ -937,6 +1074,18 @@ test.describe("Discuss tab", () => {
 				() => (window.history.state as { autoSend?: boolean } | null)?.autoSend,
 			);
 		await expect.poll(autoSendFlag).toBeUndefined();
+		// Sending empties the composer, and its delayed save (300ms) then clears
+		// the stored draft. Wait until the draft has stayed cleared for longer
+		// than that, so the save cannot remove the draft injected below.
+		let clearedSince = 0;
+		await expect
+			.poll(async () => {
+				if ((await storedDraft(page, conversationId)) !== null)
+					clearedSince = 0;
+				else if (!clearedSince) clearedSince = Date.now();
+				return clearedSince > 0 && Date.now() - clearedSince >= 400;
+			})
+			.toBe(true);
 
 		// Recreate the moment of landing, before the handoff ran: the saved
 		// question and the history flag are both still there.
@@ -1078,6 +1227,485 @@ test.describe("conversation list", () => {
 		} finally {
 			await db.query("delete from conversations where id=$1", [id]);
 		}
+	});
+});
+
+test.describe("conversations home", () => {
+	// Conversations other than these may exist in the library being tested, so
+	// seeded rows are dated an hour ahead and found by their run's prefix.
+	const runId = randomUUID().slice(0, 8);
+	const prefix = `E2E Home ${runId}`;
+	const created: string[] = [];
+	let restoreAi: (() => Promise<void>) | undefined;
+	let editionId: string;
+	let restorePosition: () => Promise<void>;
+
+	test.beforeAll(async ({ browser }) => {
+		restoreAi = await snapshotAiSettings();
+		const context = await browser.newContext({
+			baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
+		});
+		const page = await context.newPage();
+		await login(page);
+		await configureFakeChatDefault(page);
+		await context.close();
+	});
+	test.afterAll(async () => {
+		await restoreAi?.();
+	});
+	test.beforeEach(async ({ page }) => {
+		editionId = (await manifesto()).id;
+		restorePosition = await snapshotPosition(editionId);
+		// Without a position, a first question asks for the scope.
+		await db.query("delete from reading_positions where edition_id = $1", [
+			editionId,
+		]);
+		await login(page);
+	});
+	test.afterEach(async () => {
+		await db.query("delete from conversations where id = any($1::uuid[])", [
+			created.splice(0),
+		]);
+		await db.query("delete from conversations where title like $1 || '%'", [
+			prefix,
+		]);
+		await db.query("delete from editions where title like $1 || '%'", [prefix]);
+		await restorePosition();
+	});
+
+	/** Seeds `count` conversations about the Manifesto, most recently active first. */
+	const seed = async (count: number) => {
+		const { rows } = await db.query<{ id: string; title: string }>(
+			`insert into conversations (title, created_at, updated_at)
+			 select $1 || ' ' || lpad(g::text, 3, '0'),
+			        now() + interval '1 hour' + g * interval '1 second',
+			        now() + interval '1 hour' + g * interval '1 second'
+			 from generate_series(1, $2::int) g
+			 returning id, title`,
+			[prefix, count],
+		);
+		await db.query(
+			`insert into conversation_editions (conversation_id, edition_id, ordinal)
+			 select id, $2, 0 from conversations where title like $1 || ' %'`,
+			[prefix, editionId],
+		);
+		return rows.sort((a, b) => b.title.localeCompare(a.title));
+	};
+	const rowFor = (scope: Locator | Page, id: string) =>
+		scope.getByTestId("conversation-row").filter({
+			// Relative to the row: a locator from the page root, not from `scope`.
+			has: ("page" in scope ? scope.page() : scope).locator(
+				`a[href="/c/${id}"]`,
+			),
+		});
+	const continueSection = (page: Page) =>
+		page.getByTestId("continue-conversations");
+	const homeNav = (page: Page) =>
+		page.getByRole("banner").getByRole("navigation", { name: "Main" });
+	const statusButton = (page: Page, name: string) =>
+		page
+			.getByRole("group", { name: "Filter by status" })
+			.getByRole("button", { name });
+
+	test("continues a conversation started from a book, then switches to Conversations and back to a filtered library", async ({
+		page,
+	}) => {
+		await page.route("**/api/chat", (route) =>
+			fulfillReply(route, "The spectre is communism."),
+		);
+		await page.goto(`/books/${editionId}`);
+		await page.waitForLoadState("networkidle");
+		await page.getByLabel("Your question").fill("What is the spectre?");
+		await page
+			.getByTestId("book-composer")
+			.getByRole("button", { name: "Send", exact: true })
+			.click();
+		const sheet = page.getByTestId("composer-scope-sheet");
+		await sheet.getByRole("radio", { name: "Whole book" }).check();
+		await sheet.getByRole("button", { name: "Send" }).click();
+		await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/);
+		const id = page.url().split("/c/")[1] as string;
+		created.push(id);
+		await expect(page.getByText("The spectre is communism.")).toBeVisible();
+
+		await page.getByRole("link", { name: "Marginalia" }).click();
+		await expect(page).toHaveURL("/");
+		const latest = continueSection(page)
+			.getByTestId("conversation-row")
+			.first();
+		await expect(latest.locator(`a[href="/c/${id}"]`)).toBeVisible();
+		await expect(latest.getByTestId("conversation-books")).toContainText(
+			"The Communist Manifesto · Whole book",
+		);
+		await latest.locator(`a[href="/c/${id}"]`).click();
+		await expect(page).toHaveURL(`/c/${id}`);
+		// The header's navigation is on every page; neither entry is current here.
+		await expect(homeNav(page).locator('a[aria-current="page"]')).toHaveCount(
+			0,
+		);
+
+		await page.getByRole("link", { name: "Marginalia" }).click();
+		await expect(
+			homeNav(page).getByRole("link", { name: "Dashboard" }),
+		).toHaveAttribute("aria-current", "page");
+		await homeNav(page).getByRole("link", { name: "Library" }).click();
+		await expect(page).toHaveURL("/library");
+		await expect(
+			homeNav(page).getByRole("link", { name: "Library" }),
+		).toHaveAttribute("aria-current", "page");
+		await statusButton(page, "Reading").click();
+		await expect(page).toHaveURL(
+			(url) => url.searchParams.get("status") === "reading",
+		);
+		await homeNav(page).getByRole("link", { name: "Conversations" }).click();
+		await expect(page).toHaveURL("/conversations");
+		await expect(
+			homeNav(page).getByRole("link", { name: "Conversations" }),
+		).toHaveAttribute("aria-current", "page");
+		await expect(rowFor(page, id)).toBeVisible();
+
+		await page.goBack();
+		await expect(page).toHaveURL(
+			(url) =>
+				url.pathname === "/library" &&
+				url.searchParams.get("status") === "reading",
+		);
+		await expect(statusButton(page, "Reading")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		// Library stays current whatever its search and filter.
+		await expect(
+			homeNav(page).getByRole("link", { name: "Library" }),
+		).toHaveAttribute("aria-current", "page");
+	});
+
+	test("Continue on the dashboard shows the three most recent and updates after a rename and a delete", async ({
+		page,
+	}) => {
+		const seeded = await seed(5);
+		const [first, second, , fourth] = seeded;
+		if (!first || !second || !fourth) throw new Error("seeded too few");
+		await page.goto("/");
+		await page.waitForLoadState("networkidle");
+		const section = continueSection(page);
+		await expect(section.getByTestId("conversation-title")).toHaveText(
+			seeded.slice(0, 3).map((c) => c.title),
+		);
+		await expect(
+			section.getByRole("link", { name: "See all conversations" }),
+		).toHaveAttribute("href", "/conversations");
+
+		// The library list and its controls are on the Library page.
+		await expect(
+			page.getByRole("searchbox", { name: "Search by title or author" }),
+		).toHaveCount(0);
+		await expect(page.locator("#upload")).toHaveCount(0);
+
+		await rowFor(section, first.id)
+			.getByRole("button", { name: `Actions for “${first.title}”` })
+			.click();
+		await page.getByRole("menuitem", { name: "Rename" }).click();
+		const rename = page.getByTestId("rename-conversation-dialog");
+		await rename.getByLabel("Conversation title").fill(`${prefix} renamed`);
+		await rename.getByRole("button", { name: "Save" }).click();
+		await expect(rename).toBeHidden();
+		await expect(
+			rowFor(section, first.id).getByTestId("conversation-title"),
+		).toHaveText(`${prefix} renamed`);
+
+		await rowFor(section, second.id)
+			.getByRole("button", { name: `Actions for “${second.title}”` })
+			.click();
+		await page.getByRole("menuitem", { name: "Delete" }).click();
+		await page
+			.getByRole("alertdialog")
+			.getByRole("button", { name: "Delete", exact: true })
+			.click();
+		await expect(rowFor(section, second.id)).toHaveCount(0);
+		await expect(rowFor(section, fourth.id)).toBeVisible();
+		await expect(section.getByTestId("conversation-row")).toHaveCount(3);
+	});
+
+	test("the conversations page scrolls through every conversation once, even as one becomes active", async ({
+		page,
+	}) => {
+		const seeded = await seed(65);
+		await page.goto("/conversations");
+		await page.waitForLoadState("networkidle");
+		const titles = page
+			.getByTestId("conversation-title")
+			.filter({ hasText: prefix });
+		await expect(titles).toHaveCount(30);
+
+		// A conversation already shown receives a message in another tab.
+		const shown = seeded[2];
+		if (!shown) throw new Error("seeded too few");
+		await db.query(
+			"update conversations set updated_at = now() + interval '2 hours' where id = $1",
+			[shown.id],
+		);
+		while ((await titles.count()) < seeded.length) {
+			await page.mouse.wheel(0, 4000);
+			await page.waitForTimeout(100);
+		}
+		await page.waitForLoadState("networkidle");
+		await expect(titles).toHaveCount(seeded.length);
+		expect(await titles.allTextContents()).toEqual(seeded.map((c) => c.title));
+		await expect(page.getByText("Loading more…")).toHaveCount(0);
+	});
+
+	test("rows name several books, and the header is one row with the menu on a phone", async ({
+		page,
+	}) => {
+		const [only] = await seed(1);
+		if (!only) throw new Error("seeded too few");
+		const { rows: extra } = await db.query<{ id: string }>(
+			`insert into editions (sha256, short_id, title, authors, status)
+			 select sha, substr(sha, 1, 16), $1 || ' Book ' || g, '[]'::jsonb, 'ready'
+			 from (
+			   select g, md5($1 || g) || md5(g || $1) as sha
+			   from generate_series(1, 2) g
+			 ) s
+			 order by g
+			 returning id`,
+			[prefix],
+		);
+		await db.query(
+			`insert into conversation_editions (conversation_id, edition_id, ordinal, max_position, scope_label)
+			 values ($1, $2, 1, 10, 'Part One'), ($1, $3, 2, null, null)`,
+			[only.id, extra[0]?.id, extra[1]?.id],
+		);
+		await page.setViewportSize({ width: 360, height: 740 });
+		await page.goto("/conversations");
+		await page.waitForLoadState("networkidle");
+		const row = rowFor(page, only.id);
+		await expect(row.getByTestId("conversation-books")).toContainText(
+			"The Communist Manifesto +2",
+		);
+		await expect(row.locator(`a[href="/c/${only.id}"]`)).toHaveAccessibleName(
+			new RegExp(
+				`The Communist Manifesto, whole book; ${prefix} Book 1, through Part One; ${prefix} Book 2, whole book`,
+			),
+		);
+
+		// Below sm the navigation is in the header's menu, on the app name's row.
+		await expect(homeNav(page)).toBeHidden();
+		const menuButton = page
+			.getByRole("banner")
+			.getByRole("button", { name: "Menu" });
+		const menu = await menuButton.boundingBox();
+		const brand = await page
+			.getByRole("banner")
+			.getByRole("link", { name: "Marginalia" })
+			.boundingBox();
+		if (!menu || !brand) throw new Error("header not shown");
+		expect(
+			Math.abs(menu.y + menu.height / 2 - (brand.y + brand.height / 2)),
+		).toBeLessThan(2);
+		expect(menu.x + menu.width).toBeLessThanOrEqual(360);
+		await menuButton.click();
+		const items = page.getByRole("menu").getByRole("menuitem");
+		await expect(items.and(page.locator('[aria-current="page"]'))).toHaveText([
+			"Conversations",
+		]);
+		await page.keyboard.press("Escape");
+		await expect(page.getByRole("menu")).toHaveCount(0);
+		expect(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= window.innerWidth,
+			),
+		).toBe(true);
+	});
+});
+
+test.describe("new conversation from the header", () => {
+	const prefix = `E2E Second ${randomUUID().slice(0, 8)}`;
+	const created: string[] = [];
+	let restoreAi: (() => Promise<void>) | undefined;
+	let restorePosition: (() => Promise<void>) | undefined;
+	let manifestoId: string;
+
+	test.beforeAll(async ({ browser }) => {
+		restoreAi = await snapshotAiSettings();
+		const context = await browser.newContext({
+			baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
+		});
+		const page = await context.newPage();
+		await login(page);
+		await configureFakeChatDefault(page);
+		await context.close();
+	});
+	test.afterAll(async () => {
+		await restoreAi?.();
+	});
+	test.beforeEach(async ({ page }) => {
+		manifestoId = (await manifesto()).id;
+		restorePosition = await snapshotPosition(manifestoId);
+		// The Manifesto is read through Part I; the second book has no position.
+		const bound = await boundThrough(5);
+		await db.query("delete from reading_positions where edition_id = $1", [
+			manifestoId,
+		]);
+		await db.query(
+			"insert into reading_positions (edition_id, max_position, scope_label) values ($1, $2, $3)",
+			[manifestoId, bound.max, bound.label],
+		);
+		await login(page);
+		page.on("framenavigated", (frame) => {
+			const id = /\/c\/([0-9a-f-]{36})$/.exec(frame.url())?.[1];
+			if (frame === page.mainFrame() && id) created.push(id);
+		});
+	});
+	test.afterEach(async () => {
+		await db.query("delete from conversations where id = any($1::uuid[])", [
+			created.splice(0),
+		]);
+		await db.query("delete from editions where title like $1 || '%'", [prefix]);
+		await restorePosition?.();
+	});
+
+	const newConversation = (page: Page) =>
+		page.getByRole("banner").getByRole("button", { name: "New conversation" });
+	const dialog = (page: Page) =>
+		page.getByTestId("header-new-conversation-dialog");
+	/** Adds a book to the open composer through the picker. */
+	const addBook = async (page: Page, title: string) => {
+		await dialog(page).getByRole("button", { name: "Add book" }).click();
+		const picker = page.getByTestId("book-picker");
+		await picker.getByLabel("Search books").fill(title);
+		await picker
+			.getByTestId("book-picker-option")
+			.filter({ hasText: title })
+			.click();
+		await expect(picker).toBeHidden();
+	};
+
+	test("starts a conversation about two books from the library header, listed on both books, with the mixed notice", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		const title = `${prefix} Book`;
+		await searchLibrary(page, title);
+		await page.locator("#upload").setInputFiles({
+			name: "second.epub",
+			mimeType: "application/epub+zip",
+			buffer: await buildEpub({
+				title,
+				creators: ["Test Author"],
+				chapters: [1, 2].map((n) => ({
+					href: `c${n}.xhtml`,
+					title: `Chapter ${n}`,
+					body: `<p>Paragraph of chapter ${n}.</p>`,
+				})),
+			}),
+		});
+		await expect(
+			page
+				.getByRole("listitem")
+				.filter({ hasText: title })
+				.getByText("Not started"),
+		).toBeVisible({ timeout: 60_000 });
+		const { id: secondId } = await one<{ id: string }>(
+			"select id from editions where title = $1",
+			[title],
+		);
+		await page.route("**/api/chat", (route) =>
+			fulfillReply(route, "They differ in scope."),
+		);
+
+		await newConversation(page).click();
+		const composer = dialog(page).getByTestId("book-composer");
+		await expect(composer.getByTestId("composer-no-book")).toBeVisible();
+		await composer.getByLabel("Your question").fill("How do these compare?");
+		await expect(
+			composer.getByRole("button", { name: "Send", exact: true }),
+		).toHaveAttribute("aria-disabled", "true");
+
+		await addBook(page, "The Communist Manifesto");
+		await addBook(page, title);
+		const books = composer.getByTestId("composer-book");
+		await expect(books.getByTestId("composer-book-title")).toHaveText([
+			"The Communist Manifesto",
+			title,
+		]);
+
+		// Closing keeps the books and the question; nothing is created.
+		await page.keyboard.press("Escape");
+		await expect(dialog(page)).toBeHidden();
+		await newConversation(page).click();
+		await expect(books.getByTestId("composer-book-title")).toHaveText([
+			"The Communist Manifesto",
+			title,
+		]);
+		await expect(composer.getByLabel("Your question")).toHaveValue(
+			"How do these compare?",
+		);
+		expect(created).toEqual([]);
+
+		await composer.getByRole("button", { name: "Send", exact: true }).click();
+		// Only the book without a position asks for its scope.
+		const sheet = page.getByTestId("composer-scope-sheet");
+		await sheet.getByRole("radio", { name: "Whole book" }).check();
+		await sheet.getByRole("button", { name: "Send" }).click();
+
+		await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/);
+		const id = page.url().split("/c/")[1] as string;
+		await expect(dialog(page)).toBeHidden();
+		await expect(page.getByText("They differ in scope.")).toBeVisible();
+		const notice = page.getByTestId("spoiler-notice");
+		await expect(notice).toContainText(
+			`The assistant may reveal any part of “${title}”.`,
+		);
+		await expect(notice).toContainText(
+			"It can read “The Communist Manifesto” only through “The Communist Manifesto › I: Bourgeois and Proletarians”",
+		);
+
+		for (const editionId of [manifestoId, secondId]) {
+			await page.goto(`/books/${editionId}`);
+			await page.waitForLoadState("networkidle");
+			await expect(
+				page
+					.getByTestId("conversation-row")
+					.filter({ has: page.locator(`a[href="/c/${id}"]`) }),
+			).toBeVisible();
+		}
+	});
+
+	test("the header holds the control on one row at 1280 pixels, and not on the login page", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await page.goto("/");
+		const header = page.getByRole("banner");
+		const middles = await Promise.all(
+			[
+				header.getByRole("link", { name: "Marginalia" }),
+				header.getByRole("link", { name: "Dashboard" }),
+				header.getByRole("link", { name: "Library" }),
+				header.getByRole("link", { name: "Conversations" }),
+				newConversation(page),
+				header.getByRole("link", { name: "Settings" }),
+			].map(async (l) => {
+				const b = await l.boundingBox();
+				if (!b) throw new Error("header control not shown");
+				return b.y + b.height / 2;
+			}),
+		);
+		for (const m of middles)
+			expect(Math.abs(m - (middles[0] ?? 0))).toBeLessThan(2);
+		await expect(newConversation(page)).toHaveText("New conversation");
+		await expect(header.getByRole("button", { name: "Menu" })).toBeHidden();
+		if (PASSWORD)
+			await expect(
+				header.getByRole("button", { name: "Log out" }),
+			).toBeVisible();
+
+		if (!PASSWORD) return;
+		await page.context().clearCookies();
+		await page.goto("/login");
+		await expect(page.getByLabel("Password")).toBeVisible();
+		await expect(newConversation(page)).toHaveCount(0);
 	});
 });
 
@@ -2007,18 +2635,24 @@ test.describe("phone layout", () => {
 		});
 		test.beforeEach(async ({ page }) => login(page));
 
-		test("the app header is one row of named icon controls", async ({
+		test("the app header is one row of named icon controls, with the navigation in a menu", async ({
 			page,
 		}) => {
-			const brand = page.getByRole("link", { name: "Marginalia" });
-			const settings = page.getByRole("link", { name: "Settings" });
-			const logOut = page.getByRole("button", { name: "Log out" });
-			await expect(settings).toBeVisible();
-			await expect(logOut).toBeVisible();
-			await expectTouchTarget(settings);
-			await expectTouchTarget(logOut);
+			const header = page.getByRole("banner");
+			const brand = header.getByRole("link", { name: "Marginalia" });
+			const newConversation = header.getByRole("button", {
+				name: "New conversation",
+			});
+			const menuButton = header.getByRole("button", { name: "Menu" });
+			await expect(newConversation).toBeVisible();
+			await expect(menuButton).toBeVisible();
+			await expectTouchTarget(newConversation);
+			await expectTouchTarget(menuButton);
+			// Icon-only: the visible label is for assistive tech alone.
+			expect((await newConversation.boundingBox())?.width).toBeLessThan(60);
+			expect((await menuButton.boundingBox())?.width).toBeLessThan(60);
 			const middles = await Promise.all(
-				[brand, settings, logOut].map(async (l) => {
+				[brand, newConversation, menuButton].map(async (l) => {
 					const b = await l.boundingBox();
 					return (b?.y ?? 0) + (b?.height ?? 0) / 2;
 				}),
@@ -2026,15 +2660,80 @@ test.describe("phone layout", () => {
 			for (const m of middles)
 				expect(Math.abs(m - (middles[0] ?? 0))).toBeLessThan(2);
 			const row = page.locator("body > div > header > div").first();
+			// One row: the 44px touch targets and padding.
 			expect((await row.boundingBox())?.height).toBeLessThan(80);
+			// No navigation, Settings, or Log out outside the menu.
+			await expect(
+				header.getByRole("navigation", { name: "Main" }),
+			).toBeHidden();
+			await expect(header.getByRole("link", { name: "Settings" })).toBeHidden();
+			await expect(
+				header.getByRole("button", { name: "Log out" }),
+			).toBeHidden();
 			await expectNoHorizontalScroll(page);
+
+			await expect(menuButton).toHaveAttribute("aria-expanded", "false");
+			await menuButton.click();
+			// While the menu is open, Radix hides the rest of the page from
+			// assistive tech, so find the button by its label instead.
+			await expect(
+				page.locator('header button[aria-label="Menu"]'),
+			).toHaveAttribute("aria-expanded", "true");
+			const menu = page.getByRole("menu");
+			const items = menu.getByRole("menuitem");
+			// Log out is offered only when the instance has a password.
+			await expect(items).toHaveText([
+				"Dashboard",
+				"Library",
+				"Conversations",
+				"Settings",
+				...(PASSWORD ? ["Log out"] : []),
+			]);
+			await expect(menu.getByRole("separator")).toHaveCount(1);
+			await expect(items.and(page.locator('[aria-current="page"]'))).toHaveText(
+				["Dashboard"],
+			);
+			// Measure once the opening zoom has finished.
+			await menu.evaluate((el) =>
+				Promise.all(el.getAnimations().map((a) => a.finished)),
+			);
+			for (let i = 0; i < (await items.count()); i++)
+				await expectTouchTarget(items.nth(i));
+
+			await items.filter({ hasText: "Library" }).click();
+			await expect(page).toHaveURL("/library");
+			await expect(menu).toHaveCount(0);
+			await expect(
+				page.getByRole("heading", { name: "Library", level: 1 }),
+			).toBeVisible();
+
+			// Nothing is current on a book's page.
+			const { id } = await manifesto();
+			await page.goto(`/books/${id}`);
+			await page.waitForLoadState("networkidle");
+			await menuButton.click();
+			await expect(items.first()).toBeVisible();
+			await expect(
+				items.and(page.locator('[aria-current="page"]')),
+			).toHaveCount(0);
+
+			// Escape closes the menu and returns focus to its button.
+			await page.keyboard.press("Escape");
+			await expect(menu).toHaveCount(0);
+			await expect(menuButton).toBeFocused();
+
+			if (!PASSWORD) return;
+			await menuButton.click();
+			await items.filter({ hasText: "Log out" }).click();
+			await expect(page).toHaveURL(/\/login$/);
 		});
 
 		test("the library shows two books a row, one row of filters, and the upload", async ({
 			page,
 		}) => {
+			await openLibrary(page);
 			// Two columns, whether or not the library holds a second book yet.
-			const grid = page.locator("main ul").first();
+			const grid = page.getByTestId("library-books");
 			await expect(grid.locator("> li").first()).toBeVisible();
 			expect(
 				await grid.evaluate(

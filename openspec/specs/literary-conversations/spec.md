@@ -7,19 +7,35 @@ Lets readers hold persistent, book-scoped conversations with an assistant that s
 ## Requirements
 
 ### Requirement: Book-scoped persistent conversations
-The system SHALL let a reader start, list, resume, rename, and delete conversations, each scoped to a set of one or more books. A conversation started from the UI SHALL contain exactly one book for now, but the system SHALL NOT assume a single book in its retrieval, citations, or stored data. Messages SHALL be persisted so a conversation survives reloads and restarts. Deleting a book SHALL remove it from its conversations and SHALL delete any conversation left with no books.
+The system SHALL let a reader start, list, resume, rename, and delete conversations, each scoped to a set of one or more books. A conversation started from the UI SHALL contain from one to three distinct ready books, in the order the reader added them, and the system SHALL NOT assume a single book in its retrieval, citations, or stored data. Creating a conversation SHALL be all or nothing: when any of its books is missing or not ready, or any book's scope is stale, no conversation SHALL be created and the reader SHALL be told which book needs attention. Messages SHALL be persisted so a conversation survives reloads and restarts. A book's conversations SHALL be listed on the book page's Discuss tab, including conversations that also contain other books. Deleting a book SHALL remove it from its conversations and SHALL delete any conversation left with no books.
 
 #### Scenario: Resume a conversation
 - **WHEN** a reader reopens a conversation after restarting the application
 - **THEN** all earlier messages, tool activity, and citations are shown
 
 #### Scenario: Conversations listed per book
-- **WHEN** a reader opens a book's conversation list
+- **WHEN** a reader opens a book's Discuss tab
 - **THEN** only conversations containing that book are shown, most recently active first
 
 #### Scenario: Delete a conversation
 - **WHEN** a reader confirms deletion of a conversation
 - **THEN** it and its messages are removed and other conversations are unaffected
+
+#### Scenario: Start about two books
+- **WHEN** a reader starts a conversation about "Infinite Jest" and "The Pale King"
+- **THEN** one conversation is created containing both books, and it is listed on both books' Discuss tabs
+
+#### Scenario: More than three books
+- **WHEN** a request to start a conversation names four books
+- **THEN** it is rejected and nothing is created
+
+#### Scenario: One book not ready
+- **WHEN** a reader starts a conversation about two books and one of them was deleted in another tab
+- **THEN** no conversation is created and the reader is told which book is no longer available
+
+#### Scenario: Deleting one of two books
+- **WHEN** a book is deleted that shares a conversation with another book
+- **THEN** the conversation remains, containing only the other book
 
 ### Requirement: Streaming responses
 The system SHALL stream the assistant's reply to the browser as it is generated, and SHALL let the reader stop a generation. A stopped or interrupted generation SHALL be saved with what was produced and marked as incomplete. Only one generation SHALL run per conversation at a time.
@@ -105,7 +121,7 @@ The assistant SHALL be instructed to engage critically: offering its own reading
 - **THEN** the assistant says so and cites the contradicting passage
 
 ### Requirement: Spoiler notice
-When starting a conversation, and in a whole-book conversation's view, the system SHALL tell the reader that the assistant may reveal any part of the book. In a conversation where every book is bounded, the system SHALL instead state that the assistant can read only through each book's scope and is instructed not to discuss later events, but may know the book from its training. Each book in a conversation SHALL carry an optional position bound that, when set, limits every retrieval tool to that book's passages revealed at or before it.
+When starting a conversation, and in a conversation's view, the system SHALL tell the reader, for each book whose scope is whole book, that the assistant may reveal any part of that book. When every book in a conversation is bounded, the system SHALL instead state that the assistant can read only through each book's scope and is instructed not to discuss later events, but may know the books from its training. When a conversation has both bounded and whole-book books, the notice SHALL name the whole-book books as fully readable and the bounded books with their scopes. Each book in a conversation SHALL carry an optional position bound that, when set, limits every retrieval tool to that book's passages revealed at or before it.
 
 #### Scenario: Notice on new conversation
 - **WHEN** a reader starts or opens a conversation in which a book's scope is whole book
@@ -114,6 +130,10 @@ When starting a conversation, and in a whole-book conversation's view, the syste
 #### Scenario: Notice on bounded conversation
 - **WHEN** a reader opens a conversation scoped through Chapter 22
 - **THEN** no whole-book notice is shown, and a short note states the scope and that the assistant may still know the book from its training
+
+#### Scenario: Mixed scopes
+- **WHEN** a reader opens a conversation with "Infinite Jest" through "Year of Glad" and "The Pale King" as whole book
+- **THEN** the notice says the assistant may reveal any part of "The Pale King" and can read "Infinite Jest" only through "Year of Glad"
 
 #### Scenario: Bound applied
 - **WHEN** a book in a conversation has a position bound
@@ -602,3 +622,70 @@ The conversation view SHALL show the provider and model the next reply will use 
 #### Scenario: Reply provenance
 - **WHEN** a conversation has replies from two models
 - **THEN** each reply's usage details name the model that produced it
+
+### Requirement: Conversation list preview
+Each conversation in a book's list SHALL show its title, a one-line preview of the text of its most recent message that has text, whether from the reader or the assistant, and, on one line below the preview, its scope for that book and when it was last active. When it was last active SHALL be shown relative to now (such as "3 hours ago" or "yesterday"), with the exact date and time available on hover. When that line does not fit, the scope SHALL be truncated so that when it was last active stays visible. The row SHALL NOT show the conversation's message count. The preview SHALL be plain text, with markdown markup and line breaks removed, and SHALL be truncated to fit one line. Tool activity, citation markers, and attachments SHALL NOT appear in the preview. A conversation with no message text SHALL show that it has no messages yet. The preview SHALL be rendered as text, never as HTML.
+
+#### Scenario: Preview of the latest reply
+- **WHEN** a conversation's most recent message is an assistant reply beginning "**Hal** is reading the dictionary because"
+- **THEN** its row shows "Hal is reading the dictionary because…" on one line
+
+#### Scenario: Latest message has no text
+- **WHEN** a conversation's most recent assistant message failed before producing text
+- **THEN** the preview shows the text of the latest earlier message that has text
+
+#### Scenario: Empty conversation
+- **WHEN** a conversation has no messages
+- **THEN** its row says it has no messages yet
+
+#### Scenario: Markup in a message
+- **WHEN** a message's text contains HTML tags
+- **THEN** the preview shows them as literal text
+
+#### Scenario: Last active relative to now
+- **WHEN** a conversation was last active three hours ago
+- **THEN** its row shows "3 hours ago", shows the exact date and time on hover, and does not show its message count
+
+### Requirement: Conversations listed across books
+The system SHALL provide a conversations page that lists every conversation, whatever its books, most recently active first, with the most recently created first among those equally recent. The list SHALL load in pages and SHALL load the next page when the reader scrolls near the end, without a pagination control, until every conversation is shown. A conversation SHALL appear at most once in the list while the reader scrolls, even when conversations are created, updated, or deleted in the meantime. Each row SHALL show the conversation's book covers (see "Book labels in conversation lists"), its title, the same one-line preview as a book's conversation list (see "Conversation list preview"), and, on one line below the preview, its books (see "Book labels in conversation lists") and when it was last active, shown as on a book's conversation list. Each row SHALL open its conversation when selected, and SHALL offer rename and delete from one actions control. When there are no conversations, the page SHALL say so and explain that conversations are started from a book. The page SHALL be protected by the instance access rules.
+
+#### Scenario: Conversations from several books
+- **WHEN** the reader has conversations about "Infinite Jest" and "To the Lighthouse", the latter most recently active
+- **THEN** the conversations page lists both, the "To the Lighthouse" conversation first
+
+#### Scenario: Scroll to load more
+- **WHEN** there are more conversations than the first page holds and the reader scrolls to the end of the list
+- **THEN** the next conversations, in the same order, are added, and loading stops after the last one
+
+#### Scenario: Activity while scrolling
+- **WHEN** a conversation already shown in the list receives a new message in another tab while the reader scrolls
+- **THEN** it is not shown a second time
+
+#### Scenario: Rename from the list
+- **WHEN** the reader renames a conversation from its row's actions
+- **THEN** the row shows the new title
+
+#### Scenario: No conversations
+- **WHEN** the reader opens the conversations page before any conversation exists
+- **THEN** the page says there are no conversations yet and that they are started from a book
+
+### Requirement: Book labels in conversation lists
+A row in a list of conversations that is not about one book SHALL name the conversation's books in their stored order. A conversation with one book SHALL show its title and its scope. A conversation with two books SHALL show both titles. A conversation with three or more books SHALL show the first title followed by "+N", where N is the number of other books. The row's accessible name SHALL include every book's title and scope. Titles SHALL be rendered as text, never as HTML, and a long label SHALL be truncated to fit one line.
+
+Such a row SHALL also show, at its start, a stack of the conversation's book covers in their stored order, the first book in front and each other book partly visible behind it. A book without a cover SHALL be shown by a placeholder with the first letter of its title. The stack SHALL take the same width whatever the number of books, so the rows' text stays aligned. The stack SHALL be hidden from assistive technology, since the row's text already names every book.
+
+#### Scenario: One book
+- **WHEN** a conversation about "Infinite Jest" scoped through "Year of Glad" is listed
+- **THEN** the row shows "Infinite Jest" with "Through Year of Glad"
+
+#### Scenario: Two books
+- **WHEN** a conversation about "Infinite Jest" and "The Pale King" is listed
+- **THEN** the row shows both titles
+
+#### Scenario: Three books
+- **WHEN** a conversation about three books, the first "Infinite Jest", is listed
+- **THEN** the row shows "Infinite Jest +2", and its accessible name includes all three titles with their scopes
+
+#### Scenario: Cover stack
+- **WHEN** a conversation about "Infinite Jest", which has a cover, and "The Pale King", which has none, is listed
+- **THEN** the row starts with the "Infinite Jest" cover in front and a placeholder showing "T" behind it, and the stack is not announced by assistive technology

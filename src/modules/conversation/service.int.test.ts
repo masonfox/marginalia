@@ -19,7 +19,7 @@ import {
 	appendMessage,
 	type ChatDeps,
 	createConversation,
-	createConversationForEdition,
+	createConversationForEditions,
 	deleteConversation,
 	getConversation,
 	getConversationWithUsage,
@@ -133,9 +133,9 @@ describe("conversation operations behind the server functions", () => {
 			AI_API_KEY: SECRET,
 			AI_PRICES: '{"local-model": {"input": 1, "output": 1}}',
 		});
-		const created = await createConversationForEdition(t.db, readyId, {
-			kind: "whole",
-		});
+		const created = await createConversationForEditions(t.db, [
+			{ editionId: readyId, scope: { kind: "whole" } },
+		]);
 		if (!created || "error" in created)
 			throw new Error("expected a conversation");
 		const id = created.id;
@@ -217,9 +217,9 @@ describe("conversation operations behind the server functions", () => {
 	});
 
 	it("creates, lists, gets, renames, and deletes a conversation", async () => {
-		const created = await createConversationForEdition(t.db, readyId, {
-			kind: "whole",
-		});
+		const created = await createConversationForEditions(t.db, [
+			{ editionId: readyId, scope: { kind: "whole" } },
+		]);
 		if (!created || "error" in created)
 			throw new Error("expected a conversation");
 		expect(
@@ -247,16 +247,22 @@ describe("conversation operations behind the server functions", () => {
 
 	it("does not start a conversation for a missing or unready book", async () => {
 		expect(
-			await createConversationForEdition(
-				t.db,
-				"00000000-0000-0000-0000-000000000000",
-				{ kind: "whole" },
-			),
-		).toBeNull();
+			await createConversationForEditions(t.db, [
+				{
+					editionId: "00000000-0000-0000-0000-000000000000",
+					scope: { kind: "whole" },
+				},
+			]),
+		).toEqual({
+			error: "not_ready",
+			editionId: "00000000-0000-0000-0000-000000000000",
+		});
 		const { edition } = await ensureEdition(t.db, "beef", "Unready");
 		expect(
-			await createConversationForEdition(t.db, edition.id, { kind: "whole" }),
-		).toBeNull();
+			await createConversationForEditions(t.db, [
+				{ editionId: edition.id, scope: { kind: "whole" } },
+			]),
+		).toEqual({ error: "not_ready", editionId: edition.id });
 	});
 
 	it("deletes a book's conversations along with it, leaving others", async () => {
@@ -488,10 +494,9 @@ describe("setConversationModel", () => {
 	});
 
 	it("starts a conversation with its own model", async () => {
-		const created = await createConversationForEdition(
+		const created = await createConversationForEditions(
 			t.db,
-			readyId,
-			{ kind: "whole" },
+			[{ editionId: readyId, scope: { kind: "whole" } }],
 			CLAUDE,
 		);
 		if (!created || "error" in created)

@@ -26,8 +26,9 @@ Marginalia has one shared password and no per-reader profiles, so it fits a sing
 
 ## What you get
 
-- **Library.** Import EPUB files (EPUB 2 and 3) by upload, or point Marginalia at a folder it scans read-only. Search by title or author, and filter by Not started, Reading, Finished, or Needs attention.
-- **Conversations.** Bring your own model: OpenAI, Anthropic, Google, or a local OpenAI-compatible endpoint such as Ollama, added in Settings. Each conversation is limited to the part of the book you choose, and each reply shows what it searched, what it cited, and an estimated cost. Passages and messages go to the provider you configure. See [AI conversations](docs/deployment.md#ai-conversations).
+- **Dashboard.** Pick up your three most recent conversations and the books you are reading, ordered by your most recent activity.
+- **Library** (`/library`). Import EPUB files (EPUB 2 and 3) by upload, or point Marginalia at a folder it scans read-only. Search by title or author, and filter by Not started, Reading, Finished, or Needs attention.
+- **Conversations.** Bring your own model: OpenAI, Anthropic, Google, or a local OpenAI-compatible endpoint such as Ollama, added in Settings. Discuss up to three books together, choosing a separate reading limit for each. Browse all conversations on the Conversations page, most recently active first. Each reply shows what it searched, what it cited, and an estimated cost. Passages and messages go to the provider you configure. See [AI conversations](docs/deployment.md#ai-conversations).
 - **Book Guide.** Chapter summaries with linked citations, an index of characters, places, objects, and motifs, and your own Markdown notes, all hidden past your reading position. Correct or hide anything the AI got wrong, and see characters and places as glosses in the margin while you read. See [Book Guide and reading position](docs/deployment.md#book-guide-and-reading-position).
 - **Reader and search.** Read any passage, and search within a book with language-aware full-text search and highlighted snippets.
 - **Self-hosted.** One container plus PostgreSQL, for `amd64` and `arm64`, with optional password login. The library, reader, and search work with no AI provider at all.
