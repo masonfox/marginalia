@@ -139,7 +139,7 @@ Books are identified by the SHA-256 of their bytes:
 - The same file uploaded and present in a folder is one book.
 - A file whose size and modification time haven't changed is never re-read.
 - A file that disappears is shown as *unavailable*, but stays readable and searchable.
-- If your folder lives on a network filesystem with unreliable modification times, use **Rescan library** with a full rescan, or restart the container.
+- If your folder lives on a network filesystem with unreliable modification times, use **Rescan library** on the Library page with a full rescan, or restart the container.
 
 ### Deleting books
 
