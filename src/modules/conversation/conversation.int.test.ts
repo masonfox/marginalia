@@ -100,7 +100,6 @@ describe("conversation repository", () => {
 		});
 		const list = await listConversationsForEdition(t.db, e);
 		expect(list.map((x) => x.id)).toEqual([first.id, second.id]);
-		expect(list[0]?.messageCount).toBe(1);
 	});
 
 	it("previews the latest message that has text", async () => {

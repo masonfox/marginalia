@@ -78,7 +78,6 @@ export interface ConversationSummary {
 	title: string;
 	createdAt: Date;
 	updatedAt: Date;
-	messageCount: number;
 	/** Scope of the listed book in this conversation; null means whole book. */
 	scopeLabel: string | null;
 	/** Plain text of the latest message that has text; null when none does. */
@@ -189,7 +188,6 @@ function listColumns(db: Executor) {
 			title: conversations.title,
 			createdAt: conversations.createdAt,
 			updatedAt: conversations.updatedAt,
-			messageCount: sql<number>`(select count(*)::int from ${messages} where ${messages.conversationId} = ${conversations.id})`,
 			previewSource: sql<string | null>`(
 				select left(string_agg(e.p->>'text', E'\\n\\n' order by e.o), ${PREVIEW_SOURCE_CHARS}::int)
 				from json_array_elements(${latest.parts}) with ordinality as e(p, o)

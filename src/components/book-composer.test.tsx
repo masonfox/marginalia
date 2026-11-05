@@ -1115,7 +1115,6 @@ describe("Discuss without a usable model", () => {
 			title: "On the dictionary",
 			createdAt: new Date(),
 			updatedAt: new Date(),
-			messageCount: 2,
 			scopeLabel: "Chapter 2",
 			preview: "Hal is reading the dictionary because",
 		},

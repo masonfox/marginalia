@@ -85,7 +85,6 @@ describe("listRecentConversations", () => {
 		});
 		const { items } = await listRecentConversations(t.db);
 		expect(items.map((c) => c.id)).toEqual([first, second]);
-		expect(items[0]?.messageCount).toBe(1);
 	});
 
 	it("pages to the end in order, telling microsecond-apart rows apart", async () => {
@@ -203,9 +202,7 @@ describe("listRecentConversations", () => {
 			(await listRecentConversations(t.db)).items.map((c) => [c.id, c]),
 		);
 		expect(byId.get(replied)?.preview).toBe("James wants to go tomorrow.");
-		expect(byId.get(replied)?.messageCount).toBe(3);
 		expect(byId.get(empty)?.preview).toBeNull();
-		expect(byId.get(empty)?.messageCount).toBe(0);
 	});
 
 	it("caps the page size", async () => {

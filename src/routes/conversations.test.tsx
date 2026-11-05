@@ -66,7 +66,6 @@ const conversation = (id: string): RecentConversation => ({
 	title: `Conversation ${id}`,
 	createdAt: new Date("2026-11-01T00:00:00Z"),
 	updatedAt: new Date("2026-11-01T00:00:00Z"),
-	messageCount: 0,
 	preview: null,
 	books: [
 		{
