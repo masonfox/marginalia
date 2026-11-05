@@ -1,7 +1,15 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -106,6 +114,7 @@ describe("DropdownMenu", () => {
 		});
 		expect(document.querySelector('[role="menu"]')).toBeNull();
 		expect(trigger().getAttribute("aria-expanded")).toBe("false");
-		expect(document.activeElement).toBe(trigger());
+		// Radix restores focus in a timeout after the menu unmounts.
+		await vi.waitFor(() => expect(document.activeElement).toBe(trigger()));
 	});
 });
