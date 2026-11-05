@@ -939,6 +939,18 @@ test.describe("Discuss tab", () => {
 				() => (window.history.state as { autoSend?: boolean } | null)?.autoSend,
 			);
 		await expect.poll(autoSendFlag).toBeUndefined();
+		// Sending empties the composer, and its delayed save (300ms) then clears
+		// the stored draft. Wait until the draft has stayed cleared for longer
+		// than that, so the save cannot remove the draft injected below.
+		let clearedSince = 0;
+		await expect
+			.poll(async () => {
+				if ((await storedDraft(page, conversationId)) !== null)
+					clearedSince = 0;
+				else if (!clearedSince) clearedSince = Date.now();
+				return clearedSince > 0 && Date.now() - clearedSince >= 400;
+			})
+			.toBe(true);
 
 		// Recreate the moment of landing, before the handoff ran: the saved
 		// question and the history flag are both still there.
@@ -1354,6 +1366,190 @@ test.describe("conversations home", () => {
 				() => document.documentElement.scrollWidth <= window.innerWidth,
 			),
 		).toBe(true);
+	});
+});
+
+test.describe("new conversation from the header", () => {
+	const prefix = `E2E Second ${randomUUID().slice(0, 8)}`;
+	const created: string[] = [];
+	let restoreAi: (() => Promise<void>) | undefined;
+	let restorePosition: (() => Promise<void>) | undefined;
+	let manifestoId: string;
+
+	test.beforeAll(async ({ browser }) => {
+		restoreAi = await snapshotAiSettings();
+		const context = await browser.newContext({
+			baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
+		});
+		const page = await context.newPage();
+		await login(page);
+		await configureFakeChatDefault(page);
+		await context.close();
+	});
+	test.afterAll(async () => {
+		await restoreAi?.();
+	});
+	test.beforeEach(async ({ page }) => {
+		manifestoId = (await manifesto()).id;
+		restorePosition = await snapshotPosition(manifestoId);
+		// The Manifesto is read through Part I; the second book has no position.
+		const bound = await boundThrough(5);
+		await db.query("delete from reading_positions where edition_id = $1", [
+			manifestoId,
+		]);
+		await db.query(
+			"insert into reading_positions (edition_id, max_position, scope_label) values ($1, $2, $3)",
+			[manifestoId, bound.max, bound.label],
+		);
+		await login(page);
+		page.on("framenavigated", (frame) => {
+			const id = /\/c\/([0-9a-f-]{36})$/.exec(frame.url())?.[1];
+			if (frame === page.mainFrame() && id) created.push(id);
+		});
+	});
+	test.afterEach(async () => {
+		await db.query("delete from conversations where id = any($1::uuid[])", [
+			created.splice(0),
+		]);
+		await db.query("delete from editions where title like $1 || '%'", [prefix]);
+		await restorePosition?.();
+	});
+
+	const newConversation = (page: Page) =>
+		page.getByRole("banner").getByRole("button", { name: "New conversation" });
+	const dialog = (page: Page) =>
+		page.getByTestId("header-new-conversation-dialog");
+	/** Adds a book to the open composer through the picker. */
+	const addBook = async (page: Page, title: string) => {
+		await dialog(page).getByRole("button", { name: "Add book" }).click();
+		const picker = page.getByTestId("book-picker");
+		await picker.getByLabel("Search books").fill(title);
+		await picker
+			.getByTestId("book-picker-option")
+			.filter({ hasText: title })
+			.click();
+		await expect(picker).toBeHidden();
+	};
+
+	test("starts a conversation about two books from the library header, listed on both books, with the mixed notice", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		const title = `${prefix} Book`;
+		await searchLibrary(page, title);
+		await page.locator("#upload").setInputFiles({
+			name: "second.epub",
+			mimeType: "application/epub+zip",
+			buffer: await buildEpub({
+				title,
+				creators: ["Test Author"],
+				chapters: [1, 2].map((n) => ({
+					href: `c${n}.xhtml`,
+					title: `Chapter ${n}`,
+					body: `<p>Paragraph of chapter ${n}.</p>`,
+				})),
+			}),
+		});
+		await expect(
+			page
+				.getByRole("listitem")
+				.filter({ hasText: title })
+				.getByText("Not started"),
+		).toBeVisible({ timeout: 60_000 });
+		const { id: secondId } = await one<{ id: string }>(
+			"select id from editions where title = $1",
+			[title],
+		);
+		await page.route("**/api/chat", (route) =>
+			fulfillReply(route, "They differ in scope."),
+		);
+
+		await newConversation(page).click();
+		const composer = dialog(page).getByTestId("book-composer");
+		await expect(composer.getByTestId("composer-no-book")).toBeVisible();
+		await composer.getByLabel("Your question").fill("How do these compare?");
+		await expect(
+			composer.getByRole("button", { name: "Send", exact: true }),
+		).toHaveAttribute("aria-disabled", "true");
+
+		await addBook(page, "The Communist Manifesto");
+		await addBook(page, title);
+		const books = composer.getByTestId("composer-book");
+		await expect(books.getByTestId("composer-book-title")).toHaveText([
+			"The Communist Manifesto",
+			title,
+		]);
+
+		// Closing keeps the books and the question; nothing is created.
+		await page.keyboard.press("Escape");
+		await expect(dialog(page)).toBeHidden();
+		await newConversation(page).click();
+		await expect(books.getByTestId("composer-book-title")).toHaveText([
+			"The Communist Manifesto",
+			title,
+		]);
+		await expect(composer.getByLabel("Your question")).toHaveValue(
+			"How do these compare?",
+		);
+		expect(created).toEqual([]);
+
+		await composer.getByRole("button", { name: "Send", exact: true }).click();
+		// Only the book without a position asks for its scope.
+		const sheet = page.getByTestId("composer-scope-sheet");
+		await sheet.getByRole("radio", { name: "Whole book" }).check();
+		await sheet.getByRole("button", { name: "Send" }).click();
+
+		await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/);
+		const id = page.url().split("/c/")[1] as string;
+		await expect(dialog(page)).toBeHidden();
+		await expect(page.getByText("They differ in scope.")).toBeVisible();
+		const notice = page.getByTestId("spoiler-notice");
+		await expect(notice).toContainText(
+			`The assistant may reveal any part of “${title}”.`,
+		);
+		await expect(notice).toContainText(
+			"It can read “The Communist Manifesto” only through “The Communist Manifesto › I: Bourgeois and Proletarians”",
+		);
+
+		for (const editionId of [manifestoId, secondId]) {
+			await page.goto(`/books/${editionId}`);
+			await page.waitForLoadState("networkidle");
+			await expect(
+				page
+					.getByTestId("conversation-row")
+					.filter({ has: page.locator(`a[href="/c/${id}"]`) }),
+			).toBeVisible();
+		}
+	});
+
+	test("the header holds the control on one row at 1280 pixels, and not on the login page", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await page.goto("/");
+		const header = page.getByRole("banner");
+		const middles = await Promise.all(
+			[
+				header.getByRole("link", { name: "Marginalia" }),
+				header.getByRole("link", { name: "Dashboard" }),
+				header.getByRole("link", { name: "Conversations" }),
+				newConversation(page),
+				header.getByRole("link", { name: "Settings" }),
+			].map(async (l) => {
+				const b = await l.boundingBox();
+				if (!b) throw new Error("header control not shown");
+				return b.y + b.height / 2;
+			}),
+		);
+		for (const m of middles)
+			expect(Math.abs(m - (middles[0] ?? 0))).toBeLessThan(2);
+		await expect(newConversation(page)).toHaveText("New conversation");
+
+		if (!PASSWORD) return;
+		await page.context().clearCookies();
+		await page.goto("/login");
+		await expect(page.getByLabel("Password")).toBeVisible();
+		await expect(newConversation(page)).toHaveCount(0);
 	});
 });
 
@@ -2287,14 +2483,26 @@ test.describe("phone layout", () => {
 			page,
 		}) => {
 			const brand = page.getByRole("link", { name: "Marginalia" });
+			const newConversation = page
+				.getByRole("banner")
+				.getByRole("button", { name: "New conversation" });
 			const settings = page.getByRole("link", { name: "Settings" });
 			const logOut = page.getByRole("button", { name: "Log out" });
+			await expect(newConversation).toBeVisible();
 			await expect(settings).toBeVisible();
-			await expect(logOut).toBeVisible();
+			await expectTouchTarget(newConversation);
 			await expectTouchTarget(settings);
-			await expectTouchTarget(logOut);
+			// Icon-only: the visible label is for assistive tech alone.
+			expect((await newConversation.boundingBox())?.width).toBeLessThan(60);
+			const controls = [brand, newConversation, settings];
+			// Log out is offered only when the instance has a password.
+			if (PASSWORD) {
+				await expect(logOut).toBeVisible();
+				await expectTouchTarget(logOut);
+				controls.push(logOut);
+			}
 			const middles = await Promise.all(
-				[brand, settings, logOut].map(async (l) => {
+				controls.map(async (l) => {
 					const b = await l.boundingBox();
 					return (b?.y ?? 0) + (b?.height ?? 0) / 2;
 				}),
