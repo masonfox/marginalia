@@ -17,6 +17,7 @@ import {
 	MAX_CONVERSATION_BOOKS,
 	scopeText,
 } from "#/lib/conversation-books";
+import { relativeTime } from "#/lib/relative-time";
 import type {
 	ConversationSummary,
 	RecentConversation,
@@ -69,7 +70,6 @@ export function ConversationRow(props: ConversationRowProps) {
 	const router = useRouter();
 	const [renaming, setRenaming] = useState(false);
 	const [deleting, setDeleting] = useState(false);
-	const messages = `${c.messageCount} message${c.messageCount === 1 ? "" : "s"}`;
 	const updated = new Date(c.updatedAt);
 	const books =
 		props.bookLabel === "books"
@@ -79,14 +79,6 @@ export function ConversationRow(props: ConversationRowProps) {
 		props.bookLabel === "scope"
 			? scopeText(props.conversation.scopeLabel)
 			: null;
-	const lastActive = (
-		<>
-			{messages} · last active{" "}
-			<time dateTime={updated.toISOString()} suppressHydrationWarning>
-				{updated.toLocaleString()}
-			</time>
-		</>
-	);
 	return (
 		<li
 			className="flex items-start gap-1 hover:bg-accent/40"
@@ -107,30 +99,32 @@ export function ConversationRow(props: ConversationRowProps) {
 					>
 						{c.title}
 					</span>
-					{books ? (
-						<>
-							<span
-								className="relative block truncate text-xs text-muted-foreground"
-								data-testid="conversation-books"
-							>
-								<span aria-hidden>{books.text}</span>
-								<span className="sr-only">{books.description}</span>
-							</span>
-							<span className="block truncate text-xs text-muted-foreground">
-								{lastActive}
-							</span>
-						</>
-					) : (
-						<span className="block truncate text-xs text-muted-foreground">
-							<span data-testid="conversation-scope">{scope}</span> ·{" "}
-							{lastActive}
-						</span>
-					)}
 					<span
-						className="mt-0.5 block truncate text-sm text-muted-foreground"
+						className="block truncate text-sm text-muted-foreground"
 						data-testid="conversation-preview"
 					>
 						{c.preview ?? <em>No messages yet</em>}
+					</span>
+					<span className="relative mt-0.5 flex min-w-0 text-xs whitespace-nowrap text-muted-foreground/80">
+						{books ? (
+							<span className="truncate" data-testid="conversation-books">
+								<span aria-hidden>{books.text}</span>
+								<span className="sr-only">{books.description}</span>
+							</span>
+						) : (
+							<span className="truncate" data-testid="conversation-scope">
+								{scope}
+							</span>
+						)}
+						<span className="shrink-0">&nbsp;·&nbsp;</span>
+						<time
+							className="shrink-0"
+							dateTime={updated.toISOString()}
+							title={updated.toLocaleString()}
+							suppressHydrationWarning
+						>
+							{relativeTime(updated)}
+						</time>
 					</span>
 				</span>
 			</Link>
@@ -194,6 +188,9 @@ export function CoverStack({
 	books: { editionId: string; title: string; hasCover: boolean }[];
 }) {
 	const shown = books.slice(0, MAX_CONVERSATION_BOOKS);
+	// Centre the stack in the slot sized for the most books, so a single
+	// cover does not leave a wide gap before the row's text.
+	const inset = ((MAX_CONVERSATION_BOOKS - shown.length) * STACK_DX) / 2;
 	return (
 		<span
 			aria-hidden
@@ -206,7 +203,7 @@ export function CoverStack({
 						key={b.editionId}
 						className="absolute block h-15 w-10 overflow-hidden rounded-sm border bg-muted shadow-sm"
 						style={{
-							left: i * STACK_DX,
+							left: inset + i * STACK_DX,
 							top: i * STACK_DY,
 							zIndex: shown.length - i,
 						}}
