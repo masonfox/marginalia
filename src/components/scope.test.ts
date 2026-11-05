@@ -8,6 +8,7 @@ import type { ReadingPosition } from "#/modules/guide";
 import {
 	NewConversationDialog,
 	positionChoice,
+	ScopeNotice,
 	STALE,
 	WidenScope,
 } from "./scope";
@@ -442,5 +443,70 @@ describe("WidenScope", () => {
 		expect(widen(dialog).disabled).toBe(true);
 		await pick(dialog, "unit:29");
 		expect(widen(dialog).disabled).toBe(false);
+	});
+});
+
+describe("ScopeNotice", () => {
+	async function notice(props: Parameters<typeof ScopeNotice>[0]) {
+		const at = await render(createElement(ScopeNotice, props));
+		return {
+			spoiler: at.querySelector("[data-testid=spoiler-notice]"),
+			note: at.querySelector("[data-testid=scope-note]"),
+		};
+	}
+
+	it("renders nothing without books", async () => {
+		const at = await render(createElement(ScopeNotice, { labels: [] }));
+		expect(at.textContent).toBe("");
+	});
+
+	it("warns that a whole-book book may be revealed", async () => {
+		const { spoiler, note } = await notice({
+			labels: [null],
+			titles: ["The Pale King"],
+		});
+		expect(spoiler?.textContent).toContain(
+			"has access to the whole book, so it may reveal later events",
+		);
+		expect(note).toBeNull();
+	});
+
+	it("notes the scope of a bounded book without a spoiler warning", async () => {
+		const { spoiler, note } = await notice({
+			labels: ["Chapter 22"],
+			titles: ["Infinite Jest"],
+		});
+		expect(spoiler).toBeNull();
+		expect(note?.textContent).toContain("can read only through “Chapter 22”");
+		expect(note?.textContent).toContain("may still know the book from its");
+	});
+
+	it("names the fully readable and the bounded books when scopes are mixed", async () => {
+		const { spoiler, note } = await notice({
+			labels: ["Year of Glad", null],
+			titles: ["Infinite Jest", "The Pale King"],
+		});
+		expect(note).toBeNull();
+		const text = spoiler?.textContent ?? "";
+		expect(text).toContain("may reveal any part of “The Pale King”.");
+		expect(text).toContain("“Infinite Jest” only through “Year of Glad”");
+		expect(text).not.toContain("whole book");
+	});
+
+	it("lists several books in each group of a mixed notice", async () => {
+		const { spoiler } = await notice({
+			labels: [null, "Chapter 4", null],
+			titles: ["The Pale King", "Infinite Jest", "Broom of the System"],
+		});
+		const text = spoiler?.textContent ?? "";
+		expect(text).toContain(
+			"any part of “The Pale King” and “Broom of the System”.",
+		);
+		expect(text).toContain("“Infinite Jest” only through “Chapter 4”");
+	});
+
+	it("falls back to the whole-book warning when titles are not given", async () => {
+		const { spoiler } = await notice({ labels: ["Chapter 4", null] });
+		expect(spoiler?.textContent).toContain("may reveal later events");
 	});
 });

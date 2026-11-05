@@ -417,16 +417,28 @@ function ConversationPage() {
 				/>
 				<header className="border-b pb-4 max-sm:pb-3" data-testid="chat-header">
 					{/* With no books left, the header's navigation is the way out. */}
-					{conversation.books[0] && (
+					{/* Several books: the conversations page, where it is listed with every other. */}
+					{conversation.books.length > 1 ? (
 						<p className="text-sm">
 							<Link
-								to="/books/$editionId"
-								params={{ editionId: conversation.books[0].editionId }}
+								to="/conversations"
 								className="text-muted-foreground hover:underline"
 							>
 								← Conversations
 							</Link>
 						</p>
+					) : (
+						conversation.books[0] && (
+							<p className="text-sm">
+								<Link
+									to="/books/$editionId"
+									params={{ editionId: conversation.books[0].editionId }}
+									className="text-muted-foreground hover:underline"
+								>
+									← Conversations
+								</Link>
+							</p>
+						)
 					)}
 					{/* Below sm: the title and the books take one line each. */}
 					<h1
@@ -513,6 +525,7 @@ function ConversationPage() {
 						<div className="mt-3">
 							<ScopeNotice
 								labels={conversation.books.map((b) => b.scopeLabel)}
+								titles={conversation.books.map((b) => b.title)}
 							/>
 						</div>
 					</div>
