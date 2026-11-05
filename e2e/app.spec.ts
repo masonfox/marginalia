@@ -1195,7 +1195,7 @@ test.describe("conversations home", () => {
 
 		await page.getByRole("link", { name: "Marginalia" }).click();
 		await expect(
-			homeNav(page).getByRole("link", { name: "Library" }),
+			homeNav(page).getByRole("link", { name: "Dashboard" }),
 		).toHaveAttribute("aria-current", "page");
 		await statusButton(page, "Reading").click();
 		await expect(page).toHaveURL(
@@ -1330,7 +1330,7 @@ test.describe("conversations home", () => {
 
 		const nav = homeNav(page);
 		const library = await nav
-			.getByRole("link", { name: "Library" })
+			.getByRole("link", { name: "Dashboard" })
 			.boundingBox();
 		const all = await nav
 			.getByRole("link", { name: "Conversations" })

@@ -427,7 +427,7 @@ function ConversationPage() {
 							</Link>
 						) : (
 							<Link to="/" className="text-muted-foreground hover:underline">
-								← Library
+								← Dashboard
 							</Link>
 						)}
 					</p>

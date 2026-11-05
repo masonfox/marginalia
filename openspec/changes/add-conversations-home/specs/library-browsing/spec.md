@@ -19,11 +19,11 @@ When at least one conversation exists, the library page SHALL show a "Continue" 
 - **WHEN** the reader searches the library for a title that has no conversations
 - **THEN** the Continue section still shows the most recent conversations
 
-### Requirement: Library and conversations navigation
-The library page and the conversations page SHALL share a navigation with two entries, Library and Conversations, that switches between them and marks the current page for assistive technology. The library SHALL remain at the site root, and its search and filter URLs SHALL keep working. The app name in the header SHALL keep leading to the library. On narrow viewports the navigation SHALL fit on one row with touch-sized targets.
+### Requirement: Dashboard and conversations navigation
+The page at the site root, which holds the Continue section and the library list, SHALL be titled "Dashboard". It and the conversations page SHALL share a navigation with two entries, Dashboard and Conversations, that switches between them and marks the current page for assistive technology. The library's search and filter URLs at the site root SHALL keep working. The app name in the header SHALL lead to the dashboard, and the back links on the book and conversation pages SHALL lead to it and be labeled "Dashboard". On narrow viewports the navigation SHALL fit on one row with touch-sized targets.
 
 #### Scenario: Switch to conversations
-- **WHEN** the reader selects Conversations from the library page
+- **WHEN** the reader selects Conversations from the dashboard
 - **THEN** the conversations page opens and Conversations is marked as the current page
 
 #### Scenario: Back to a filtered library

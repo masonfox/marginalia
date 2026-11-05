@@ -24,7 +24,7 @@ export function BookHeader() {
 		<header className="lg:sticky lg:top-6 lg:self-start">
 			<p className="text-sm">
 				<Link to="/" className="text-muted-foreground hover:underline">
-					← Library
+					← Dashboard
 				</Link>
 			</p>
 			<div className="mt-3 flex gap-4 lg:flex-col">

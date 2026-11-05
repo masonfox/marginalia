@@ -8,7 +8,7 @@ const ENTRY =
 	"inline-flex shrink-0 items-center border-b-2 border-transparent px-3 py-2 whitespace-nowrap text-muted-foreground hover:text-foreground pointer-coarse:min-h-11 aria-[current=page]:border-primary aria-[current=page]:font-medium aria-[current=page]:text-foreground";
 
 /**
- * Switches between the library and the conversations page. The Library link
+ * Switches between the dashboard and the conversations page. The Dashboard link
  * carries no search: going back restores a filtered library, as its URL
  * holds the search and filter.
  */
@@ -24,7 +24,7 @@ export function HomeNav() {
 				activeOptions={{ exact: true, includeSearch: false }}
 				className={ENTRY}
 			>
-				Library
+				Dashboard
 			</Link>
 			<Link
 				to="/conversations"

@@ -136,7 +136,7 @@ function LibraryPage() {
 			<HomeNav />
 			<div className="mt-6 flex flex-wrap items-end justify-between gap-4">
 				<div>
-					<h1 className="font-serif text-3xl font-semibold">Library</h1>
+					<h1 className="font-serif text-3xl font-semibold">Dashboard</h1>
 					<p
 						className="mt-1 text-sm text-muted-foreground"
 						data-testid="library-count"

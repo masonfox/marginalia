@@ -61,7 +61,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 			<p className="mt-2 text-muted-foreground">
 				There is nothing here.{" "}
 				<Link to="/" className="underline">
-					Back to the library
+					Back to the dashboard
 				</Link>
 				.
 			</p>
