@@ -36,6 +36,7 @@ function DiscussTab() {
 	return (
 		<DiscussView
 			editionId={edition.id}
+			title={edition.title}
 			isReady={isReady}
 			status={status}
 			conversations={conversations}

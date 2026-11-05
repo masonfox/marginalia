@@ -503,12 +503,11 @@ export function NewConversationDialog({
 							try {
 								const created = await create({
 									data: {
-										editionId,
-										scope: toScope(selected),
+										books: [{ editionId, scope: toScope(selected) }],
 										...(model && { selection: model }),
 									},
 								});
-								if (!created) {
+								if ("error" in created && created.error === "not_ready") {
 									setError("This book is not ready for conversations yet.");
 								} else if (
 									"error" in created &&

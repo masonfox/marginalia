@@ -1,5 +1,8 @@
 // How a row in a list of conversations across books names its books.
 
+/** The most books a conversation started from the UI may hold. */
+export const MAX_CONVERSATION_BOOKS = 3;
+
 /** "Through Chapter 22" or "Whole book". */
 export const scopeText = (label: string | null) =>
 	label === null ? "Whole book" : `Through ${label}`;

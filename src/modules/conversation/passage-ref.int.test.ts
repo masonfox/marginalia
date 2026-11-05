@@ -8,7 +8,7 @@ import {
 	type ConversationDetail,
 	checkPassageRef,
 	createConversation,
-	createConversationForEdition,
+	createConversationForEditions,
 	getConversation,
 } from ".";
 
@@ -75,10 +75,12 @@ beforeAll(async () => {
 	whole = await load(
 		(await createConversation(t.db, { editionIds: [book.id] })).id,
 	);
-	const created = await createConversationForEdition(t.db, book.id, {
-		kind: "unit",
-		endPosition: units[0]?.endPosition as number,
-	});
+	const created = await createConversationForEditions(t.db, [
+		{
+			editionId: book.id,
+			scope: { kind: "unit", endPosition: units[0]?.endPosition as number },
+		},
+	]);
 	if (!created || "error" in created) throw new Error("expected conversation");
 	bounded = await load(created.id);
 });

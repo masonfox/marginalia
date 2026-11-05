@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_CONVERSATION_BOOKS } from "./conversation-books";
 import { passageRefSchema, passageSnapshotSchema } from "./passage-ref";
 import { replyContextSchema } from "./reply-context";
 
@@ -20,9 +21,19 @@ const draftSchema = z.object({
 			}),
 		])
 		.nullable(),
+	/**
+	 * The books chosen in a composer that starts a conversation, in the order
+	 * they were added; absent when they are the ones it starts with.
+	 */
+	books: z
+		.array(z.object({ editionId: z.string(), title: z.string() }))
+		.max(MAX_CONVERSATION_BOOKS)
+		.optional(),
 });
 type StoredDraft = z.infer<typeof draftSchema>;
 export type ComposerDraft = Omit<StoredDraft, "v">;
+/** A book chosen in a new conversation's composer draft. */
+export type DraftBook = NonNullable<ComposerDraft["books"]>[number];
 export type DraftAttachment = NonNullable<ComposerDraft["attachment"]>;
 
 export const composerDraftKey = (conversationId: string) =>
@@ -64,7 +75,7 @@ export function saveComposerDraft(
 	draft: ComposerDraft,
 	storage = sessionStore(),
 ): boolean {
-	if (!draft.text && !draft.attachment) {
+	if (!draft.text && !draft.attachment && !draft.books?.length) {
 		clearComposerDraft(conversationId, storage);
 		return true;
 	}
@@ -94,6 +105,9 @@ export function clearComposerDraft(
 
 /** The draft key of a book page's composer, before any conversation exists. */
 export const bookDraftId = (editionId: string) => `book:${editionId}`;
+
+/** The draft key of the header's New conversation composer, which has no book of its own. */
+export const newConversationDraftId = "new-conversation";
 
 declare module "@tanstack/react-router" {
 	interface HistoryState {

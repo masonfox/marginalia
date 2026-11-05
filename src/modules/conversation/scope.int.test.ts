@@ -20,7 +20,7 @@ import {
 } from "../../../test/library";
 import {
 	createConversation,
-	createConversationForEdition,
+	createConversationForEditions,
 	getConversation,
 	listConversationsForEdition,
 	rebaseScopes,
@@ -51,7 +51,9 @@ const unit = (i: number): Scope => ({
 });
 
 async function start(scope: Scope) {
-	const created = await createConversationForEdition(t.db, bookId, scope);
+	const created = await createConversationForEditions(t.db, [
+		{ editionId: bookId, scope: scope },
+	]);
 	if (!created || "error" in created)
 		throw new Error("expected a conversation");
 	return created.id;
@@ -84,11 +86,16 @@ describe("starting a conversation with a scope", () => {
 	it("rejects an end position that is not a current unit's end", async () => {
 		const before = await listConversationsForEdition(t.db, bookId);
 		expect(
-			await createConversationForEdition(t.db, bookId, {
-				kind: "unit",
-				endPosition: (units[0]?.endPosition ?? 0) - 1,
-			}),
-		).toEqual({ error: "stale_scope" });
+			await createConversationForEditions(t.db, [
+				{
+					editionId: bookId,
+					scope: {
+						kind: "unit",
+						endPosition: (units[0]?.endPosition ?? 0) - 1,
+					},
+				},
+			]),
+		).toEqual({ error: "stale_scope", editionId: bookId });
 		expect(await listConversationsForEdition(t.db, bookId)).toHaveLength(
 			before.length,
 		);
@@ -197,10 +204,12 @@ describe("scope across a reparse", () => {
 			finalAttempt: true,
 		});
 		const [, second] = await getReadingUnits(t.db, edition.id);
-		const created = await createConversationForEdition(t.db, edition.id, {
-			kind: "unit",
-			endPosition: second?.endPosition as number,
-		});
+		const created = await createConversationForEditions(t.db, [
+			{
+				editionId: edition.id,
+				scope: { kind: "unit", endPosition: second?.endPosition as number },
+			},
+		]);
 		if (!created || "error" in created)
 			throw new Error("expected a conversation");
 		const textAt = async (position: number) => {

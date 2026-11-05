@@ -284,7 +284,11 @@ describe("NewConversationDialog", () => {
 		expect(checked(dialog).map((r) => r.value)).toEqual(["unit:9"]);
 		await act(async () => start(dialog).click());
 		expect(mocks.create).toHaveBeenCalledWith({
-			data: { editionId: EDITION, scope: { kind: "unit", endPosition: 9 } },
+			data: {
+				books: [
+					{ editionId: EDITION, scope: { kind: "unit", endPosition: 9 } },
+				],
+			},
 		});
 	});
 
@@ -297,7 +301,11 @@ describe("NewConversationDialog", () => {
 		expect(checked(dialog).map((r) => r.value)).toEqual(["unit:9"]);
 		await act(async () => start(dialog).click());
 		expect(mocks.create).toHaveBeenCalledWith({
-			data: { editionId: EDITION, scope: { kind: "unit", endPosition: 9 } },
+			data: {
+				books: [
+					{ editionId: EDITION, scope: { kind: "unit", endPosition: 9 } },
+				],
+			},
 		});
 	});
 

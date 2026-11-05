@@ -8,7 +8,7 @@ import { selectionSchema } from "#/modules/ai";
 import { getReadingUnits } from "#/modules/catalog";
 import {
 	checkPassageRef,
-	createConversationForEdition,
+	createConversationForEditions,
 	deleteConversation,
 	getConversation,
 	getConversationWithUsage,
@@ -16,9 +16,11 @@ import {
 	getTrailObservations,
 	listConversationsForEdition,
 	listRecentConversations,
+	newConversationBooksSchema,
 	type PassageCheck,
 	passageRefSchema,
 	renameConversation,
+	scopeSchema,
 	setConversationModel,
 	widenConversationScope,
 } from "#/modules/conversation";
@@ -61,28 +63,23 @@ export const listRecentConversationsFn = createServerFn({ method: "GET" })
 	)
 	.handler(({ data }) => listRecentConversations(appContext().db, data));
 
-const scopeSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("whole") }),
-	z.object({ kind: z.literal("unit"), endPosition: z.number().int() }),
-]);
-
 /** The book's reading units, for choosing a conversation's scope. */
 export const getReadingUnitsFn = createServerFn({ method: "GET" })
 	.validator(z.object({ editionId: z.uuid() }))
 	.handler(({ data }) => getReadingUnits(appContext().db, data.editionId));
 
 /**
- * Starts a single-book conversation with the reader's chosen scope and,
- * optionally, its own model. Returns null when the book is missing or not
- * ready, `stale_scope` when the chosen unit no longer exists (reload the
- * units and choose again), and `model_unavailable` when the model's provider
- * has no credentials.
+ * Starts a conversation about 1 to 3 distinct books,
+ * each with the reader's chosen scope, and optionally its own model. Returns
+ * `not_ready` with the first book that is missing or not ready,
+ * `stale_scope` with the first book whose chosen unit no longer exists
+ * (reload its units and choose again), and `model_unavailable` when the
+ * model's provider has no credentials. Nothing is created on any error.
  */
 export const createConversationFn = createServerFn({ method: "POST" })
 	.validator(
 		z.object({
-			editionId: z.uuid(),
-			scope: scopeSchema,
+			books: newConversationBooksSchema,
 			selection: selectionSchema.optional(),
 		}),
 	)
@@ -93,12 +90,7 @@ export const createConversationFn = createServerFn({ method: "POST" })
 			!(await ai.available()).includes(data.selection.provider)
 		)
 			return { error: "model_unavailable" as const };
-		return createConversationForEdition(
-			db,
-			data.editionId,
-			data.scope,
-			data.selection,
-		);
+		return createConversationForEditions(db, data.books, data.selection);
 	});
 
 /**

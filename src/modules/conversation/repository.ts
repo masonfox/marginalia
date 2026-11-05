@@ -11,6 +11,8 @@ import {
 	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
+import { z } from "zod";
+import { MAX_CONVERSATION_BOOKS } from "#/lib/conversation-books";
 import {
 	CONVERSATIONS_PAGE_SIZE,
 	type ConversationCursor,
@@ -50,6 +52,23 @@ export interface ConversationBook {
 
 /** How far the reader has read in a book: a reading unit, by its end position, or the whole book. */
 export type Scope = { kind: "whole" } | { kind: "unit"; endPosition: number };
+
+export const scopeSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("whole") }),
+	z.object({ kind: z.literal("unit"), endPosition: z.number().int() }),
+]);
+
+export { MAX_CONVERSATION_BOOKS };
+
+/** A new conversation's books with their scopes: 1 to MAX_CONVERSATION_BOOKS, distinct, in the reader's order. */
+export const newConversationBooksSchema = z
+	.array(z.object({ editionId: z.uuid(), scope: scopeSchema }))
+	.min(1)
+	.max(MAX_CONVERSATION_BOOKS)
+	.refine(
+		(books) => new Set(books.map((b) => b.editionId)).size === books.length,
+		"Books must be distinct",
+	);
 
 /** A stored bound: null for whole book. */
 export type ResolvedScope = { maxPosition: number; scopeLabel: string } | null;
@@ -544,33 +563,57 @@ export async function resolveScope(
 		: undefined;
 }
 
+/** A book a new conversation is about, with the reader's chosen scope for it. */
+export interface NewConversationBook {
+	editionId: string;
+	scope: Scope;
+}
+
+export type CreateConversationResult =
+	| { id: string }
+	| { error: "not_ready" | "stale_scope"; editionId: string };
+
 /**
- * Starts a conversation about one ready book with the reader's chosen scope
- * and, optionally, its own model (checked by the caller).
- * Returns null when the book does not exist or is not ready, and
- * `stale_scope` when the chosen unit is no longer one of the book's units.
+ * Starts a conversation about one or more distinct ready books, each with the
+ * reader's chosen scope, in the given order, and optionally its own model
+ * (checked by the caller). All or nothing: returns `not_ready` for the first
+ * book, in the given order, that is missing or not ready, and `stale_scope`
+ * for the first whose chosen unit is no longer one of its units.
  */
-export async function createConversationForEdition(
+export async function createConversationForEditions(
 	db: Database,
-	editionId: string,
-	scope: Scope,
+	books: NewConversationBook[],
 	model?: AiSelection,
-): Promise<{ id: string } | { error: "stale_scope" } | null> {
+): Promise<CreateConversationResult> {
+	const ids = books.map((b) => b.editionId);
+	if (ids.length === 0)
+		throw new Error("a conversation needs at least one book");
+	if (new Set(ids).size !== ids.length)
+		throw new Error("a conversation's books must be distinct");
 	return db.transaction(async (tx) => {
-		// Conflicts with the lock replaceEditionStructure takes, so units cannot change before the insert.
-		const [edition] = await tx
+		// Conflicts with the lock replaceEditionStructure takes, so units cannot
+		// change before the insert. Locking in id order keeps two creations, or a
+		// creation and a reparse, over the same books from deadlocking.
+		const rows = await tx
 			.select({ id: editions.id, status: editions.status })
 			.from(editions)
-			.where(eq(editions.id, editionId))
+			.where(inArray(editions.id, ids))
+			.orderBy(asc(editions.id))
 			.for("share");
-		if (!edition || edition.status !== "ready") return null;
-		const resolved = await resolveScope(tx, editionId, scope);
-		if (resolved === undefined) return { error: "stale_scope" as const };
-		return insertConversation(tx, {
-			editionIds: [editionId],
-			scopes: { [editionId]: resolved },
-			model,
-		});
+		const ready = new Set(
+			rows.filter((r) => r.status === "ready").map((r) => r.id),
+		);
+		const missing = ids.find((id) => !ready.has(id));
+		if (missing !== undefined)
+			return { error: "not_ready" as const, editionId: missing };
+		const scopes: Record<string, ResolvedScope> = {};
+		for (const { editionId, scope } of books) {
+			const resolved = await resolveScope(tx, editionId, scope);
+			if (resolved === undefined)
+				return { error: "stale_scope" as const, editionId };
+			scopes[editionId] = resolved;
+		}
+		return insertConversation(tx, { editionIds: ids, scopes, model });
 	});
 }
 
