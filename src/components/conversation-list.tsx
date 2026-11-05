@@ -12,7 +12,11 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
-import { conversationBooksLabel, scopeText } from "#/lib/conversation-books";
+import {
+	conversationBooksLabel,
+	MAX_CONVERSATION_BOOKS,
+	scopeText,
+} from "#/lib/conversation-books";
 import type {
 	ConversationSummary,
 	RecentConversation,
@@ -91,37 +95,43 @@ export function ConversationRow(props: ConversationRowProps) {
 			<Link
 				to="/c/$conversationId"
 				params={{ conversationId: c.id }}
-				className="min-w-0 flex-1 px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+				className="flex min-w-0 flex-1 items-start gap-3 px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
 			>
-				<span
-					className="block truncate font-medium"
-					data-testid="conversation-title"
-				>
-					{c.title}
-				</span>
-				{books ? (
-					<>
-						<span
-							className="relative block truncate text-xs text-muted-foreground"
-							data-testid="conversation-books"
-						>
-							<span aria-hidden>{books.text}</span>
-							<span className="sr-only">{books.description}</span>
-						</span>
+				{props.bookLabel === "books" ? (
+					<CoverStack books={props.conversation.books} />
+				) : null}
+				<span className="block min-w-0 flex-1">
+					<span
+						className="block truncate font-medium"
+						data-testid="conversation-title"
+					>
+						{c.title}
+					</span>
+					{books ? (
+						<>
+							<span
+								className="relative block truncate text-xs text-muted-foreground"
+								data-testid="conversation-books"
+							>
+								<span aria-hidden>{books.text}</span>
+								<span className="sr-only">{books.description}</span>
+							</span>
+							<span className="block truncate text-xs text-muted-foreground">
+								{lastActive}
+							</span>
+						</>
+					) : (
 						<span className="block truncate text-xs text-muted-foreground">
+							<span data-testid="conversation-scope">{scope}</span> ·{" "}
 							{lastActive}
 						</span>
-					</>
-				) : (
-					<span className="block truncate text-xs text-muted-foreground">
-						<span data-testid="conversation-scope">{scope}</span> · {lastActive}
+					)}
+					<span
+						className="mt-0.5 block truncate text-sm text-muted-foreground"
+						data-testid="conversation-preview"
+					>
+						{c.preview ?? <em>No messages yet</em>}
 					</span>
-				)}
-				<span
-					className="mt-0.5 block truncate text-sm text-muted-foreground"
-					data-testid="conversation-preview"
-				>
-					{c.preview ?? <em>No messages yet</em>}
 				</span>
 			</Link>
 			<DropdownMenu modal={false}>
@@ -165,5 +175,57 @@ export function ConversationRow(props: ConversationRowProps) {
 				}}
 			/>
 		</li>
+	);
+}
+
+/** How far each cover behind sits right of and below the one in front, in pixels. */
+const STACK_DX = 8;
+const STACK_DY = 3;
+
+/**
+ * The conversation's book covers as a small stack, first book in front and
+ * the others peeking out behind it to the right. The stack's width is the
+ * same for any number of books so rows stay aligned. Decorative: the row's
+ * text already names every book for assistive technology.
+ */
+export function CoverStack({
+	books,
+}: {
+	books: { editionId: string; title: string; hasCover: boolean }[];
+}) {
+	const shown = books.slice(0, MAX_CONVERSATION_BOOKS);
+	return (
+		<span
+			aria-hidden
+			className="relative mt-0.5 block h-[66px] w-14 shrink-0"
+			data-testid="conversation-covers"
+		>
+			{shown
+				.map((b, i) => (
+					<span
+						key={b.editionId}
+						className="absolute block h-15 w-10 overflow-hidden rounded-sm border bg-muted shadow-sm"
+						style={{
+							left: i * STACK_DX,
+							top: i * STACK_DY,
+							zIndex: shown.length - i,
+						}}
+					>
+						{b.hasCover ? (
+							<img
+								src={`/api/covers/${b.editionId}`}
+								alt=""
+								loading="lazy"
+								className="size-full object-cover"
+							/>
+						) : (
+							<span className="flex size-full items-center justify-center font-serif text-sm text-muted-foreground">
+								{b.title.trim().charAt(0).toUpperCase()}
+							</span>
+						)}
+					</span>
+				))
+				.reverse()}
+		</span>
 	);
 }

@@ -142,8 +142,12 @@ describe("listRecentConversations", () => {
 		for (const id of shown) expect(rest).not.toContain(id);
 	});
 
-	it("returns every book in its stored order with its scope", async () => {
+	it("returns every book in its stored order with its scope and cover", async () => {
 		await t.pool.query("delete from conversations");
+		await t.pool.query(
+			"update editions set cover_path = 'cover.jpg' where id = $1",
+			[paleKing],
+		);
 		const { id } = await createConversation(t.db, {
 			editionIds: [paleKing, jest, lighthouse],
 			scopes: { [jest]: { maxPosition: 42, scopeLabel: "Year of Glad" } },
@@ -151,9 +155,24 @@ describe("listRecentConversations", () => {
 		const [item] = (await listRecentConversations(t.db)).items;
 		expect(item?.id).toBe(id);
 		expect(item?.books).toEqual([
-			{ editionId: paleKing, title: "The Pale King", scopeLabel: null },
-			{ editionId: jest, title: "Infinite Jest", scopeLabel: "Year of Glad" },
-			{ editionId: lighthouse, title: "To the Lighthouse", scopeLabel: null },
+			{
+				editionId: paleKing,
+				title: "The Pale King",
+				hasCover: true,
+				scopeLabel: null,
+			},
+			{
+				editionId: jest,
+				title: "Infinite Jest",
+				hasCover: false,
+				scopeLabel: "Year of Glad",
+			},
+			{
+				editionId: lighthouse,
+				title: "To the Lighthouse",
+				hasCover: false,
+				scopeLabel: null,
+			},
 		]);
 	});
 

@@ -229,6 +229,8 @@ export async function listConversationsForEdition(
 export interface ConversationListBook {
 	editionId: string;
 	title: string;
+	/** Whether the edition has a cover image at `/api/covers/<editionId>`. */
+	hasCover: boolean;
 	/** The reading unit the conversation is scoped through; null means whole book. */
 	scopeLabel: string | null;
 }
@@ -286,6 +288,7 @@ export async function listRecentConversations(
 				select json_agg(json_build_object(
 					'editionId', ${editions.id},
 					'title', ${editions.title},
+					'hasCover', ${editions.coverPath} is not null,
 					'scopeLabel', ${conversationEditions.scopeLabel}
 				) order by ${conversationEditions.ordinal})
 				from ${conversationEditions}
