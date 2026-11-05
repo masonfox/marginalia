@@ -216,6 +216,7 @@ describe("HeaderMenu", () => {
 		await keydown(menu, "Escape");
 		expect(document.querySelector('[role="menu"]')).toBeNull();
 		expect(trigger().getAttribute("aria-expanded")).toBe("false");
-		expect(document.activeElement).toBe(trigger());
+		// Radix restores focus on a timer after the menu's focus scope unmounts.
+		await vi.waitFor(() => expect(document.activeElement).toBe(trigger()));
 	});
 });
