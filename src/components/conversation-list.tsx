@@ -134,7 +134,7 @@ export function ConversationRow(props: ConversationRowProps) {
 						type="button"
 						size="icon"
 						variant="ghost"
-						className="mt-1.5 mr-1.5 shrink-0"
+						className="mt-1.5 mr-1.5 shrink-0 pointer-coarse:size-11"
 						aria-label={`Actions for “${c.title}”`}
 					>
 						<Ellipsis aria-hidden />
