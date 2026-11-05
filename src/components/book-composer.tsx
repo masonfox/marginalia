@@ -1113,6 +1113,19 @@ export function BookPicker({
 							Loading books…
 						</output>
 					)}
+					{isFetchNextPageError && !isFetching && (
+						<output className="block py-2 text-center text-sm text-muted-foreground">
+							Couldn't load more books.{" "}
+							<Button
+								type="button"
+								size="sm"
+								variant="outline"
+								onClick={loadMore}
+							>
+								Try again
+							</Button>
+						</output>
+					)}
 				</div>
 				<DialogFooter>
 					<DialogClose asChild>

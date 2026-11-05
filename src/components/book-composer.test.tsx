@@ -977,6 +977,66 @@ describe("Composer with several books", () => {
 		});
 	});
 
+	it("keeps loaded books when a later page fails, and retries that page", async () => {
+		mocks.reading = fakeReading(at(2));
+		let failed = false;
+		mocks.shelf.mockImplementation(
+			async ({ data }: { data: { cursor?: string } }) => {
+				// A request takes a moment, as over the network, so the picker sees it in flight.
+				await new Promise((r) => setTimeout(r, 0));
+				if (data.cursor === undefined)
+					return page(
+						[
+							shelfItem(IJ),
+							shelfItem({ editionId: "p1", title: "Processing" }, "processing"),
+						],
+						"p2",
+					);
+				if (data.cursor === "p2") return page([shelfItem(PK)], "p3");
+				if (!failed) {
+					failed = true;
+					throw new Error("offline");
+				}
+				return page([shelfItem(BROOM)]);
+			},
+		);
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		await act(() =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<Composer
+						initialBooks={[IJ]}
+						draftId={newConversationDraftId}
+						status={OK_STATUS}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		await openPicker();
+		await settle();
+		// The failed page leaves the loaded books, a way to retry, and no further requests.
+		expect(options()).toEqual(["The Pale King"]);
+		expect(byTestId("book-picker")?.textContent).toContain(
+			"Couldn't load more books.",
+		);
+		const cursors = () =>
+			mocks.shelf.mock.calls.map(
+				([arg]) => (arg as { data: { cursor?: string } }).data.cursor,
+			);
+		await settle();
+		expect(cursors()).toEqual([undefined, "p2", "p3"]);
+		await click(button("Try again", byTestId("book-picker") ?? document));
+		await settle();
+		// The same page was asked for again.
+		expect(cursors()).toEqual([undefined, "p2", "p3", "p3"]);
+		expect(options()).toEqual(["The Pale King", "The Broom of the System"]);
+		expect(byTestId("book-picker")?.textContent).not.toContain(
+			"Couldn't load more books.",
+		);
+	});
+
 	it("removes a book before sending, and hides Add book at three books", async () => {
 		mocks.reading = fakeReading(at(2));
 		mocks.create.mockResolvedValue({ id: "c1" });
