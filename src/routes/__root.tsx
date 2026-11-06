@@ -125,6 +125,7 @@ function AppShell() {
 	const onLogin = useRouterState({
 		select: (s) => s.location.pathname === "/login",
 	});
+	if (onLogin) return <Outlet />;
 	return (
 		<div className="min-h-screen">
 			<header className="border-b">
