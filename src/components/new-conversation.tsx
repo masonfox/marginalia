@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
-import { Composer } from "#/components/book-composer";
+import { Composer, type ComposerBook } from "#/components/book-composer";
 import { Button } from "#/components/ui/button";
 import {
 	Dialog,
@@ -21,7 +21,14 @@ import { newConversationDraftId } from "#/lib/composer-draft";
  * Settings and Log out controls. Icon-only below lg, still named for
  * assistive tech.
  */
-export function NewConversation() {
+export function NewConversation({
+	book,
+	compact = true,
+}: {
+	book?: ComposerBook;
+	/** The header uses an icon-only trigger at narrower widths. */
+	compact?: boolean;
+} = {}) {
 	const [open, setOpen] = useState(false);
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
@@ -30,10 +37,16 @@ export function NewConversation() {
 					type="button"
 					size="default"
 					aria-label="New conversation"
-					className="max-lg:size-10 max-lg:px-0 max-sm:size-11"
+					className={
+						compact
+							? "max-lg:size-10 max-lg:px-0 max-sm:size-11"
+							: "min-h-11 px-5"
+					}
 				>
 					<Plus aria-hidden strokeWidth={2} />
-					<span className="max-lg:sr-only">New conversation</span>
+					<span className={compact ? "max-lg:sr-only" : undefined}>
+						New conversation
+					</span>
 				</Button>
 			</DialogTrigger>
 			<DialogContent
@@ -58,7 +71,7 @@ export function NewConversation() {
 					</Button>
 				</DialogClose>
 				{/* Mounted only while open, so the AI status is fetched on opening. */}
-				<NewConversationComposer onStarted={() => setOpen(false)} />
+				<NewConversationComposer book={book} onStarted={() => setOpen(false)} />
 				<DialogClose asChild>
 					<Button type="button" variant="ghost" className="justify-self-end">
 						Cancel
@@ -69,7 +82,13 @@ export function NewConversation() {
 	);
 }
 
-function NewConversationComposer({ onStarted }: { onStarted: () => void }) {
+function NewConversationComposer({
+	book,
+	onStarted,
+}: {
+	book?: ComposerBook;
+	onStarted: () => void;
+}) {
 	const aiStatus = useQuery({
 		queryKey: ["ai-status"],
 		queryFn: () => getAiStatusFn(),
@@ -86,8 +105,8 @@ function NewConversationComposer({ onStarted }: { onStarted: () => void }) {
 		return <p className="text-sm text-muted-foreground">Loading…</p>;
 	return (
 		<Composer
-			initialBooks={[]}
-			draftId={newConversationDraftId}
+			initialBooks={book ? [book] : []}
+			draftId={book ? `new:${book.editionId}` : newConversationDraftId}
 			status={aiStatus.data}
 			onStarted={onStarted}
 		/>

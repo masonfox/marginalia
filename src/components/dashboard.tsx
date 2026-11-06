@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { BookOpen } from "lucide-react";
 import { BookCover, coverColors } from "#/components/book-cover";
 import { ConversationRow } from "#/components/conversation-list";
+import { NewConversation } from "#/components/new-conversation";
 import { Eyebrow, ScopePill } from "#/components/pieces";
 import type { RecentConversation } from "#/modules/conversation";
 import type { ReadingShelfItem } from "#/modules/shelf";
@@ -175,11 +176,11 @@ export function ContinueReadingHero({
 					to="/books/$editionId"
 					params={{ editionId: book.id }}
 					aria-label={book.title}
-					className="sm:row-span-2"
+					className="col-start-1 row-start-1 w-28 min-w-0 sm:row-span-2 sm:w-[196px]"
 				>
 					<BookCover {...book} author={book.authors[0]} loading="eager" />
 				</Link>
-				<div className="min-w-0">
+				<div className="col-start-2 row-start-1 min-w-0">
 					<Eyebrow>Continue reading</Eyebrow>
 					<h1
 						id="continue-reading-title"
@@ -191,20 +192,15 @@ export function ContinueReadingHero({
 						{book.authors.join(", ")}
 					</p>
 				</div>
-				<div className="col-span-2 min-w-0 sm:col-start-2 sm:row-start-2 lg:col-span-1">
+				<div className="col-span-2 col-start-1 row-start-2 min-w-0 sm:col-span-1 sm:col-start-2">
 					{book.scopeLabel && (
 						<ScopePill>{`Through ${book.scopeLabel}`}</ScopePill>
 					)}
 					<div className="mt-5 flex flex-wrap gap-2.5">
-						{conversation && (
-							<Link
-								to="/c/$conversationId"
-								params={{ conversationId: conversation.id }}
-								className="inline-flex min-h-11 items-center justify-center rounded-[10px] bg-primary px-5 text-sm font-semibold text-primary-foreground"
-							>
-								Resume conversation
-							</Link>
-						)}
+						<NewConversation
+							book={{ editionId: book.id, title: book.title }}
+							compact={false}
+						/>
 						<Link
 							to="/books/$editionId/contents"
 							params={{ editionId: book.id }}

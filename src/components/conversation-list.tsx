@@ -114,13 +114,13 @@ export function ConversationRow(props: ConversationRowProps) {
 				) : null}
 				<span className="block min-w-0 flex-1">
 					<span
-						className="block line-clamp-2 text-[15.5px] leading-snug font-semibold sm:text-[17px]"
+						className="line-clamp-2 text-[15.5px] leading-snug font-semibold sm:text-[17px]"
 						data-testid="conversation-title"
 					>
 						{c.title}
 					</span>
 					<span
-						className="mt-1 block line-clamp-2 text-[13.5px] text-muted-foreground sm:text-sm"
+						className="mt-1 line-clamp-2 text-[13.5px] text-muted-foreground sm:text-sm"
 						data-testid="conversation-preview"
 					>
 						{c.preview ?? <em>No messages yet</em>}
@@ -128,7 +128,12 @@ export function ConversationRow(props: ConversationRowProps) {
 					<span className="relative mt-2 flex min-w-0 flex-wrap gap-y-1 text-xs text-faint-foreground sm:text-[12.5px]">
 						{books ? (
 							<span className="truncate" data-testid="conversation-books">
-								<span aria-hidden>{books.text}</span>
+								<span aria-hidden>
+									{props.bookLabel === "books" &&
+									props.conversation.books.length === 1
+										? props.conversation.books[0]?.title
+										: books.text}
+								</span>
 								<span className="sr-only top-0 left-0">
 									{books.description}
 								</span>
