@@ -1,8 +1,8 @@
 ## 1. Foundations
 
 - [x] 1.1 Add self-hosted fonts (Cormorant Garamond 500/600, Instrument Sans 400–600, Newsreader 400 + italic, Latin subset, `font-display: swap`) and set `--font-sans`, `--font-serif` (display), and new `--font-reading` in `@theme inline`; verify no request leaves the instance for fonts (network tab / e2e request assertion)
-- [ ] 1.2 Rewrite `src/styles.css` tokens for `[data-theme="light"]`, `[data-theme="sepia"]`, `[data-theme="dark"]` per design §1, keeping shadcn variable names and adding `--background-2`, `--faint-foreground`, `--amber`, `--amber-foreground`, `--amber-soft`, `--shadow-cover`; verify a unit test computes WCAG contrast for every text/background pair in all three themes and requires ≥ 4.5:1
-- [ ] 1.3 Replace the `.dark` custom variant with `[data-theme="dark"]` and add a `sepia` variant; review the existing `dark:` usages; verify `pnpm typecheck` and `pnpm lint` pass
+- [x] 1.2 Rewrite `src/styles.css` tokens for `[data-theme="light"]`, `[data-theme="sepia"]`, `[data-theme="dark"]` per design §1, keeping shadcn variable names and adding `--background-2`, `--faint-foreground`, `--amber`, `--amber-foreground`, `--amber-soft`, `--shadow-cover`; verify a unit test computes WCAG contrast for every text/background pair in all three themes and requires ≥ 4.5:1
+- [x] 1.3 Replace the `.dark` custom variant with `[data-theme="dark"]` and add a `sepia` variant; review the existing `dark:` usages; verify `pnpm typecheck` and `pnpm lint` pass
 - [x] 1.4 Add a `theme` module (read/write `localStorage["marginalia:theme"]`, resolve `system` via `matchMedia`, listen for OS changes) and an inline head script in `__root.tsx` that sets `data-theme`, `color-scheme`, and `theme-color` before paint; verify an e2e test that a stored `sepia` renders sepia on first paint with no light/dark frame, and that `system` follows an emulated `prefers-color-scheme` change
 - [x] 1.5 Retune `components/ui` (button variants incl. destructive-outline, badge as dot+word, card, input, dialog, dropdown) to the mockup styles; verify existing component tests pass
 

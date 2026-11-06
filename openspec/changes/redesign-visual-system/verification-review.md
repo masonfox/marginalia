@@ -22,8 +22,17 @@ buttons so native focus scrolling exposes the whole action and its focus ring.
 - Protected login matrix: nine passed across light, sepia, dark and 1440, 390,
   360 pixel widths.
 - Biome checks on the changed component and visual suite passed.
-- Repository-wide Biome with formatting disabled passed for 358 files. Default
-  lint still fails on inherited formatting differences, including CRLF files.
+- Repository-wide default `pnpm lint` now passes for 358 files. An explicit
+  `.gitattributes` LF policy and normalization to existing index content resolve
+  inherited CRLF formatter failures without a mass formatting content diff.
+- Expanded contrast suite: 170 tests passed, covering tinted surfaces and nested
+  Contents markers in all three themes. Type checking and targeted Biome passed.
+  Light amber foreground changes from `#9a520f` to `#98500f`, and sepia from
+  `#8f4f12` to `#844412`; fills and the dark theme remain unchanged. These minimal
+  deviations from the mockup satisfy the controlling AA requirement. Sepia
+  soft/page contrast rises from 4.465069 to 5.223382; nested marker/page contrast
+  rises from 3.866414 to 4.523056. Light nested marker/page is 4.523802 and dark
+  is 6.395048. This token coverage is not a full rendered accessibility audit.
 
 The visual suite selects existing content using read-only database connections.
 It captures each screen at 1440 and 390 pixels in every theme, checks horizontal
@@ -37,9 +46,8 @@ the main run artifacts are in `test-results/visual-system-resumed-run/`.
 
 ## Remaining scope
 
-- Task 1.2 remains open for the previously documented sepia amber-soft contrast
-  decision; the existing contrast tests do not prove that pair meets 4.5:1.
-- Task 1.3 remains open because its default-lint acceptance criterion fails.
+- Tasks 1.2 and 1.3 are complete after expanded contrast verification and the LF
+  policy fix. The earlier review's contrast and formatting blockers are resolved.
 - Task 6.1 requires the complete application E2E suite; the focused suites above
   do not establish that all application E2E scenarios pass.
 - Optional tasks 5.1 through 5.6 remain unimplemented and unchecked.

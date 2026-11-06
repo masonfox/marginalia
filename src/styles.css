@@ -35,7 +35,8 @@
 	--accent: #f2eee7;
 	--accent-foreground: #17120d;
 	--amber: #e0923f;
-	--amber-foreground: #9a520f;
+	/* Slightly darker than the mockup for nested amber-soft markers (AA). */
+	--amber-foreground: #98500f;
 	--amber-soft: rgba(224, 146, 63, 0.15);
 	--destructive: #a63a26;
 	--destructive-foreground: #a63a26;
@@ -74,7 +75,8 @@
 	--accent: #ecdfc8;
 	--accent-foreground: #2a1d12;
 	--amber: #c9822f;
-	--amber-foreground: #8f4f12;
+	/* Nested amber-soft markers need 4.5:1; preserve the amber fills. */
+	--amber-foreground: #844412;
 	--amber-soft: rgba(176, 108, 36, 0.15);
 	--destructive: #9c3a22;
 	--destructive-foreground: #9c3a22;

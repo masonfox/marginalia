@@ -138,6 +138,65 @@ describe.each(THEMES)("%s theme contrast", (theme) => {
 	});
 });
 
+/** Actual tinted surfaces: scope/citations, notes, reader highlights, warnings,
+ * destructive controls, badges and footer bands. Test translucent fills over
+ * both page and card because these pieces occur in dialogs as well as pages.
+ */
+const TINTED: [text: string, fill: string, opacity: number][] = [
+	["--amber-foreground", "--amber-soft", 1],
+	["--amber-foreground", "--amber", 0.25],
+	["--foreground", "--amber-soft", 1],
+	["--muted-foreground", "--amber-soft", 1],
+	["--foreground", "--highlight", 1],
+	["--foreground", "--secondary", 1],
+	["#1a0f05", "--amber", 1],
+	["--background", "--destructive", 1],
+	["--status-unavailable", "--status-unavailable", 0.1],
+	["--destructive-foreground", "--destructive", 0.1],
+	["--muted-foreground", "--secondary", 1],
+	["--muted-foreground", "--muted", 0.4],
+	["--muted-foreground", "--background-2", 1],
+];
+
+describe.each(THEMES)("%s tinted text contrast", (theme) => {
+	const t = themeTokens(theme);
+	const cases = TINTED.flatMap(([text, fill, opacity]) =>
+		["--background", "--card"].map((base) => ({ text, fill, opacity, base })),
+	);
+	it.each(cases)("$text on $fill at $opacity over $base is at least 4.5:1", ({
+		text,
+		fill,
+		opacity,
+		base,
+	}) => {
+		const color = parseColor(t[fill]);
+		color[3] *= opacity;
+		const surface = over(color, parseColor(t[base]));
+		expect(
+			contrast(
+				t[text] ?? text,
+				`rgb(${surface.slice(0, 3).join(",")})`,
+				t[base],
+			),
+		).toBeGreaterThanOrEqual(4.5);
+	});
+	it.each([
+		"--background",
+		"--card",
+	])("amber text on nested amber-soft over %s is at least 4.5:1", (base) => {
+		// The current Contents row has an amber-soft numbered marker inside it.
+		const row = over(parseColor(t["--amber-soft"]), parseColor(t[base]));
+		const marker = over(parseColor(t["--amber-soft"]), row);
+		expect(
+			contrast(
+				t["--amber-foreground"],
+				`rgb(${marker.slice(0, 3).join(",")})`,
+				t[base],
+			),
+		).toBeGreaterThanOrEqual(4.5);
+	});
+});
+
 describe("contrast()", () => {
 	it("matches the WCAG reference values", () => {
 		expect(contrast("#000000", "#ffffff", "#ffffff")).toBeCloseTo(21, 5);
