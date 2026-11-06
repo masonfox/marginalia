@@ -83,7 +83,7 @@ export function GlossMark({
 	);
 }
 
-function GlossCardView({
+export function GlossCardView({
 	gloss,
 	editionId,
 	name,

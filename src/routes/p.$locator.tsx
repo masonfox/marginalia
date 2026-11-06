@@ -7,7 +7,11 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
-import { GlossControls, GlossMark } from "#/components/margin-glosses";
+import {
+	GlossCardView,
+	GlossControls,
+	GlossMark,
+} from "#/components/margin-glosses";
 import {
 	PassageReferenceButton,
 	PassageSelectionAction,
@@ -124,7 +128,7 @@ function SectionText({
 	const glosses = useSectionGlosses(view);
 
 	return (
-		<main className="mx-auto max-w-3xl px-4 py-8">
+		<main className="mx-auto max-w-[1160px] px-4 py-6 sm:px-8 sm:py-10">
 			<nav className="text-sm text-muted-foreground" aria-label="Breadcrumb">
 				<Link
 					to="/books/$editionId"
@@ -142,6 +146,10 @@ function SectionText({
 				Position {view.position}
 				{!view.section.linear && " · outside the main reading order"}
 			</p>
+			<h1 className="mt-10 text-center font-serif text-[clamp(40px,5vw,60px)] leading-[1.05] font-semibold tracking-[-0.015em]">
+				{view.section.title ?? view.edition.title}
+			</h1>
+			<div aria-hidden className="mx-auto mt-6 mb-8 h-px w-10 bg-amber" />
 			<GlossControls
 				on={glosses.on}
 				onToggle={glosses.setOn}
@@ -158,7 +166,7 @@ function SectionText({
 				aiEnabled={aiEnabled}
 			/>
 			{/* Below lg the page has no side margin, so indent the text to make a gutter for the reference buttons. */}
-			<article className="mt-6 pl-12 font-reading text-lg leading-relaxed lg:pl-0">
+			<article className="mt-10 break-words pl-10 font-reading text-[20px] leading-[1.72] sm:pl-12">
 				{view.passages.map((p) => (
 					<PassageBlock
 						key={p.locator}
@@ -229,7 +237,7 @@ function useSectionGlosses(view: FoundView) {
 
 function SectionNav({ view }: { view: FoundView }) {
 	return (
-		<div className="mt-6 flex justify-between gap-4 text-sm">
+		<div className="mt-8 flex justify-between gap-4 border-y py-4 text-sm">
 			{view.previous ? (
 				<Link
 					to="/p/$locator"
@@ -282,9 +290,8 @@ function PassageBlock({
 	onExclude: (gloss: Gloss, name: string) => void;
 }) {
 	const className = [
-		"group relative my-3 scroll-mt-24 whitespace-pre-line rounded-sm",
-		highlighted ? "-mx-2 bg-highlight px-2 py-1" : "",
-		passage.kind === "heading" ? "font-sans text-xl font-semibold" : "",
+		"group relative my-6 scroll-mt-24 whitespace-pre-line rounded-sm lg:grid lg:grid-cols-[minmax(0,680px)_minmax(0,240px)] lg:gap-10",
+		passage.kind === "heading" ? "font-serif text-[30px] font-semibold" : "",
 		passage.kind === "quote" ? "border-l-2 pl-4 italic" : "",
 		passage.kind === "footnote" ? "text-base text-muted-foreground" : "",
 		passage.kind === "preformatted" ? "whitespace-pre font-mono text-sm" : "",
@@ -296,47 +303,72 @@ function PassageBlock({
 			className={className}
 			aria-current={highlighted ? "true" : undefined}
 		>
-			<PassageText
-				locator={passage.locator}
-				text={passage.text}
-				range={range}
-				glosses={glosses}
-				renderGloss={(gloss, text) => (
-					<GlossMark
-						gloss={gloss}
-						text={text}
-						editionId={editionId}
-						onExclude={onExclude}
-					/>
-				)}
-			/>
-			<PassageReferenceButton
-				passageRef={{ locator: passage.locator }}
-				editionId={editionId}
-				revealPosition={passage.revealPosition}
-				aiEnabled={aiEnabled}
-			/>
-			{passage.notes.length > 0 && (
-				<div className="mt-1 space-y-1 font-sans text-sm">
-					{passage.notes.map((note, i) => (
-						<details
-							key={note.locator}
-							className="rounded-md border bg-muted/40 px-3 py-1"
-						>
-							<summary className="cursor-pointer text-muted-foreground">
-								Note {i + 1}
-							</summary>
-							<p className="mt-1 whitespace-pre-line">{note.text}</p>
-							<Link
-								to="/p/$locator"
-								params={{ locator: note.locator }}
-								className="text-xs underline"
+			<div
+				className={
+					"relative min-w-0 " +
+					(highlighted ? "-mx-2 rounded-lg bg-highlight px-2 py-1" : "")
+				}
+			>
+				<PassageText
+					locator={passage.locator}
+					text={passage.text}
+					range={range}
+					glosses={glosses}
+					renderGloss={(gloss, text) => (
+						<GlossMark
+							gloss={gloss}
+							text={text}
+							editionId={editionId}
+							onExclude={onExclude}
+						/>
+					)}
+				/>
+				<PassageReferenceButton
+					passageRef={{ locator: passage.locator }}
+					editionId={editionId}
+					revealPosition={passage.revealPosition}
+					aiEnabled={aiEnabled}
+				/>
+				{passage.notes.length > 0 && (
+					<div className="mt-1 space-y-1 font-sans text-sm">
+						{passage.notes.map((note, i) => (
+							<details
+								key={note.locator}
+								className="rounded-md border bg-muted/40 px-3 py-1"
 							>
-								Open note in context
-							</Link>
-						</details>
+								<summary className="cursor-pointer text-muted-foreground">
+									Note {i + 1}
+								</summary>
+								<p className="mt-1 whitespace-pre-line">{note.text}</p>
+								<Link
+									to="/p/$locator"
+									params={{ locator: note.locator }}
+									className="text-xs underline"
+								>
+									Open note in context
+								</Link>
+							</details>
+						))}
+					</div>
+				)}
+			</div>
+			{glosses && glosses.length > 0 && (
+				<aside
+					aria-label="Margin glosses"
+					className="mt-5 space-y-5 whitespace-normal border-t pt-4 font-sans text-[13px] leading-relaxed text-muted-foreground lg:mt-0 lg:border-t-0 lg:border-l lg:pl-5 lg:pt-0"
+				>
+					{glosses.map((gloss) => (
+						<GlossCardView
+							key={gloss.subjectRef}
+							gloss={gloss}
+							editionId={editionId}
+							name={passage.text.slice(gloss.start, gloss.end)}
+							onExclude={() =>
+								onExclude(gloss, passage.text.slice(gloss.start, gloss.end))
+							}
+						/>
 					))}
-				</div>
+				</aside>
 			)}
 		</div>
 	);
