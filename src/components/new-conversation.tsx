@@ -50,10 +50,10 @@ export function NewConversation({
 				</Button>
 			</DialogTrigger>
 			<DialogContent
-				className="gap-6 max-sm:p-5 sm:max-w-[720px]"
+				className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[720px]"
 				data-testid="header-new-conversation-dialog"
 			>
-				<DialogHeader className="border-b pb-5 text-left pr-8">
+				<DialogHeader className="shrink-0 border-b p-5 pr-14 text-left sm:p-7 sm:pr-16">
 					<DialogTitle className="text-[38px]">New conversation</DialogTitle>
 					<DialogDescription>
 						Choose up to three books and ask a question.
@@ -70,13 +70,26 @@ export function NewConversation({
 						<X aria-hidden />
 					</Button>
 				</DialogClose>
-				{/* Mounted only while open, so the AI status is fetched on opening. */}
-				<NewConversationComposer book={book} onStarted={() => setOpen(false)} />
-				<DialogClose asChild>
-					<Button type="button" variant="ghost" className="justify-self-end">
-						Cancel
-					</Button>
-				</DialogClose>
+				{/* Only the body scrolls: long scopes and additional books cannot push
+				    the dismissal action out of the viewport. Native focus scrolling
+				    keeps the composer's Start action reachable by keyboard too. */}
+				<div
+					className="min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-7"
+					data-testid="new-conversation-body"
+				>
+					{/* Mounted only while open, so the AI status is fetched on opening. */}
+					<NewConversationComposer
+						book={book}
+						onStarted={() => setOpen(false)}
+					/>
+				</div>
+				<div className="flex shrink-0 justify-end border-t bg-card px-5 py-3 sm:px-7">
+					<DialogClose asChild>
+						<Button type="button" variant="ghost">
+							Cancel
+						</Button>
+					</DialogClose>
+				</div>
 			</DialogContent>
 		</Dialog>
 	);
