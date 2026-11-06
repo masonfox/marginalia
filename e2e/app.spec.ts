@@ -39,6 +39,11 @@ const manifesto = () =>
 	);
 
 async function login(page: Page) {
+	if (!PASSWORD) {
+		await page.goto("/");
+		await page.waitForLoadState("networkidle");
+		return;
+	}
 	await page.goto("/login");
 	await page.getByLabel("Password").fill(PASSWORD);
 	await page.getByRole("button", { name: "Log in" }).click();
@@ -1684,6 +1689,7 @@ test.describe("new conversation from the header", () => {
 				header.getByRole("link", { name: "Dashboard" }),
 				header.getByRole("link", { name: "Library" }),
 				header.getByRole("link", { name: "Conversations" }),
+				header.getByRole("group", { name: "Theme" }),
 				newConversation(page),
 				header.getByRole("link", { name: "Settings" }),
 			].map(async (l) => {
@@ -1706,6 +1712,114 @@ test.describe("new conversation from the header", () => {
 		await page.goto("/login");
 		await expect(page.getByLabel("Password")).toBeVisible();
 		await expect(newConversation(page)).toHaveCount(0);
+	});
+});
+
+test.describe("header", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.emulateMedia({ colorScheme: "light" });
+		await login(page);
+	});
+
+	const themeButtons = (page: Page) =>
+		page
+			.getByRole("banner")
+			.getByRole("group", { name: "Theme" })
+			.getByRole("button");
+	const pressedThemes = (page: Page) =>
+		themeButtons(page).and(page.locator('[aria-pressed="true"]'));
+
+	test("the theme switch applies a theme without reloading, marks it pressed, and remembers it", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await expect(themeButtons(page)).toHaveCount(3);
+		for (const [index, name] of [
+			"Light theme",
+			"Sepia theme",
+			"Dark theme",
+		].entries())
+			await expect(themeButtons(page).nth(index)).toHaveAccessibleName(name);
+		// Following the light system preference: Light is the one pressed.
+		await expect(pressedThemes(page)).toHaveAccessibleName("Light theme");
+		await page.evaluate(() => {
+			(window as unknown as { __noReload: boolean }).__noReload = true;
+		});
+
+		await page
+			.getByRole("banner")
+			.getByRole("button", { name: "Sepia theme" })
+			.click();
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "sepia");
+		await expect(page.locator("body")).toHaveCSS(
+			"background-color",
+			"rgb(242, 232, 214)",
+		);
+		await expect(pressedThemes(page)).toHaveAccessibleName("Sepia theme");
+		for (let index = 0; index < 3; index++)
+			await expect(themeButtons(page).nth(index)).toHaveAttribute(
+				"aria-pressed",
+				/true|false/,
+			);
+		expect(
+			await page.evaluate(
+				() => (window as unknown as { __noReload?: boolean }).__noReload,
+			),
+		).toBe(true);
+
+		// By keyboard: the dark button, then Space.
+		await page
+			.getByRole("banner")
+			.getByRole("button", { name: "Dark theme" })
+			.focus();
+		await page.keyboard.press("Space");
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+		await expect(pressedThemes(page)).toHaveAccessibleName("Dark theme");
+
+		await page.reload();
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+		await expect(pressedThemes(page)).toHaveAccessibleName("Dark theme");
+	});
+
+	for (const width of [640, 768, 1024]) {
+		test(`the header is one row with no sideways scroll at ${width} pixels`, async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width, height: 800 });
+			const header = page.getByRole("banner");
+			const controls = [
+				header.getByRole("link", { name: "Marginalia" }),
+				header.getByRole("link", { name: "Conversations" }),
+				header.getByRole("group", { name: "Theme" }),
+				header.getByRole("button", { name: "New conversation" }),
+				header.getByRole("link", { name: "Settings" }),
+				...(PASSWORD ? [header.getByRole("button", { name: "Log out" })] : []),
+			];
+			const boxes = await Promise.all(controls.map((c) => c.boundingBox()));
+			const middles = boxes.map((b) => {
+				if (!b) throw new Error("header control not shown");
+				return b.y + b.height / 2;
+			});
+			for (const m of middles)
+				expect(Math.abs(m - (middles[0] ?? 0))).toBeLessThan(2);
+			for (const b of boxes)
+				expect((b?.x ?? 0) + (b?.width ?? 0)).toBeLessThanOrEqual(width);
+			expect(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= window.innerWidth,
+				),
+			).toBe(true);
+		});
+	}
+
+	test("the unprotected notice links to Settings", async ({ page }) => {
+		test.skip(Boolean(PASSWORD), "Needs an instance without a password");
+		const notice = page.getByTestId("unprotected-notice");
+		await expect(notice).toContainText(
+			"No password set: anyone who can reach this instance can use it.",
+		);
+		await notice.getByRole("link", { name: "Set one" }).click();
+		await expect(page).toHaveURL("/settings#access");
 	});
 });
 
@@ -2662,10 +2776,11 @@ test.describe("phone layout", () => {
 			const row = page.locator("body > div > header > div").first();
 			// One row: the 44px touch targets and padding.
 			expect((await row.boundingBox())?.height).toBeLessThan(80);
-			// No navigation, Settings, or Log out outside the menu.
+			// No navigation, theme switch, Settings, or Log out outside the menu.
 			await expect(
 				header.getByRole("navigation", { name: "Main" }),
 			).toBeHidden();
+			await expect(header.getByRole("group", { name: "Theme" })).toBeHidden();
 			await expect(header.getByRole("link", { name: "Settings" })).toBeHidden();
 			await expect(
 				header.getByRole("button", { name: "Log out" }),
@@ -2689,7 +2804,8 @@ test.describe("phone layout", () => {
 				"Settings",
 				...(PASSWORD ? ["Log out"] : []),
 			]);
-			await expect(menu.getByRole("separator")).toHaveCount(1);
+			// The navigation, then the theme options, then Settings and Log out.
+			await expect(menu.getByRole("separator")).toHaveCount(2);
 			await expect(items.and(page.locator('[aria-current="page"]'))).toHaveText(
 				["Dashboard"],
 			);
@@ -2724,8 +2840,56 @@ test.describe("phone layout", () => {
 
 			if (!PASSWORD) return;
 			await menuButton.click();
-			await items.filter({ hasText: "Log out" }).click();
+			await items.filter({ hasText: "Log out" }).focus();
+			await page.keyboard.press("Enter");
 			await expect(page).toHaveURL(/\/login$/);
+		});
+
+		test("the theme is chosen from the menu by keyboard, and the header stays one row", async ({
+			page,
+		}) => {
+			await page.emulateMedia({ colorScheme: "light" });
+			await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+			const header = page.getByRole("banner");
+			const menuButton = header.getByRole("button", { name: "Menu" });
+			await menuButton.focus();
+			await page.keyboard.press("Enter");
+			const menu = page.getByRole("menu");
+			const theme = menu.getByRole("group", { name: "Theme: Light" });
+			const options = theme.getByRole("menuitemradio");
+			await expect(options).toHaveText(["Light", "Sepia", "Dark"]);
+			await expect(
+				options.and(page.locator('[aria-checked="true"]')),
+			).toHaveText(["Light"]);
+			await menu.evaluate((el) =>
+				Promise.all(el.getAnimations().map((a) => a.finished)),
+			);
+			for (let i = 0; i < 3; i++) await expectTouchTarget(options.nth(i));
+
+			// Opening by keyboard focuses Dashboard; Dark is five items down.
+			for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowDown");
+			await expect(options.filter({ hasText: "Dark" })).toBeFocused();
+			await page.keyboard.press("Enter");
+			await expect(menu).toHaveCount(0);
+			await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+			await expect(page.locator("body")).toHaveCSS(
+				"background-color",
+				"rgb(13, 10, 8)",
+			);
+
+			// Still one row, with nothing past the right edge.
+			const row = page.locator("body > div > header > div").first();
+			expect((await row.boundingBox())?.height).toBeLessThan(80);
+			await expectNoHorizontalScroll(page);
+
+			// The menu now marks and names Dark.
+			await menuButton.click();
+			await expect(
+				menu
+					.getByRole("group", { name: "Theme: Dark" })
+					.getByRole("menuitemradio")
+					.and(page.locator('[aria-checked="true"]')),
+			).toHaveText(["Dark"]);
 		});
 
 		test("the library shows two books a row, one row of filters, and the upload", async ({

@@ -2,14 +2,24 @@ import { Link, type LinkProps } from "@tanstack/react-router";
 import { cn } from "cn";
 import { Menu } from "lucide-react";
 import { useRef } from "react";
+import { THEME_LABELS, ThemeIcon } from "#/components/theme-switch";
 import { Button } from "#/components/ui/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
+import {
+	setThemeChoice,
+	THEMES,
+	type Theme,
+	useResolvedTheme,
+} from "#/lib/theme";
 
 /**
  * The header's navigation entries, shared by the inline navigation and the
@@ -42,15 +52,20 @@ export const NAV_ENTRIES = [
 
 /** The current entry, from the router's `aria-current="page"`: a filled pill. */
 const CURRENT =
-	"aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground";
+	"aria-[current=page]:bg-secondary aria-[current=page]:font-medium aria-[current=page]:text-foreground";
 
+/** The mockups' nav links: 14px/500, muted, with a pill for the current page. */
 const ENTRY = cn(
-	"inline-flex shrink-0 items-center rounded-md px-3 py-1.5 whitespace-nowrap text-muted-foreground hover:bg-accent/60 hover:text-foreground pointer-coarse:min-h-11",
+	"inline-flex shrink-0 items-center rounded-lg px-3 py-[11px] text-sm leading-none font-medium whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring pointer-coarse:min-h-11",
 	CURRENT,
 );
 
 /** Touch-sized menu items; the current entry keeps the pill. */
 const MENU_ITEM = cn("min-h-11 px-3 text-base", CURRENT);
+
+/** Touch-sized theme options; the one on screen is checked. */
+const THEME_ITEM =
+	"min-h-11 text-base data-[state=checked]:font-medium data-[state=checked]:text-foreground";
 
 /**
  * The app header's switch between the dashboard, the library, and the
@@ -61,7 +76,7 @@ export function HomeNav({ className }: { className?: string }) {
 	return (
 		<nav
 			aria-label="Main"
-			className={cn("flex gap-1 text-sm", className)}
+			className={cn("flex gap-0.5", className)}
 			data-testid="home-nav"
 		>
 			{NAV_ENTRIES.map((entry) => (
@@ -79,9 +94,38 @@ export function HomeNav({ className }: { className?: string }) {
 }
 
 /**
- * The phone header's menu: the navigation entries, then Settings and, when
- * a password is set, Log out. Log out submits a hidden form, so it stays a
- * POST to `/logout` as on wider viewports.
+ * The phone menu's theme options, standing in for the header's theme switch.
+ * The group's name states the theme on screen; choosing one remembers it.
+ */
+function ThemeMenuOptions() {
+	const current = useResolvedTheme();
+	return (
+		<>
+			<DropdownMenuLabel>Theme</DropdownMenuLabel>
+			<DropdownMenuRadioGroup
+				aria-label={current ? `Theme: ${THEME_LABELS[current]}` : "Theme"}
+				value={current ?? ""}
+				onValueChange={(value) => setThemeChoice(value as Theme)}
+			>
+				{THEMES.map((theme) => (
+					<DropdownMenuRadioItem
+						key={theme}
+						value={theme}
+						className={THEME_ITEM}
+					>
+						<ThemeIcon theme={theme} />
+						{THEME_LABELS[theme]}
+					</DropdownMenuRadioItem>
+				))}
+			</DropdownMenuRadioGroup>
+		</>
+	);
+}
+
+/**
+ * The phone header's menu: the navigation entries, the theme options, then
+ * Settings and, when a password is set, Log out. Log out submits a hidden
+ * form, so it stays a POST to `/logout` as on wider viewports.
  */
 export function HeaderMenu({
 	authEnabled,
@@ -116,6 +160,8 @@ export function HeaderMenu({
 							</Link>
 						</DropdownMenuItem>
 					))}
+					<DropdownMenuSeparator />
+					<ThemeMenuOptions />
 					<DropdownMenuSeparator />
 					<DropdownMenuItem asChild className={MENU_ITEM}>
 						<Link to="/settings">Settings</Link>

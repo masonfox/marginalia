@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { MessageSquarePlus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 import { Composer } from "#/components/book-composer";
 import { Button } from "#/components/ui/button";
@@ -17,7 +17,7 @@ import { newConversationDraftId } from "#/lib/composer-draft";
 /**
  * The app header's "New conversation" control: a dialog with the composer
  * holding no books yet. A filled primary button, so it stands out from the
- * ghost Settings and Log out controls. Icon-only below sm, still named for
+ * Settings and Log out controls. Icon-only below lg, still named for
  * assistive tech.
  */
 export function NewConversation() {
@@ -27,12 +27,12 @@ export function NewConversation() {
 			<DialogTrigger asChild>
 				<Button
 					type="button"
-					size="sm"
+					size="default"
 					aria-label="New conversation"
-					className="mr-1 shadow-xs max-sm:size-11 max-sm:px-0"
+					className="max-lg:size-10 max-lg:px-0 max-sm:size-11"
 				>
-					<MessageSquarePlus aria-hidden />
-					<span className="max-sm:sr-only">New conversation</span>
+					<Plus aria-hidden strokeWidth={2} />
+					<span className="max-lg:sr-only">New conversation</span>
 				</Button>
 			</DialogTrigger>
 			<DialogContent
