@@ -31,7 +31,7 @@
 - [x] 4.10 Reader (`Reader.dc.html`): chapter title, reading-face text column, reference gutter, margin glosses column (stacks below `lg`), highlighted passage, selection toolbar, section nav
 - [x] 4.11 Settings (`Settings.dc.html`): side nav, Appearance (theme cards + Match my system), providers list, default models, library folder, access warning
 - [x] 4.12 Log in (`Login.dc.html`): centered wordmark, password field, error state, fanned covers backdrop
-- [ ] 4.13 Phone layouts (`MobileDashboard.dc.html`, `MobileConversation.dc.html`): verify each screen above at 360 and 390px with no horizontal scroll; citation opens as a bottom sheet on phones
+- [x] 4.13 Phone layouts (`MobileDashboard.dc.html`, `MobileConversation.dc.html`): verify each screen above at 360 and 390px with no horizontal scroll; citation opens as a bottom sheet on phones
 
 ## 5. Optional additions (each group independent)
 
@@ -45,4 +45,4 @@
 ## 6. Verification
 
 - [ ] 6.1 Update e2e and component tests broken by markup changes, preferring role/text selectors; verify `pnpm test` and `pnpm test:e2e` pass
-- [ ] 6.2 Add a Playwright screenshot pass of each screen in light, sepia, and dark at 1440 and 390 widths for review against the mockups
+- [x] 6.2 Add a Playwright screenshot pass of each screen in light, sepia, and dark at 1440 and 390 widths for review against the mockups
