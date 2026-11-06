@@ -19,9 +19,9 @@
 
 ## 4. Screens (match the named mockup in each theme)
 
-- [ ] 4.1 Dashboard (`Dashboard.dc.html`): continue-reading hero, recent conversations rows, nightstand shelf, library counts
-- [ ] 4.2 Library (`Library.dc.html`): heading row with Scan folder / Upload EPUB, search, filter pills with counts, cover grid with status, processing and needs-attention cards
-- [ ] 4.3 Conversations (`Conversations.dc.html`): date groups, book filter pills, rows with meta column
+- [x] 4.1 Dashboard (`Dashboard.dc.html`): continue-reading hero, recent conversations rows, nightstand shelf, library counts
+- [x] 4.2 Library (`Library.dc.html`): heading row with Scan folder / Upload EPUB, search, filter pills with counts, cover grid with status, processing and needs-attention cards
+- [x] 4.3 Conversations (`Conversations.dc.html`): date groups, book filter pills, rows with meta column
 - [ ] 4.4 Book Discuss (`BookDiscuss.dc.html`): composer card with footer bar, scope note with Update, conversation list
 - [ ] 4.5 Book Guide (`BookGuide.dc.html`): Chapters/Index/Notes segmented control, numbered chapter summaries in reading face with citations, locked "past your position" row, index tags
 - [ ] 4.6 Book Contents (`BookContents.dc.html`): read/current/later states, "Your position" marker, in-book search

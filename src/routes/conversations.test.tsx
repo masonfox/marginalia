@@ -13,7 +13,7 @@ import {
 } from "vitest";
 import { namingPoller } from "#/hooks/use-naming-metadata";
 import type { RecentConversation } from "#/modules/conversation";
-import { Route } from "./conversations";
+import { groupConversationsByDate, Route } from "./conversations";
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), metadata: vi.fn() }));
 
@@ -170,6 +170,43 @@ const tryAgain = async () => {
 };
 
 describe("Conversations page", () => {
+	it("filters multi-book conversations by edition while paging and restores all rows", async () => {
+		const a = conversation("a");
+		const b = conversation("b");
+		b.books = [
+			{
+				hasCover: false,
+				scopeLabel: null,
+				editionId: "e2",
+				title: "Moby-Dick",
+			},
+		];
+		const c = conversation("c");
+		c.books = [...a.books, ...b.books];
+		serve({
+			first: { items: [a, b], nextCursor: "p2" },
+			p2: { items: [c], nextCursor: null },
+		});
+		await render();
+		const pick = async (label: string) => {
+			const button = [...container.querySelectorAll("button")].find(
+				(b) => b.textContent === label,
+			);
+			if (!button) throw new Error("missing book filter");
+			await act(async () => button.click());
+			await settle();
+		};
+		await pick("Moby-Dick");
+		expect(titles()).toEqual(["Conversation b"]);
+		await reachEnd();
+		expect(titles()).toEqual(["Conversation b", "Conversation c"]);
+		await pick("All books");
+		expect(titles()).toEqual([
+			"Conversation a",
+			"Conversation b",
+			"Conversation c",
+		]);
+	});
 	it("reconciles deleted metadata ids into the loaded list", async () => {
 		serve({ first: page(["a"]) });
 		await render();
@@ -285,5 +322,24 @@ describe("Conversations page", () => {
 			"Conversation c",
 			"Conversation d",
 		]);
+	});
+});
+
+describe("conversation calendar groups", () => {
+	it("uses calendar days across month and year boundaries and preserves row order", () => {
+		const items = [
+			new Date(2026, 0, 1, 9),
+			new Date(2025, 11, 31, 23),
+			new Date(2025, 11, 30, 9),
+			new Date(2025, 10, 2),
+		].map((updatedAt, id) => ({ id, updatedAt }));
+		const groups = groupConversationsByDate(items, new Date(2026, 0, 1, 12));
+		expect(groups.map((g) => g.label)).toEqual([
+			"Today",
+			"Yesterday",
+			"This week",
+			"November 2025",
+		]);
+		expect(groups.flatMap((g) => g.items)).toEqual(items);
 	});
 });

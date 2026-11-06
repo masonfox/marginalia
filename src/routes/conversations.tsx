@@ -1,8 +1,9 @@
 import { infiniteQueryOptions, useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { MessagesSquare } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { ConversationRow } from "#/components/conversation-list";
+import { Eyebrow } from "#/components/pieces";
 import { Button } from "#/components/ui/button";
 import { listRecentConversationsFn } from "#/fns/conversations";
 import { useSentinel } from "#/hooks/use-sentinel";
@@ -27,6 +28,18 @@ export const Route = createFileRoute("/conversations")({
 function ConversationsPage() {
 	const list = useInfiniteQuery(allConversationsQuery);
 	const conversations = uniqueById(list.data?.pages ?? []);
+	const [bookFilter, setBookFilter] = useState<string | null>(null);
+	const books = [
+		...new Map(
+			conversations
+				.flatMap((c) => c.books)
+				.map((book) => [book.editionId, book]),
+		).values(),
+	];
+	const visible = conversations.filter(
+		(c) => !bookFilter || c.books.some((b) => b.editionId === bookFilter),
+	);
+	const groups = groupConversationsByDate(visible);
 	const { hasNextPage, isFetching, isFetchNextPageError, fetchNextPage } = list;
 	const loadMore = useCallback(() => {
 		void fetchNextPage();
@@ -38,8 +51,36 @@ function ConversationsPage() {
 	);
 
 	return (
-		<main className="mx-auto max-w-5xl px-4 py-8">
-			<h1 className="font-serif text-3xl font-semibold">Conversations</h1>
+		<main className="mx-auto max-w-[1040px] px-4 pt-8 pb-24 sm:px-8 sm:pt-14">
+			<h1 className="font-serif text-[clamp(48px,5vw,68px)] leading-[1.02] font-semibold tracking-[-0.015em]">
+				Conversations
+			</h1>
+			{conversations.length > 0 && (
+				<fieldset
+					aria-label="Filter by book"
+					className="mt-8 flex flex-wrap gap-2"
+				>
+					<Button
+						variant="outline"
+						className="min-h-11 rounded-full aria-pressed:bg-secondary"
+						aria-pressed={bookFilter === null}
+						onClick={() => setBookFilter(null)}
+					>
+						All books
+					</Button>
+					{books.map((book) => (
+						<Button
+							key={book.editionId}
+							variant="outline"
+							className="h-auto min-h-11 max-w-full rounded-full py-2 text-left whitespace-normal aria-pressed:bg-secondary"
+							aria-pressed={bookFilter === book.editionId}
+							onClick={() => setBookFilter(book.editionId)}
+						>
+							{book.title}
+						</Button>
+					))}
+				</fieldset>
+			)}
 			{list.isError && !list.data ? (
 				<p role="alert" className="mt-6 text-sm text-destructive-foreground">
 					Couldn't load conversations.{" "}
@@ -63,14 +104,27 @@ function ConversationsPage() {
 					</p>
 				</div>
 			) : (
-				<ul
-					className="mt-6 divide-y rounded-md border"
-					aria-label="Conversations, most recently active first"
-				>
-					{conversations.map((c) => (
-						<ConversationRow key={c.id} bookLabel="books" conversation={c} />
+				<div>
+					{groups.map((group) => (
+						<section
+							key={group.label}
+							aria-label={group.label}
+							className="mt-9"
+						>
+							<Eyebrow className="mb-1">{group.label}</Eyebrow>
+							<ul className="divide-y border-b">
+								{group.items.map((c) => (
+									<ConversationRow
+										key={c.id}
+										bookLabel="books"
+										conversation={c}
+										metaColumn
+									/>
+								))}
+							</ul>
+						</section>
 					))}
-				</ul>
+				</div>
 			)}
 			<div ref={sentinel} aria-hidden className="h-px" />
 			{list.isFetchingNextPage && (
@@ -88,4 +142,36 @@ function ConversationsPage() {
 			)}
 		</main>
 	);
+}
+
+/** Calendar groups preserve the server's most-recent-first order. */
+export function groupConversationsByDate<
+	T extends { updatedAt: Date | string },
+>(items: T[], now = new Date()) {
+	const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+	const yesterday = new Date(today);
+	yesterday.setDate(today.getDate() - 1);
+	const week = new Date(today);
+	week.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+	const groups = new Map<string, T[]>();
+	for (const item of items) {
+		const date = new Date(item.updatedAt);
+		const label =
+			date >= today
+				? "Today"
+				: date >= yesterday
+					? "Yesterday"
+					: date >= week
+						? "This week"
+						: date.toLocaleDateString("en", {
+								month: "long",
+								...(date.getFullYear() !== now.getFullYear()
+									? { year: "numeric" as const }
+									: {}),
+							});
+		const group = groups.get(label) ?? [];
+		group.push(item);
+		groups.set(label, group);
+	}
+	return [...groups].map(([label, items]) => ({ label, items }));
 }
