@@ -60,6 +60,17 @@ const LABELS: Record<PreprocessView["status"], string> = {
 	stale: "Out of date",
 };
 
+/** Each status's dot-and-word color, from the `--status-*` tokens. */
+const STATUS_CLASS: Record<PreprocessView["status"], string> = {
+	not_started: "text-status-not-started",
+	queued: "text-status-processing",
+	running: "text-status-processing",
+	complete: "text-status-finished",
+	partial: "text-status-reading",
+	cancelled: "text-status-not-started",
+	stale: "text-status-reading",
+};
+
 /** The id of the card's heading, which the Guide's empty states point to. */
 export const PREPROCESS_ID = "preprocess";
 
@@ -119,7 +130,10 @@ export function PreprocessCardView({
 			</h2>
 			<div className="mt-2 max-w-xl space-y-2 rounded-md border p-3 text-sm">
 				<div className="flex items-center gap-2">
-					<Badge variant={failed ? "destructive" : "secondary"}>
+					<Badge
+						variant={failed ? "destructive" : "status"}
+						className={failed ? undefined : STATUS_CLASS[view.status]}
+					>
 						{LABELS[view.status]}
 					</Badge>
 					{view.status !== "not_started" && (

@@ -39,20 +39,16 @@ export const SHELF_STATUS_LABEL: Record<ShelfStatus, string> = {
 };
 
 /**
- * A distinct color per status, from the `--status-*` theme tokens. Written out
- * in full so Tailwind finds every class.
+ * Each status's color (dot and word, see the `status` Badge), from the
+ * `--status-*` theme tokens. Written out in full so Tailwind finds every class.
  */
 export const SHELF_STATUS_CLASS: Record<ShelfStatus, string> = {
-	processing:
-		"border-status-processing/30 bg-status-processing/10 text-status-processing",
-	failed: "border-status-failed/30 bg-status-failed/10 text-status-failed",
-	unavailable:
-		"border-status-unavailable/30 bg-status-unavailable/10 text-status-unavailable",
-	"not-started":
-		"border-status-not-started/30 bg-status-not-started/10 text-status-not-started",
-	reading: "border-status-reading/30 bg-status-reading/10 text-status-reading",
-	finished:
-		"border-status-finished/30 bg-status-finished/10 text-status-finished",
+	processing: "text-status-processing",
+	failed: "text-status-failed",
+	unavailable: "text-status-unavailable",
+	"not-started": "text-status-not-started",
+	reading: "text-status-reading",
+	finished: "text-status-finished",
 };
 
 const FILTER_LABEL: Record<ShelfFilter, string> = {

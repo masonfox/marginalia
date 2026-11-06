@@ -158,7 +158,7 @@ function SectionText({
 				aiEnabled={aiEnabled}
 			/>
 			{/* Below lg the page has no side margin, so indent the text to make a gutter for the reference buttons. */}
-			<article className="mt-6 pl-12 font-serif text-lg leading-relaxed lg:pl-0">
+			<article className="mt-6 pl-12 font-reading text-lg leading-relaxed lg:pl-0">
 				{view.passages.map((p) => (
 					<PassageBlock
 						key={p.locator}

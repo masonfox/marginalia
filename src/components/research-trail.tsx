@@ -289,7 +289,7 @@ function GuideStepDetails({ guide }: { guide: GuideContextLike }) {
 		<div className="mt-1 ml-5 space-y-2" data-testid="guide-step">
 			{step.data.changed && (
 				<p
-					className="flex items-center gap-1 text-amber-700 dark:text-amber-400"
+					className="flex items-center gap-1 text-amber-foreground"
 					data-testid="guide-changed"
 				>
 					<TriangleAlert className="size-3" aria-hidden />
@@ -449,7 +449,7 @@ function PassageItem({
 				className="block rounded-sm hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
 			>
 				<span
-					className={`block font-serif italic ${expanded ? "" : "line-clamp-3"}`}
+					className={`block font-reading italic ${expanded ? "" : "line-clamp-3"}`}
 				>
 					{passage.text || "(no text)"}
 				</span>

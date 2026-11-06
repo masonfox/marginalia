@@ -49,7 +49,7 @@ export function AttachmentChip({
 						</span>
 						{!expanded && (
 							<span
-								className={`truncate ${passage ? "font-serif" : ""}`}
+								className={`truncate ${passage ? "font-reading" : ""}`}
 								data-testid="attachment-excerpt"
 							>
 								{text.replace(/\s+/g, " ")}

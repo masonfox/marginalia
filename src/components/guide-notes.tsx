@@ -57,8 +57,7 @@ export function NoteBody({ body }: { body: string }) {
 }
 
 /** The frame that sets a reader note apart from generated content. */
-export const noteFrame =
-	"rounded-md border border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10";
+export const noteFrame = "rounded-md border border-amber/40 bg-amber-soft";
 
 /** Marks a note as the reader's own writing. */
 export function YourNoteBadge() {
