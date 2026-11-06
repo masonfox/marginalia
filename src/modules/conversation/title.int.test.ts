@@ -121,9 +121,20 @@ describe("durable title enrollment", () => {
 			await cp("drizzle", folder, { recursive: true });
 			const journalPath = path.join(folder, "meta/_journal.json");
 			const journal = JSON.parse(await readFile(journalPath, "utf8"));
-			journal.entries.pop();
+			const target = journal.entries.findIndex(
+				(entry: { tag: string }) => entry.tag === "0018_red_lethal_legion",
+			);
+			expect(target).toBeGreaterThan(0);
+			journal.entries = journal.entries.slice(0, target);
 			await writeFile(journalPath, JSON.stringify(journal));
 			await runMigrations(handle.pool, log, folder);
+			expect(
+				(
+					await handle.pool.query(
+						"select 1 from information_schema.columns where table_name = 'conversations' and column_name = 'naming_state'",
+					)
+				).rowCount,
+			).toBe(0);
 			await handle.pool.query(
 				"insert into conversations (id, title) values ($1, 'Old empty'), ($2, 'Old populated')",
 				[randomUUID(), randomUUID()],
