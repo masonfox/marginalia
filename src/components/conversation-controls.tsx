@@ -45,6 +45,7 @@ import {
 	setConversationModelFn,
 } from "#/fns/conversations";
 import { getReadingPositionFn, setReadingPositionFn } from "#/fns/guide";
+import { namingRenamed } from "#/hooks/use-naming-metadata";
 import { clearComposerDraft } from "#/lib/composer-draft";
 import type { Scope } from "#/modules/conversation";
 import type { ReadingPosition } from "#/modules/guide";
@@ -246,7 +247,10 @@ export function RenameConversation({
 				if (!next) return;
 				setError(null);
 				try {
-					await rename({ data: { conversationId, title: next } });
+					const result = await rename({
+						data: { conversationId, title: next },
+					});
+					if (result.renamed) namingRenamed(conversationId, next);
 					setEditing(false);
 					await refresh();
 				} catch {

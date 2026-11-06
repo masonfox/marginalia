@@ -1,7 +1,7 @@
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { eq } from "drizzle-orm";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AiRuntime } from "#/modules/ai";
 import { deleteEdition, ensureEdition } from "#/modules/library";
 import { clearChatDefault, saveChatDefault } from "#/modules/settings";
@@ -326,6 +326,12 @@ describe("conversation model", () => {
 		const id = await newConversation();
 
 		await send(ai, id, "one");
+		const capturedNaming = (
+			await t.pool.query(
+				"select naming_provider, naming_model, naming_message_id, naming_expires_at from conversations where id=$1",
+				[id],
+			)
+		).rows[0];
 		expect((await lastReply(id)).model).toBe("gpt-mid");
 		expect(await saveChatDefault(t.db, ai, CLAUDE)).toMatchObject({
 			status: "ok",
@@ -335,6 +341,14 @@ describe("conversation model", () => {
 			const c = await getConversation(t.db, id);
 			return c && c.messages.length === 4 ? c : null;
 		});
+		expect(
+			(
+				await t.pool.query(
+					"select naming_provider, naming_model, naming_message_id, naming_expires_at from conversations where id=$1",
+					[id],
+				)
+			).rows[0],
+		).toEqual(capturedNaming);
 		// Earlier replies keep the model that produced them.
 		expect(
 			conversation.messages
@@ -394,6 +408,12 @@ describe("conversation model", () => {
 		const id = await newConversation();
 
 		await send(ai, id, "Hello?");
+		const captured = (
+			await t.pool.query(
+				"select naming_model, naming_message_id from conversations where id=$1",
+				[id],
+			)
+		).rows[0];
 		expect(await lastReply(id)).toMatchObject({
 			finishReason: "error",
 			provider: "openai",
@@ -412,6 +432,14 @@ describe("conversation model", () => {
 			model: "claude-high",
 		});
 		expect(JSON.stringify(claude.doStreamCalls[0]?.prompt)).toContain("Hello?");
+		expect(
+			(
+				await t.pool.query(
+					"select naming_model, naming_message_id from conversations where id=$1",
+					[id],
+				)
+			).rows[0],
+		).toEqual(captured);
 	});
 });
 
@@ -503,4 +531,62 @@ describe("setConversationModel", () => {
 			throw new Error("expected a conversation");
 		expect((await getConversation(t.db, created.id))?.model).toEqual(CLAUDE);
 	});
+});
+
+it("keeps enqueue errors outside reply success and sends only on first-message enrollment", async () => {
+	const ai = runtime({ openai: replying("Reply survives queue failure.") });
+	await saveChatDefault(t.db, ai, GPT);
+	const { id } = await createConversation(t.db, { editionIds: [readyId] });
+	const enqueue = vi.fn(async () => {
+		throw new Error("queue unavailable");
+	});
+	const first = await startChat(
+		{ ...deps(ai), enqueue },
+		{ conversationId: id, message: "Opening question" },
+	);
+	expect(first.status).toBe("ok");
+	if (first.status !== "ok") throw new Error(first.status);
+	await first.response.text();
+	await waitFor(
+		async () => (await getConversation(t.db, id))?.messages.length === 2,
+	);
+	expect(enqueue).toHaveBeenCalledTimes(1);
+	expect((await getConversation(t.db, id))?.naming?.state).toBe("pending");
+	const next = await startChat(
+		{ ...deps(ai), enqueue },
+		{ conversationId: id, message: "Later question" },
+	);
+	if (next.status !== "ok") throw new Error(next.status);
+	await next.response.text();
+	expect(enqueue).toHaveBeenCalledTimes(1);
+});
+
+it("a failed reply leaves the independent title enrollment intact", async () => {
+	const model = new MockLanguageModelV4({
+		doStream: async () => {
+			throw new APICallError({
+				message: "reply error",
+				url: "https://example.invalid",
+				requestBodyValues: {},
+				statusCode: 400,
+				isRetryable: false,
+			});
+		},
+	});
+	const ai = runtime({ openai: model });
+	const { id } = await createConversation(t.db, {
+		editionIds: [readyId],
+		model: GPT,
+	});
+	const enqueue = vi.fn(async () => null);
+	const response = await startChat(
+		{ ...deps(ai), enqueue },
+		{ conversationId: id, message: "Why the river?" },
+	);
+	if (response.status !== "ok") throw new Error(response.status);
+	await response.response.text();
+	await lastReply(id);
+	expect((await getConversation(t.db, id))?.naming?.state).toBe("pending");
+	expect(enqueue).toHaveBeenCalledTimes(1);
+	expect((await lastReply(id)).finishReason).toBe("error");
 });

@@ -160,7 +160,12 @@ describe("usageForConversation", () => {
 	it("is empty for a conversation with no replies", async () => {
 		const { id } = await createConversation(t.db, { editionIds: [editionId] });
 		const usage = await usageForConversation(t.db, id);
-		expect(usage).toEqual({ byMessage: {}, byModel: [], missing: 0 });
+		expect(usage).toEqual({
+			byMessage: {},
+			byModel: [],
+			missing: 0,
+			naming: { rows: [], missing: false, incomplete: false, unknown: false },
+		});
 		expect(totalOf(usage, priceTable()).estimatedCost).toBeNull();
 	});
 });

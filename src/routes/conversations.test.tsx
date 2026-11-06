@@ -11,10 +11,11 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { namingPoller } from "#/hooks/use-naming-metadata";
 import type { RecentConversation } from "#/modules/conversation";
 import { Route } from "./conversations";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), metadata: vi.fn() }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
@@ -28,6 +29,7 @@ vi.mock("@tanstack/react-start", async (importOriginal) => ({
 }));
 vi.mock("#/fns/conversations", () => ({
 	listRecentConversationsFn: (...args: unknown[]) => mocks.list(...args),
+	getNamingMetadataFn: (...args: unknown[]) => mocks.metadata(...args),
 	deleteConversationFn: vi.fn(),
 	renameConversationFn: vi.fn(),
 	setConversationModelFn: vi.fn(),
@@ -105,6 +107,10 @@ let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
 	mocks.list.mockReset();
+	mocks.metadata.mockReset();
+	mocks.metadata.mockImplementation(async () => {
+		throw new Error("metadata offline");
+	});
 	observers.clear();
 	container = document.createElement("div");
 	document.body.append(container);
@@ -164,6 +170,63 @@ const tryAgain = async () => {
 };
 
 describe("Conversations page", () => {
+	it("reconciles deleted metadata ids into the loaded list", async () => {
+		serve({ first: page(["a"]) });
+		await render();
+		expect(titles()).toEqual(["Conversation a"]);
+		mocks.list.mockResolvedValue(page([]));
+		mocks.metadata.mockResolvedValue([]);
+		await act(async () => namingPoller.reconcile());
+		await settle();
+		expect(titles()).toEqual([]);
+		expect(
+			container.querySelector('[data-testid="conversations-empty"]'),
+		).not.toBeNull();
+	});
+	it("patches naming into all loaded pages without refetching or changing cursors/order", async () => {
+		serve({
+			first: page(["a", "b"], "p2"),
+			p2: page(["c", "d"], "p3"),
+			p3: page(["e"]),
+		});
+		await render();
+		await reachEnd();
+		const before = cursors();
+		mocks.metadata.mockImplementation(
+			async ({ data }: { data: { ids: string[] } }) =>
+				data.ids.map((id) => ({
+					id,
+					title: `Named ${id}`,
+					naming: {
+						state: "succeeded",
+						revision: 3,
+						locked: false,
+						expiresAt: null,
+						deadline: null,
+					},
+					namingUsage: {
+						rows: [],
+						missing: false,
+						incomplete: false,
+						unknown: false,
+					},
+					usageTotal: {},
+				})),
+		);
+		await act(async () => namingPoller.reconcile());
+		await settle();
+		expect(titles()).toEqual(["Named a", "Named b", "Named c", "Named d"]);
+		expect(cursors()).toEqual(before);
+		await reachEnd();
+		expect(cursors()).toEqual([undefined, "p2", "p3"]);
+		expect(titles()).toEqual([
+			"Named a",
+			"Named b",
+			"Named c",
+			"Named d",
+			"Named e",
+		]);
+	});
 	it("recovers from a failed first load through Try again", async () => {
 		serve({ first: page(["a", "b"]) }, { first: 1 });
 		await render();

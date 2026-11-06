@@ -114,6 +114,7 @@ export const envSchema = z.object({
 			.enum(["all", "web", "worker"], { error: "must be all, web, or worker" })
 			.default("all"),
 	),
+	TITLE_CONCURRENCY: integer(1, 2, "a positive whole number"),
 	MARGINALIA_INGEST_CONCURRENCY: integer(1, 2, "a positive whole number"),
 	MARGINALIA_PUBLIC_URL: optional(
 		z
@@ -201,6 +202,7 @@ export interface Config {
 	worker: boolean;
 	role: "all" | "web" | "worker";
 	ingestConcurrency: number;
+	titleConcurrency: number;
 	publicUrl: string | undefined;
 	/** Set and non-empty → login required. Never log or send this value. */
 	authPassword: string | undefined;
@@ -246,6 +248,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		worker: e.MARGINALIA_WORKER,
 		role: e.MARGINALIA_ROLE,
 		ingestConcurrency: e.MARGINALIA_INGEST_CONCURRENCY,
+		titleConcurrency: e.TITLE_CONCURRENCY,
 		publicUrl: e.MARGINALIA_PUBLIC_URL,
 		authPassword: e.AUTH_PASSWORD,
 		sessionDays: e.MARGINALIA_SESSION_DAYS,

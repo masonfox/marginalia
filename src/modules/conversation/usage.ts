@@ -14,6 +14,9 @@ export interface ConversationWithUsage extends ConversationDetail {
 	/** Recorded usage of each assistant reply, keyed by message id. Replies without usage are absent. */
 	usage: Record<string, Estimated<MessageUsage>>;
 	usageTotal: UsageTotal;
+	namingUsage?: NonNullable<
+		Awaited<ReturnType<typeof usageForConversation>>["naming"]
+	>;
 }
 
 /** A conversation with its usage and estimated costs, or null when it does not exist. */
@@ -34,5 +37,10 @@ export async function getConversationWithUsage(
 			estimatedCost: estimateCost(u, u.model, prices),
 		};
 	}
-	return { ...conversation, usage, usageTotal: totalOf(recorded, prices) };
+	return {
+		...conversation,
+		usage,
+		namingUsage: recorded.naming,
+		usageTotal: totalOf(recorded, prices),
+	};
 }

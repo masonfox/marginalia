@@ -3,6 +3,7 @@ export {
 	type ConversationUsage,
 	type Estimated,
 	type MessageUsage,
+	type NamingUsage,
 	totalOf,
 	type UsageTotal,
 	usageForConversation,

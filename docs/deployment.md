@@ -42,6 +42,7 @@ Runtime configuration comes from environment variables; AI providers and model d
 | `MARGINALIA_LIBRARY_PATHS` | *(empty)* | Comma-separated folders to scan for `*.epub` files, e.g. `/library,/more-books`. Scanned on startup, on an interval, and on demand. Never written to. |
 | `MARGINALIA_SCAN_INTERVAL_MINUTES` | `60` | Minutes between automatic library scans. `0` disables scheduled scans (startup and manual scans still run). |
 | `MARGINALIA_MAX_UPLOAD_MB` | `200` | Largest EPUB accepted by upload, in megabytes. Larger uploads are rejected while streaming, and nothing is stored. |
+| `TITLE_CONCURRENCY` | `2` | Concurrent title calls per worker process. Multiple worker processes multiply this limit. |
 | `MARGINALIA_INGEST_CONCURRENCY` | `2` | How many books one process imports at the same time. |
 | `MARGINALIA_WORKER` | `true` | Whether this process runs background jobs (scans, imports). With `false` it still queues jobs for another process to run. |
 | `MARGINALIA_ROLE` | `all` | `all` serves the web UI and runs jobs. `web` only serves the UI (implies no worker). `worker` only runs jobs and answers the health check. |
@@ -302,3 +303,11 @@ Preprocessing reads a whole book once, unit by unit, and stores a short summary 
 - **Privacy:** preprocessing sends the full text of the book to your AI provider, not only passages. Use a local `openai-compatible` endpoint if that is not acceptable.
 - **Cost:** it is one-time per book, billed as the input of the whole book plus a small output per unit, so a typical novel costs roughly the price of reading it once with your model. Spend is shown on the book page and is an estimate (see above). Re-importing a changed file regenerates it.
 - **Recommendations:** choose a cheaper preprocessing default in Settings, try one book manually from its page to check the cost, and enable `AI_PREPROCESS_AUTO` only once you are comfortable with it.
+
+## Automatic conversation titles
+
+New conversations receive one title attempt after their first saved user question, using the model selected for that turn. Historical conversations, including empty ones, remain ineligible. The immediate provisional title remains usable if naming fails. The title call uses only the opening question (at most 8,000 Unicode code points), at most 256 output tokens and a 30-second execution deadline, with no provider retries or model fallback. Naming usage is accounted for separately and included in conversation totals; interrupted calls disclose unknown/incomplete accounting.
+
+Naming needs a worker. Web-only processes still enqueue; workers dispatch pending rows on startup and every minute, in batches of 100. Pending work expires after five minutes; saturated or absent workers cannot start overdue work. Reading naming metadata also expires overdue state. A durable claim prevents redelivery or worker restart from invoking the provider again after an attempt started, even when its result or accounting was lost. Stopping a reply does not stop naming. Manual rename always wins; deleted conversations discard late results.
+
+Deploy the additive schema migration before updated web and worker processes. Keep the database default ineligible; updated creation explicitly opts in new rows. Deploy the title consumer and dispatcher alongside web integration. Do not backfill historical rows. For application rollback, stop title consumers/dispatcher, then roll back web/worker code while preserving additive naming columns, saved titles and title usage. Do not reverse generated or manual titles or delete accounting rows. Quiesce jobs and preserve accounting data before considering any schema rollback.

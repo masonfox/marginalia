@@ -33,6 +33,14 @@ export { buildSystemPrompt, PROMPT_VERSION } from "./prompt";
 export * from "./repository";
 export * from "./schema";
 export {
+	cancelTitleBestEffort,
+	claimTitle,
+	dispatchTitles,
+	runTitle,
+} from "./title";
+export type { NamingPatch } from "./title-metadata";
+export { readNamingMetadata } from "./title-metadata";
+export {
 	bookHandle,
 	type ConversationTools,
 	createConversationTools,
