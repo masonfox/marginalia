@@ -278,13 +278,49 @@ describe("claimed-attempt accounting after manual rename", () => {
 		fetch.mockResolvedValue([renamedPatch(3, true, 10)]);
 		poller.renamed(id, "Mine");
 		await flush();
+		const times: number[] = [];
+		fetch.mockImplementation(async () => {
+			times.push(Date.now());
+			return [renamedPatch(3, true, 10)];
+		});
 		await vi.advanceTimersByTimeAsync(20_000);
-		// Immediate reconcile plus ~1s polling until the 4s deadline, then a final fetch.
-		expect(fetch.mock.calls.length).toBeLessThanOrEqual(7);
+		// ~1s polling until the 4s deadline, then exactly one final fetch at it.
+		expect(times).toEqual([1000, 2000, 3000, 4000]);
 		const stopped = fetch.mock.calls.length;
 		await vi.advanceTimersByTimeAsync(20_000);
 		expect(fetch).toHaveBeenCalledTimes(stopped);
 		expect(poller.get(id)?.title).toBe("Mine");
+		expect(vi.getTimerCount()).toBe(0);
+		off();
+	});
+	it("reconciles accounting saved between the last periodic poll and the deadline", async () => {
+		const fetch = vi.fn(
+			async (): Promise<NamingPatch[]> => [{ ...patch("running"), ...running }],
+		);
+		const poller = new NamingPoller(fetch);
+		const off = poller.subscribe(running, vi.fn());
+		await flush();
+		fetch.mockResolvedValue([renamedPatch(3, true, 10)]);
+		poller.renamed(id, "Mine");
+		await flush();
+		await vi.advanceTimersByTimeAsync(3000);
+		expect(poller.get(id)?.namingUsage.missing).toBe(true);
+		const beforeDeadline = fetch.mock.calls.length;
+		// Usage commits at 3.5s, after the 3s poll but before the 4s deadline.
+		await vi.advanceTimersByTimeAsync(500);
+		fetch.mockResolvedValue([renamedPatch(4, false, 25)]);
+		await vi.advanceTimersByTimeAsync(500);
+		expect(fetch).toHaveBeenCalledTimes(beforeDeadline + 1);
+		expect(poller.get(id)?.naming.revision).toBe(4);
+		expect(poller.get(id)?.title).toBe("Mine");
+		expect(poller.get(id)?.naming.locked).toBe(true);
+		expect(poller.get(id)?.namingUsage.missing).toBe(false);
+		expect(
+			(poller.get(id)?.usageTotal as unknown as { inputTokens: number })
+				.inputTokens,
+		).toBe(25);
+		await vi.advanceTimersByTimeAsync(20_000);
+		expect(fetch).toHaveBeenCalledTimes(beforeDeadline + 1);
 		expect(vi.getTimerCount()).toBe(0);
 		off();
 	});

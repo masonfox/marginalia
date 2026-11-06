@@ -164,7 +164,9 @@ export class NamingPoller {
 			!entry.deleted &&
 			!entry.finalFetched &&
 			(entry.forceUntil > this.now() ||
-				(this.awaitingAccounting(entry) && this.bound(entry) > this.now()) ||
+				// Stays selectable through the deadline so one expired reconciliation
+				// runs; finalFetched stops it afterward.
+				this.awaitingAccounting(entry) ||
 				["pending", "running"].includes(
 					(entry.patch ?? entry.source).naming?.state ?? "",
 				))
@@ -247,10 +249,7 @@ export class NamingPoller {
 								(!["eligible", "pending", "running"].includes(
 									patch.naming.state,
 								) &&
-									!(
-										this.awaitingAccounting(entry) &&
-										this.bound(entry) > this.now()
-									)) ||
+									(!this.awaitingAccounting(entry) || expired)) ||
 								(expired && this.bound(entry) <= this.now());
 						}
 						this.emit(entry);
