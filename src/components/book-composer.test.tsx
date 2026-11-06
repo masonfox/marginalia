@@ -769,6 +769,37 @@ describe("Composer with several books", () => {
 		} as unknown as typeof IntersectionObserver;
 	});
 
+	it("explains why starting is blocked and prevents submission", async () => {
+		composer();
+		const submit = button("Start conversation");
+		expect(submit.type).toBe("submit");
+		expect(submit.getAttribute("aria-disabled")).toBe("true");
+		const reason = document.getElementById(
+			submit.getAttribute("aria-describedby") ?? "",
+		);
+		expect(reason?.textContent).toBe("Type a message");
+		await click(submit);
+		expect(mocks.create).not.toHaveBeenCalled();
+		await type(question(), "Compare them");
+		expect(submit.hasAttribute("aria-disabled")).toBe(false);
+		expect(submit.hasAttribute("aria-describedby")).toBe(false);
+	});
+
+	it("keeps the starting reason accessible and prevents duplicate starts", async () => {
+		mocks.create.mockReturnValue(new Promise(() => {}));
+		composer();
+		await type(question(), "Compare them");
+		const submit = button("Start conversation");
+		await click(submit);
+		expect(submit.getAttribute("aria-disabled")).toBe("true");
+		expect(
+			document.getElementById(submit.getAttribute("aria-describedby") ?? "")
+				?.textContent,
+		).toBe("Starting the conversation…");
+		await click(submit);
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+	});
+
 	it("sends each book with its own position, in the order they were added", async () => {
 		mocks.readings = {
 			e1: fakeReading(at(4)),
@@ -780,7 +811,7 @@ describe("Composer with several books", () => {
 		expect(scopeOf("e1")).toBe("Through Chapter 4");
 		expect(scopeOf("e2")).toBe("Whole book");
 		await type(question(), "Compare them");
-		await click(button("Send"));
+		await click(button("Start conversation"));
 		expect(mocks.create).toHaveBeenCalledWith({
 			data: {
 				books: [
@@ -810,7 +841,7 @@ describe("Composer with several books", () => {
 		expect(ij.save).not.toHaveBeenCalled();
 		expect(pk.save).not.toHaveBeenCalled();
 		await type(question(), "Why?");
-		await click(button("Send"));
+		await click(button("Start conversation"));
 		expect(requestedBooks()).toEqual([
 			{ editionId: "e1", scope: { kind: "unit", endPosition: 20 } },
 			{ editionId: "e2", scope: { kind: "unit", endPosition: 30 } },
@@ -823,7 +854,7 @@ describe("Composer with several books", () => {
 		mocks.create.mockResolvedValue({ id: "c1" });
 		composer();
 		await type(question(), "Who is Hal?");
-		await click(button("Send"));
+		await click(button("Start conversation"));
 		expect(sheet().textContent).toContain(
 			"How far have you read in The Pale King?",
 		);
@@ -843,7 +874,7 @@ describe("Composer with several books", () => {
 		mocks.create.mockResolvedValue({ id: "c1" });
 		composer();
 		await type(question(), "Who is Hal?");
-		await click(button("Send"));
+		await click(button("Start conversation"));
 		expect(sheet().textContent).toContain("in Infinite Jest?");
 		await click(radio("Whole book"));
 		await click(radio("Only for this conversation"));
@@ -865,14 +896,14 @@ describe("Composer with several books", () => {
 		mocks.readings = { e1: fakeReading(at(2)), e2: fakeReading(null) };
 		composer();
 		await type(question(), "Who is Hal?");
-		await click(button("Send"));
+		await click(button("Start conversation"));
 		await click(button("Cancel", sheet()));
 		expect(byTestId("composer-scope-sheet")).toBeNull();
 		expect(mocks.create).not.toHaveBeenCalled();
 		expect(question().value).toBe("Who is Hal?");
 		expect(titles()).toEqual(["Infinite Jest", "The Pale King"]);
 		// Sending again asks again.
-		await click(button("Send"));
+		await click(button("Start conversation"));
 		expect(sheet().textContent).toContain("in The Pale King?");
 	});
 
@@ -883,7 +914,7 @@ describe("Composer with several books", () => {
 			.mockResolvedValueOnce({ id: "c1" });
 		composer();
 		await type(question(), "Still here?");
-		await click(button("Send"));
+		await click(button("Start conversation"));
 		expect(mocks.navigate).not.toHaveBeenCalled();
 		expect(sheet().textContent).toContain("in The Pale King?");
 		expect(sheet().textContent).toContain("chapters changed");
@@ -905,7 +936,7 @@ describe("Composer with several books", () => {
 		mocks.create.mockResolvedValue({ error: "not_ready", editionId: "e2" });
 		composer();
 		await type(question(), "Hello?");
-		await click(button("Send"));
+		await click(button("Start conversation"));
 		expect(document.querySelector('[role="alert"]')?.textContent).toContain(
 			"The Pale King is no longer available",
 		);
@@ -1053,7 +1084,7 @@ describe("Composer with several books", () => {
 		// Nothing pins the last book outside its own page.
 		expect(button("Remove Infinite Jest")).toBeTruthy();
 		await type(question(), "Just one");
-		await click(button("Send"));
+		await click(button("Start conversation"));
 		expect(requestedBooks()).toEqual([
 			{ editionId: "e1", scope: { kind: "unit", endPosition: 20 } },
 		]);

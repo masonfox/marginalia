@@ -462,6 +462,7 @@ function ComposerForm({
 	const create = useServerFn(createConversationFn);
 	const getEdition = useServerFn(getEditionFn);
 	const coarse = useCoarsePointer();
+	const startReasonId = useId();
 
 	const [books, setBooks] = useState<ComposerBook[]>(initialBooks);
 	const [draft, setDraft] = useState("");
@@ -789,7 +790,28 @@ function ComposerForm({
 							/>
 						</div>
 					</div>
-					<SendButton busy={false} reason={reason} onStop={() => {}} />
+					{keepOne ? (
+						<SendButton busy={false} reason={reason} onStop={() => {}} />
+					) : (
+						<Button
+							type="submit"
+							aria-label="Start conversation"
+							aria-disabled={reason || busy ? true : undefined}
+							aria-describedby={reason || busy ? startReasonId : undefined}
+							title={reason ?? (busy ? "Please wait" : undefined)}
+							className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+							onClick={(event) => {
+								if (reason || busy) event.preventDefault();
+							}}
+						>
+							Start conversation
+							{(reason || busy) && (
+								<span id={startReasonId} className="sr-only">
+									{reason ?? "Please wait"}
+								</span>
+							)}
+						</Button>
+					)}
 				</div>
 			</form>
 			{keepOne && bookSlots}
