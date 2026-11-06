@@ -10,6 +10,7 @@ import {
 	usageForConversation,
 	usageForEdition,
 } from "#/modules/usage";
+import { createDb } from "#/server/db";
 import { createTestDb, type TestDb } from "../../../test/db";
 import {
 	appendMessage,
@@ -242,6 +243,91 @@ describe("naming accounting and bounded metadata", () => {
 						),
 					),
 			).toHaveLength(0);
+		}
+	});
+});
+
+describe("metadata snapshot during concurrent finalization", () => {
+	const outcome = {
+		title: "A Recognizable Question Subject",
+		usage: { ...NO_USAGE, inputTokens: 100, outputTokens: 10 },
+		steps: 1,
+		complete: true,
+		provider: "openai",
+		model: "known",
+	};
+	/**
+	 * A reader whose first SELECT is held until `gate` settles; later reads pass.
+	 * Holding the parent read while finalizeTitle commits is the schedule where
+	 * separately issued reads could see terminal state without its accounting.
+	 */
+	const gatedReader = (gate: Promise<unknown>) => {
+		const handle = createDb(t.url, 4);
+		const query = handle.pool.query.bind(handle.pool) as (
+			...args: unknown[]
+		) => Promise<unknown>;
+		let held = false;
+		(handle.pool as unknown as { query: unknown }).query = (
+			config: string | { text: string },
+			...rest: unknown[]
+		) => {
+			const text = typeof config === "string" ? config : config.text;
+			if (!held && /^s*select/i.test(text)) {
+				held = true;
+				return gate.then(() => query(config, ...rest));
+			}
+			return query(config, ...rest);
+		};
+		return handle;
+	};
+	it("a read before commit sees running without naming usage, and one held across commit sees both", async () => {
+		const id = await create();
+		const claim = must(await claimTitle(t.db, id));
+		await recordUsage(t.db, {
+			...NO_USAGE,
+			purpose: "conversation",
+			conversationId: id,
+			messageId: null,
+			provider: "openai",
+			model: "known",
+			inputTokens: 20,
+			outputTokens: 5,
+			steps: 1,
+			complete: true,
+		});
+		const [before] = await readNamingMetadata(t.db, [id], prices);
+		expect(before).toMatchObject({
+			naming: { state: "running", revision: 2 },
+			namingUsage: { rows: [], missing: false },
+			usageTotal: { inputTokens: 20, outputTokens: 5 },
+		});
+
+		let release!: () => void;
+		const gate = new Promise<void>((r) => {
+			release = r;
+		});
+		const reader = gatedReader(gate);
+		try {
+			const read = readNamingMetadata(reader.db, [id], prices);
+			// Give the reader time to issue (and hold) its first SELECT.
+			await new Promise((r) => setTimeout(r, 50));
+			await finalizeTitle(t.db, claim, outcome);
+			release();
+			const [after] = await read;
+			expect(after?.naming.state).toBe("succeeded");
+			expect(after?.naming.revision).toBe(3);
+			expect(after?.namingUsage).toMatchObject({
+				rows: [{ inputTokens: 100, outputTokens: 10, complete: true }],
+				missing: false,
+			});
+			expect(after?.usageTotal).toMatchObject({
+				inputTokens: 120,
+				outputTokens: 15,
+			});
+			// Same figures as a fresh read after commit.
+			expect((await readNamingMetadata(t.db, [id], prices))[0]).toEqual(after);
+		} finally {
+			await reader.pool.end();
 		}
 	});
 });

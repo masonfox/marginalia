@@ -1,4 +1,4 @@
-﻿import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+﻿import { type Column, getTableName, inArray, sql } from "drizzle-orm";
 import {
 	aiUsage,
 	type ConversationUsage,
@@ -10,7 +10,11 @@ import type { Executor } from "#/server/db";
 import { conversations, messages } from "./schema";
 import { expireTitles } from "./title";
 
-/** Fixed query count for a bounded batch; no histories or message bodies cross the wire. */
+/** Table-qualified, since single-table selects render bare column names. */
+const q = (column: Column) =>
+	sql`${sql.identifier(getTableName(column.table))}.${sql.identifier(column.name)}`;
+
+/** One read statement for a bounded batch; no histories or message bodies cross the wire. */
 export async function readNamingMetadata(
 	db: Executor,
 	ids: string[],
@@ -20,87 +24,62 @@ export async function readNamingMetadata(
 		throw new Error("Expected 1 to 100 conversation ids");
 	await expireTitles(db);
 	const uniqueIds = [...new Set(ids)];
-	const [parents, models, namingRows, missingReplies] = await Promise.all([
-		db
-			.select({
-				id: conversations.id,
-				title: conversations.title,
-				namingState: conversations.namingState,
-				titleLocked: conversations.titleLocked,
-				namingExpiresAt: conversations.namingExpiresAt,
-				namingDeadline: conversations.namingDeadline,
-				namingRevision: conversations.namingRevision,
-				namingAttemptId: conversations.namingAttemptId,
-			})
-			.from(conversations)
-			.where(inArray(conversations.id, uniqueIds)),
-		db
-			.select({
-				conversationId: aiUsage.conversationId,
-				model: aiUsage.model,
-				inputTokens: sql<number | null>`sum(${aiUsage.inputTokens})::int`,
-				outputTokens: sql<number | null>`sum(${aiUsage.outputTokens})::int`,
-				cacheReadTokens: sql<
-					number | null
-				>`sum(${aiUsage.cacheReadTokens})::int`,
-				cacheWriteTokens: sql<
-					number | null
-				>`sum(${aiUsage.cacheWriteTokens})::int`,
-				reasoningTokens: sql<
-					number | null
-				>`sum(${aiUsage.reasoningTokens})::int`,
-			})
-			.from(aiUsage)
-			.where(inArray(aiUsage.conversationId, uniqueIds))
-			.groupBy(aiUsage.conversationId, aiUsage.model),
-		db
-			.select({
-				conversationId: aiUsage.conversationId,
-				model: aiUsage.model,
-				inputTokens: aiUsage.inputTokens,
-				outputTokens: aiUsage.outputTokens,
-				cacheReadTokens: aiUsage.cacheReadTokens,
-				cacheWriteTokens: aiUsage.cacheWriteTokens,
-				reasoningTokens: aiUsage.reasoningTokens,
-				steps: aiUsage.steps,
-				complete: aiUsage.complete,
-			})
-			.from(aiUsage)
-			.where(
-				and(
-					inArray(aiUsage.conversationId, uniqueIds),
-					eq(aiUsage.purpose, "conversation-title"),
-				),
-			),
-		db
-			.select({
-				conversationId: messages.conversationId,
-				count: sql<number>`count(*)::int`,
-			})
-			.from(messages)
-			.leftJoin(
-				aiUsage,
-				and(
-					eq(aiUsage.messageId, messages.id),
-					eq(aiUsage.purpose, "conversation"),
-				),
-			)
-			.where(
-				and(
-					inArray(messages.conversationId, uniqueIds),
-					eq(messages.role, "assistant"),
-					or(
-						isNull(aiUsage.id),
-						and(isNull(aiUsage.inputTokens), isNull(aiUsage.outputTokens)),
-					),
-				),
-			)
-			.groupBy(messages.conversationId),
-	]);
+	// One statement, so state and accounting come from a single snapshot: a
+	// concurrent finalizeTitle commit is either wholly visible or not at all.
+	const parents = await db
+		.select({
+			id: conversations.id,
+			title: conversations.title,
+			namingState: conversations.namingState,
+			titleLocked: conversations.titleLocked,
+			namingExpiresAt: conversations.namingExpiresAt,
+			namingDeadline: conversations.namingDeadline,
+			namingRevision: conversations.namingRevision,
+			namingAttemptId: conversations.namingAttemptId,
+			byModel: sql<ConversationUsage["byModel"]>`(
+				select coalesce(json_agg(m), '[]'::json) from (
+					select ${q(aiUsage.model)} as "model",
+						sum(${q(aiUsage.inputTokens)})::int as "inputTokens",
+						sum(${q(aiUsage.outputTokens)})::int as "outputTokens",
+						sum(${q(aiUsage.cacheReadTokens)})::int as "cacheReadTokens",
+						sum(${q(aiUsage.cacheWriteTokens)})::int as "cacheWriteTokens",
+						sum(${q(aiUsage.reasoningTokens)})::int as "reasoningTokens"
+					from ${aiUsage}
+					where ${q(aiUsage.conversationId)} = ${q(conversations.id)}
+					group by ${q(aiUsage.model)}
+				) m
+			)`,
+			namingRows: sql<NamingUsage["rows"]>`(
+				select coalesce(json_agg(json_build_object(
+					'model', ${q(aiUsage.model)},
+					'inputTokens', ${q(aiUsage.inputTokens)},
+					'outputTokens', ${q(aiUsage.outputTokens)},
+					'cacheReadTokens', ${q(aiUsage.cacheReadTokens)},
+					'cacheWriteTokens', ${q(aiUsage.cacheWriteTokens)},
+					'reasoningTokens', ${q(aiUsage.reasoningTokens)},
+					'steps', ${q(aiUsage.steps)},
+					'complete', ${q(aiUsage.complete)}
+				)), '[]'::json)
+				from ${aiUsage}
+				where ${q(aiUsage.conversationId)} = ${q(conversations.id)}
+					and ${q(aiUsage.purpose)} = 'conversation-title'
+			)`,
+			missingReplies: sql<number>`(
+				select count(*)::int
+				from ${messages}
+				left join ${aiUsage}
+					on ${q(aiUsage.messageId)} = ${q(messages.id)}
+					and ${q(aiUsage.purpose)} = 'conversation'
+				where ${q(messages.conversationId)} = ${q(conversations.id)}
+					and ${q(messages.role)} = 'assistant'
+					and (${q(aiUsage.id)} is null
+						or (${q(aiUsage.inputTokens)} is null and ${q(aiUsage.outputTokens)} is null))
+			)`,
+		})
+		.from(conversations)
+		.where(inArray(conversations.id, uniqueIds));
 	return parents.map((row) => {
-		const rows = namingRows
-			.filter((u) => u.conversationId === row.id)
-			.map(({ conversationId: _, ...usage }) => usage);
+		const rows = row.namingRows;
 		const missing =
 			!!row.namingAttemptId &&
 			!["pending", "running"].includes(row.namingState) &&
@@ -115,9 +94,8 @@ export async function readNamingMetadata(
 		};
 		const usage: ConversationUsage = {
 			byMessage: {},
-			byModel: models.filter((u) => u.conversationId === row.id),
-			missing:
-				missingReplies.find((u) => u.conversationId === row.id)?.count ?? 0,
+			byModel: row.byModel,
+			missing: row.missingReplies,
 			naming,
 		};
 		return {
