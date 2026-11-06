@@ -1,5 +1,9 @@
 import { BookMarked } from "lucide-react";
 import { useState } from "react";
+import {
+	ScopePill,
+	ProgressBar as SharedProgressBar,
+} from "#/components/pieces";
 import { type Choice, positionChoice, ScopeChoices } from "#/components/scope";
 import {
 	AlertDialog,
@@ -48,7 +52,14 @@ export const SHARED_POSITION =
  * confirmation), or clear it. Every instance shares the query cache through
  * `useReadingPosition`, so a save anywhere on the page updates it.
  */
-export function ReadingPositionControl({ editionId }: { editionId: string }) {
+export function ReadingPositionControl({
+	editionId,
+	compact = false,
+}: {
+	editionId: string;
+	/** The compact book hero: the position and its control, without the progress bar. */
+	compact?: boolean;
+}) {
 	const reading = useReadingPosition(editionId);
 	const { position: current, units, busy, error } = reading;
 	const [open, setOpen] = useState(false);
@@ -68,28 +79,36 @@ export function ReadingPositionControl({ editionId }: { editionId: string }) {
 
 	return (
 		<section
-			className="space-y-2 text-sm"
+			className="flex flex-wrap items-center gap-x-3.5 gap-y-2 text-sm"
 			aria-label="Reading position"
 			data-testid="reading-position"
 		>
-			{/* The label gets the whole width and wraps: a narrow rail must not cut it. */}
-			<div className="flex items-start gap-2">
-				<BookMarked
-					className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-					aria-hidden
-				/>
-				<p
-					className="min-w-0 flex-1 break-words"
-					data-testid="reading-position-value"
-				>
-					{reading.positionStatus === "pending"
-						? "Loading…"
-						: reading.positionStatus === "error"
-							? "Could not load your reading position."
-							: positionText(current)}
+			{/* The label wraps rather than being cut, however long the chapter's name. */}
+			{reading.positionStatus === "success" && current !== null ? (
+				<ScopePill>
+					{current.kind === "finished" ? "" : "You’re through "}
+					<span className="break-words" data-testid="reading-position-value">
+						{positionText(current)}
+					</span>
+				</ScopePill>
+			) : (
+				<p className="flex min-w-0 items-start gap-2 text-muted-foreground">
+					<BookMarked className="mt-0.5 size-4 shrink-0" aria-hidden />
+					<span className="min-w-0 break-words">
+						{reading.positionStatus === "success" && "Reading position: "}
+						<span data-testid="reading-position-value">
+							{reading.positionStatus === "pending"
+								? "Loading…"
+								: reading.positionStatus === "error"
+									? "Could not load your reading position."
+									: positionText(current)}
+						</span>
+					</span>
 				</p>
-			</div>
-			{reading.progress && <ProgressBar progress={reading.progress} />}
+			)}
+			{!compact && reading.progress && (
+				<ProgressBar progress={reading.progress} />
+			)}
 			<div>
 				<Dialog
 					open={open}
@@ -104,8 +123,8 @@ export function ReadingPositionControl({ editionId }: { editionId: string }) {
 						<Button
 							type="button"
 							size="sm"
-							variant="outline"
-							className="lg:w-full pointer-coarse:h-10"
+							variant="ghost"
+							className="pointer-coarse:h-10"
 							disabled={reading.positionStatus === "pending"}
 						>
 							{current === null ? "Set position" : "Change position"}
@@ -179,7 +198,7 @@ export function ReadingPositionControl({ editionId }: { editionId: string }) {
 				</Dialog>
 			</div>
 			{error && !open && (
-				<p role="alert" className="text-destructive-foreground">
+				<p role="alert" className="basis-full text-destructive-foreground">
 					{error}
 				</p>
 			)}
@@ -244,25 +263,14 @@ export function MoveBackDialog({
 /** Which unit of how many, with a bar for the share of passages read. */
 function ProgressBar({ progress }: { progress: ReadingProgress }) {
 	return (
-		<div className="flex items-center gap-2">
-			<div
-				role="progressbar"
-				aria-label="Share of the book read"
-				aria-valuemin={0}
-				aria-valuemax={100}
-				aria-valuenow={Math.round(progress.share * 100)}
-				className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+		<div className="flex items-center gap-2.5 text-[13px] text-muted-foreground">
+			<SharedProgressBar
+				value={progress.share}
+				label="Share of the book read"
+				className="w-28 shrink-0 sm:w-40"
 				data-testid="reading-progress-bar"
-			>
-				<div
-					className="h-full rounded-full bg-primary"
-					style={{ width: `${progress.share * 100}%` }}
-				/>
-			</div>
-			<span
-				className="shrink-0 text-xs text-muted-foreground tabular-nums"
-				data-testid="reading-progress"
-			>
+			/>
+			<span className="shrink-0 tabular-nums" data-testid="reading-progress">
 				{progress.index} of {progress.count}
 			</span>
 		</div>

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { createContext, useContext, useEffect } from "react";
+import { UNVERIFIED_QUOTE } from "#/components/pieces";
 import { PREPROCESS_ID } from "#/components/preprocess-card";
 import { Badge } from "#/components/ui/badge";
 import { getAiStatusFn } from "#/fns/conversations";
@@ -94,13 +95,18 @@ export function GuideCitations({
 					<Link
 						to="/p/$locator"
 						params={{ locator: c.locator }}
-						className="text-muted-foreground italic underline-offset-2 hover:underline"
+						className={
+							c.verified
+								? "font-reading text-muted-foreground italic underline-offset-2 hover:underline"
+								: `font-reading italic ${UNVERIFIED_QUOTE}`
+						}
 					>
 						“{c.quote}”
 					</Link>
 					{!c.verified && (
 						<Badge
-							variant="outline"
+							variant="status"
+							className="text-destructive-foreground"
 							title="This quote could not be confirmed in the book's text."
 						>
 							Unverified

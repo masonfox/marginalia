@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { BookOpen } from "lucide-react";
 import { BookCover } from "#/components/book-cover";
 import { ConversationRow } from "#/components/conversation-list";
+import { ScopePill } from "#/components/pieces";
 import type { RecentConversation } from "#/modules/conversation";
 import type { ReadingShelfItem } from "#/modules/shelf";
 
@@ -86,6 +87,7 @@ export function ReadingSection({ items }: { items: ReadingShelfItem[] }) {
 								id={book.id}
 								title={book.title}
 								hasCover={book.hasCover}
+								author={book.authors[0]}
 							/>
 							<h3 className="mt-2 line-clamp-2 font-medium break-words group-hover:underline">
 								{book.title}
@@ -97,9 +99,7 @@ export function ReadingSection({ items }: { items: ReadingShelfItem[] }) {
 							</p>
 						)}
 						{book.scopeLabel && (
-							<p className="mt-1 line-clamp-2 text-sm break-words text-muted-foreground">
-								Through {book.scopeLabel}
-							</p>
+							<ScopePill className="mt-2">{`Through ${book.scopeLabel}`}</ScopePill>
 						)}
 					</li>
 				))}

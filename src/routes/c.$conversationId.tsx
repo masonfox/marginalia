@@ -38,6 +38,7 @@ import {
 } from "#/components/conversation-controls";
 import { replyModelLabel, selectionLabel } from "#/components/model-picker";
 import { PassageQuote } from "#/components/passage-quote";
+import { ScopePill } from "#/components/pieces";
 import {
 	ReplyQuote,
 	ReplySelection,
@@ -45,7 +46,6 @@ import {
 } from "#/components/reply-selection";
 import { ResearchTrail, type TrailContext } from "#/components/research-trail";
 import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
-import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
 import {
@@ -546,10 +546,10 @@ function ConversationPage() {
 							<ul className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
 								{conversation.books.map((b) => (
 									<li key={b.editionId} className="flex items-center gap-1">
-										<Badge variant="secondary" data-testid="scope-chip">
+										<ScopePill data-testid="scope-chip">
 											{conversation.books.length > 1 && `${b.title}: `}
 											{scopeText(b.scopeLabel)}
-										</Badge>
+										</ScopePill>
 										<WidenScope
 											conversationId={conversationId}
 											book={b}

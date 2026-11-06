@@ -186,6 +186,7 @@ function LibraryPage() {
 											id={e.id}
 											title={e.title}
 											hasCover={e.hasCover}
+											author={e.authors[0]}
 										/>
 										<h2 className="mt-2 line-clamp-2 font-medium break-words group-hover:underline">
 											{e.title}
@@ -198,7 +199,7 @@ function LibraryPage() {
 									)}
 									<div className="mt-1">
 										<Badge
-											variant="outline"
+											variant="status"
 											className={SHELF_STATUS_CLASS[e.status]}
 										>
 											{SHELF_STATUS_LABEL[e.status]}

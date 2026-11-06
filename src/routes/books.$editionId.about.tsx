@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useBook } from "#/components/book-page";
+import { EYEBROW } from "#/components/pieces";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -42,8 +43,7 @@ export const Route = createFileRoute("/books/$editionId/about")({
 });
 
 /** Section headings share one quiet, small-caps style so the content leads. */
-const HEADING =
-	"text-xs font-semibold uppercase tracking-wider text-muted-foreground";
+const HEADING = EYEBROW;
 
 /** Blurbs longer than this start clamped, with a Show more toggle. */
 const LONG_DESCRIPTION = 1200;
@@ -123,10 +123,7 @@ function AboutTab() {
 									</p>
 								</div>
 								{!s.available && (
-									<Badge
-										variant="outline"
-										className="border-status-unavailable/30 bg-status-unavailable/10 text-status-unavailable"
-									>
+									<Badge variant="status" className="text-status-unavailable">
 										Missing
 									</Badge>
 								)}

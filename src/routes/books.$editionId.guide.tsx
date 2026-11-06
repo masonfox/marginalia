@@ -16,6 +16,7 @@ import {
 	positionBound,
 } from "#/components/guide";
 import { CorrectionReviewPanel } from "#/components/guide-corrections";
+import { ScopePill } from "#/components/pieces";
 import { PreprocessCard } from "#/components/preprocess-card";
 import {
 	type Choice,
@@ -153,9 +154,15 @@ function GuideLayout() {
 	return (
 		<GuideFrame title={edition.title}>
 			<div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-				<span className="font-medium" data-testid="guide-bound">
-					{bound ? scopeText(bound.label) : "Choose how far you have read"}
-				</span>
+				{bound ? (
+					<ScopePill data-testid="guide-bound">
+						{scopeText(bound.label)}
+					</ScopePill>
+				) : (
+					<span className="font-medium" data-testid="guide-bound">
+						Choose how far you have read
+					</span>
+				)}
 				{(bound !== null || !preprocessed) && (
 					<Button
 						type="button"

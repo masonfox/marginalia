@@ -15,6 +15,7 @@ import { AiSetupNotice, modelInEffect } from "#/components/chat";
 import { AutogrowTextarea } from "#/components/composer/autogrow-textarea";
 import { SendButton } from "#/components/composer/send-button";
 import { initialDraft, ModelChoice } from "#/components/model-picker";
+import { ScopePill } from "#/components/pieces";
 import { MoveBackDialog, SHARED_POSITION } from "#/components/reading-position";
 import {
 	type Choice,
@@ -132,12 +133,8 @@ export function ScopeStrip({
 			data-state={state.kind}
 		>
 			<div className="flex flex-wrap items-center gap-2">
-				<BookMarked
-					className="size-4 shrink-0 text-muted-foreground"
-					aria-hidden
-				/>
-				<p className="min-w-0 flex-1 font-medium" data-testid="composer-scope">
-					{scopeText(label)}
+				<p className="min-w-0 flex-1" data-testid="composer-scope">
+					<ScopePill>{scopeText(label)}</ScopePill>
 					{state.once && (
 						<span className="font-normal text-muted-foreground">
 							{" "}

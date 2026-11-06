@@ -15,6 +15,11 @@ import {
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { selectionLabel } from "#/components/model-picker";
+import {
+	CITE_MARKER,
+	CITE_MARKER_UNVERIFIED,
+	UNVERIFIED_QUOTE,
+} from "#/components/pieces";
 import { parseCitationMarkers } from "#/lib/citations";
 import type { CitationRecord } from "#/modules/conversation";
 import type { AiStatus } from "#/modules/settings";
@@ -288,7 +293,7 @@ function CitationMarker({
 				<Popover.Trigger asChild>
 					<button
 						type="button"
-						className="mx-0.5 inline-flex min-w-5 cursor-pointer items-center justify-center rounded-full bg-highlight/60 px-1.5 align-super text-[0.7rem] font-medium leading-5 text-foreground hover:bg-highlight focus-visible:outline-2 focus-visible:outline-ring"
+						className={CITE_MARKER}
 						aria-label={`Source ${number}: ${sourceLabel(verified) || "passage"}`}
 						data-citation-status="verified"
 					>
@@ -306,7 +311,7 @@ function CitationMarker({
 							{...passageLink(verified)}
 							className="block rounded-sm no-underline hover:bg-accent/50 focus-visible:outline-2 focus-visible:outline-ring"
 						>
-							<p className="border-l-2 border-l-primary pl-2 font-serif italic">
+							<p className="border-l-2 border-l-primary pl-2 font-reading italic">
 								“{quote}”
 							</p>
 							<p className="mt-2 text-xs text-muted-foreground">
@@ -340,7 +345,7 @@ function CitationMarker({
 			<Popover.Trigger asChild>
 				<button
 					type="button"
-					className="mx-0.5 inline-flex align-super text-muted-foreground"
+					className={CITE_MARKER_UNVERIFIED}
 					aria-label={`Could not verify citation (${reason})`}
 					data-citation-status="unverified"
 				>
@@ -355,7 +360,9 @@ function CitationMarker({
 					className={cardClass}
 				>
 					<p className="font-medium">Could not verify ({reason})</p>
-					<p className="mt-1 text-xs text-muted-foreground">claimed: {quote}</p>
+					<p className="mt-1 text-xs text-muted-foreground">
+						claimed: <span className={UNVERIFIED_QUOTE}>{quote}</span>
+					</p>
 				</Popover.Content>
 			</Popover.Portal>
 		</Popover.Root>
@@ -447,7 +454,7 @@ export function SourcesList({ sources }: { sources: VerifiedCitation[] }) {
 					className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
 					aria-hidden
 				/>
-				<span className="shrink-0 font-medium uppercase tracking-wide">
+				<span className="shrink-0 text-[11px] font-semibold tracking-[0.14em] uppercase">
 					Sources ({sources.length})
 				</span>
 				{books.length > 0 && (
@@ -476,7 +483,7 @@ export function SourcesList({ sources }: { sources: VerifiedCitation[] }) {
 									title={`“${s.quote}” · ${sourceLabel(s) || "passage"}`}
 									className="flex min-w-0 flex-1 items-baseline gap-1.5 rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-ring"
 								>
-									<span className="min-w-0 truncate font-serif italic">
+									<span className="min-w-0 truncate font-reading italic">
 										“{s.quote}”
 									</span>
 									<span className="ml-auto max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">

@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { Ellipsis, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { coverColors } from "#/components/book-cover";
 import {
 	DeleteConversation,
 	RenameConversationDialog,
@@ -119,7 +120,7 @@ export function ConversationRow(props: ConversationRowProps) {
 						{books ? (
 							<span className="truncate" data-testid="conversation-books">
 								<span aria-hidden>{books.text}</span>
-								<span className="sr-only">{books.description}</span>
+								<span className="sr-only top-0 left-0">{books.description}</span>
 							</span>
 						) : (
 							<span className="truncate" data-testid="conversation-scope">
@@ -211,11 +212,12 @@ export function CoverStack({
 				.map((b, i) => (
 					<span
 						key={b.editionId}
-						className="absolute block h-15 w-10 overflow-hidden rounded-sm border bg-muted shadow-sm"
+						className="absolute block h-15 w-10 overflow-hidden rounded-[2px_4px_4px_2px] shadow-cover"
 						style={{
 							left: inset + i * STACK_DX,
 							top: i * STACK_DY,
 							zIndex: shown.length - i,
+							...(b.hasCover ? {} : coverColors(b.title)),
 						}}
 					>
 						{b.hasCover ? (
@@ -226,7 +228,7 @@ export function CoverStack({
 								className="size-full object-cover"
 							/>
 						) : (
-							<span className="flex size-full items-center justify-center font-serif text-sm text-muted-foreground">
+							<span className="flex size-full items-center justify-center font-serif text-sm font-semibold">
 								{b.title.trim().charAt(0).toUpperCase()}
 							</span>
 						)}

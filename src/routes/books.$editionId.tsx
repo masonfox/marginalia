@@ -1,12 +1,18 @@
-import { createFileRoute, notFound, Outlet } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	notFound,
+	Outlet,
+	useMatchRoute,
+} from "@tanstack/react-router";
 import { z } from "zod";
-import { BookHeader, BookTabs } from "#/components/book-page";
+import { BookHero } from "#/components/book-page";
 import { getEditionFn } from "#/fns/library";
 
 /**
- * The book page: one header and tab bar shared by every tab (Discuss, Guide,
+ * The book page: one hero and tab bar shared by every tab (Discuss, Guide,
  * Contents, About), mounted once so switching tabs neither remounts nor
- * refetches them.
+ * refetches them. Discuss and Contents get the full hero; the Guide and About
+ * the compact one, so their content leads.
  */
 export const Route = createFileRoute("/books/$editionId")({
 	loader: async ({ params }) => {
@@ -28,14 +34,15 @@ export const Route = createFileRoute("/books/$editionId")({
 });
 
 function BookLayout() {
+	const matchRoute = useMatchRoute();
+	const compact =
+		Boolean(matchRoute({ to: "/books/$editionId/guide", fuzzy: true })) ||
+		Boolean(matchRoute({ to: "/books/$editionId/about" }));
 	return (
-		<main className="mx-auto max-w-6xl px-4 py-6 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10 lg:py-8">
-			<BookHeader />
-			<div className="mt-6 min-w-0 lg:mt-0">
-				<BookTabs />
-				<div className="mt-6">
-					<Outlet />
-				</div>
+		<main>
+			<BookHero variant={compact ? "compact" : "full"} />
+			<div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+				<Outlet />
 			</div>
 		</main>
 	);
