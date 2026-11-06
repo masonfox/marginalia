@@ -769,6 +769,55 @@ describe("Composer with several books", () => {
 		} as unknown as typeof IntersectionObserver;
 	});
 
+	it("uses selected shelf cover metadata without reloading the edition", () => {
+		render(
+			<Composer
+				initialBooks={[
+					{ ...IJ, hasCover: true, authors: ["David Foster Wallace"] },
+				]}
+				draftId="cover-book"
+				status={OK_STATUS}
+			/>,
+		);
+		expect(
+			row("e1")
+				.querySelector('[data-testid="composer-book-cover"] img')
+				?.getAttribute("src"),
+		).toBe("/api/covers/e1");
+		expect(mocks.edition).not.toHaveBeenCalled();
+		expect(scopeOf("e1")).toBeTruthy();
+	});
+
+	it("keeps a preselected slot stable while its cover metadata loads", async () => {
+		let resolve: (value: unknown) => void = () => {};
+		mocks.edition.mockReturnValue(
+			new Promise((done) => {
+				resolve = done;
+			}),
+		);
+		composer([IJ]);
+		const slot = row("e1");
+		expect(
+			slot.querySelector('[data-testid="composer-book-cover"] [role="img"]'),
+		).not.toBeNull();
+		expect(
+			slot.querySelector('[data-testid="composer-book-cover"] img'),
+		).toBeNull();
+		expect(button("Remove Infinite Jest")).toBeTruthy();
+		await act(async () => {
+			resolve({
+				edition: { coverPath: "cover.jpg", authors: ["David Foster Wallace"] },
+			});
+		});
+		await vi.waitFor(() =>
+			expect(slot.querySelector("img")?.getAttribute("src")).toBe(
+				"/api/covers/e1",
+			),
+		);
+		expect(row("e1")).toBe(slot);
+		expect(scopeOf("e1")).toBeTruthy();
+	});
+
 	it("explains why starting is blocked and prevents submission", async () => {
 		composer();
 		const submit = button("Start conversation");

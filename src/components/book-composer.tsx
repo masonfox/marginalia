@@ -1,4 +1,8 @@
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useInfiniteQuery,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { BookMarked, Plus, X } from "lucide-react";
@@ -11,6 +15,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { BookCover } from "#/components/book-cover";
 import { AiSetupNotice, modelInEffect } from "#/components/chat";
 import { AutogrowTextarea } from "#/components/composer/autogrow-textarea";
 import { SendButton } from "#/components/composer/send-button";
@@ -315,6 +320,9 @@ export function ScopeSheet({
 export interface ComposerBook {
 	editionId: string;
 	title: string;
+	/** Already available for books selected from the shelf. */
+	hasCover?: boolean;
+	authors?: string[];
 }
 
 /**
@@ -531,7 +539,9 @@ function ComposerForm({
 		saveComposerDraft(draftId, {
 			text: draft,
 			attachment: null,
-			...(!sameBooks(books, initial.current) && { books }),
+			...(!sameBooks(books, initial.current) && {
+				books: books.map(({ editionId, title }) => ({ editionId, title })),
+			}),
 		});
 	}, [owner, draftId, draft, books]);
 
@@ -873,6 +883,14 @@ function BookRow({
 	onDismissed: () => void;
 }) {
 	const { editionId, title } = book;
+	const metadata = useQuery({
+		queryKey: ["composer-book-cover", editionId],
+		queryFn: () => getEditionFn({ data: { editionId } }),
+		enabled: book.hasCover === undefined,
+		staleTime: Infinity,
+		retry: false,
+	});
+	const cover = metadata.data?.edition;
 	const reading = useReadingPosition(editionId);
 	const [sheet, setSheet] = useState<Sheet | null>(null);
 
@@ -949,42 +967,53 @@ function BookRow({
 
 	return (
 		<li
-			className="space-y-2 rounded-lg border p-3"
+			className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] gap-x-3 rounded-2xl border bg-card p-3"
 			data-testid="composer-book"
 			data-edition-id={editionId}
 		>
-			<div className="flex items-center gap-2">
-				<p
-					className="min-w-0 flex-1 truncate font-medium"
-					data-testid="composer-book-title"
-				>
-					{title}
-				</p>
-				{removable && (
-					<Button
-						type="button"
-						size="icon"
-						variant="ghost"
-						className="size-8 pointer-coarse:size-11"
-						aria-label={`Remove ${title}`}
-						disabled={disabled}
-						onClick={onRemove}
+			<div className="w-11 self-start" data-testid="composer-book-cover">
+				<BookCover
+					id={editionId}
+					title={title}
+					hasCover={book.hasCover ?? Boolean(cover?.coverPath)}
+					author={book.authors?.[0] ?? cover?.authors?.[0]}
+					small
+				/>
+			</div>
+			<div className="min-w-0 space-y-2">
+				<div className="flex items-center gap-2">
+					<p
+						className="min-w-0 flex-1 truncate font-medium"
+						data-testid="composer-book-title"
 					>
-						<X aria-hidden />
-					</Button>
+						{title}
+					</p>
+					{removable && (
+						<Button
+							type="button"
+							size="icon"
+							variant="ghost"
+							className="size-8 pointer-coarse:size-11"
+							aria-label={`Remove ${title}`}
+							disabled={disabled}
+							onClick={onRemove}
+						>
+							<X aria-hidden />
+						</Button>
+					)}
+				</div>
+				<ScopeStrip
+					state={strip}
+					disabled={disabled}
+					onChange={openSheet}
+					onUsePosition={() => onOverrideChange(null)}
+				/>
+				{reading.error && !sheet && (
+					<p role="alert" className="text-sm text-destructive-foreground">
+						{reading.error}
+					</p>
 				)}
 			</div>
-			<ScopeStrip
-				state={strip}
-				disabled={disabled}
-				onChange={openSheet}
-				onUsePosition={() => onOverrideChange(null)}
-			/>
-			{reading.error && !sheet && (
-				<p role="alert" className="text-sm text-destructive-foreground">
-					{reading.error}
-				</p>
-			)}
 			<ScopeSheet
 				open={sheet !== null}
 				onOpenChange={(next) => {
@@ -1115,7 +1144,14 @@ export function BookPicker({
 										type="button"
 										className="w-full rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none pointer-coarse:min-h-11"
 										data-testid="book-picker-option"
-										onClick={() => onPick({ editionId: b.id, title: b.title })}
+										onClick={() =>
+											onPick({
+												editionId: b.id,
+												title: b.title,
+												hasCover: b.hasCover,
+												authors: b.authors,
+											})
+										}
 									>
 										<span className="block font-medium">{b.title}</span>
 										{b.authors.length > 0 && (
