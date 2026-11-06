@@ -104,9 +104,16 @@ export class NamingPoller {
 		const entry = this.entries.get(id);
 		if (!entry) return;
 		entry.generation++;
-		entry.forceUntil = 0;
-		entry.finalFetched = true;
 		const current = entry.patch ?? entry.source;
+		// A claimed attempt may still save its usage after the rename; keep a
+		// bounded refresh until its persisted deadline so accounting can arrive.
+		const deadline = current.naming?.deadline ?? null;
+		const claimed =
+			current.naming?.state === "running" && deadline
+				? new Date(deadline).getTime()
+				: 0;
+		entry.forceUntil = claimed > this.now() ? claimed : 0;
+		entry.finalFetched = entry.forceUntil === 0;
 		entry.patch = {
 			...entry.patch,
 			id,
@@ -115,7 +122,7 @@ export class NamingPoller {
 				state: "skipped",
 				locked: true,
 				expiresAt: null,
-				deadline: null,
+				deadline,
 				revision: (current.naming?.revision ?? 0) + 1,
 			},
 		} as NamingPatch;
@@ -133,11 +140,20 @@ export class NamingPoller {
 	private emit(entry: Entry) {
 		for (const listener of entry.listeners) listener();
 	}
+	/** A terminal claimed attempt whose usage has not been saved yet (e.g. after rename). */
+	private awaitingAccounting(entry: Entry) {
+		const patch = entry.patch;
+		return (
+			!!patch?.namingUsage?.missing &&
+			!!patch.naming.deadline &&
+			!["eligible", "pending", "running"].includes(patch.naming.state)
+		);
+	}
 	private bound(entry: Entry) {
 		const meta = (entry.patch ?? entry.source).naming;
 		const date =
-			meta?.state === "running"
-				? meta.deadline
+			meta?.state === "running" || this.awaitingAccounting(entry)
+				? meta?.deadline
 				: meta?.state === "pending"
 					? meta.expiresAt
 					: null;
@@ -148,6 +164,7 @@ export class NamingPoller {
 			!entry.deleted &&
 			!entry.finalFetched &&
 			(entry.forceUntil > this.now() ||
+				(this.awaitingAccounting(entry) && this.bound(entry) > this.now()) ||
 				["pending", "running"].includes(
 					(entry.patch ?? entry.source).naming?.state ?? "",
 				))
@@ -227,9 +244,13 @@ export class NamingPoller {
 								entry.patch = patch;
 							if (patch.naming.state !== "eligible") entry.forceUntil = 0;
 							entry.finalFetched =
-								!["eligible", "pending", "running"].includes(
+								(!["eligible", "pending", "running"].includes(
 									patch.naming.state,
-								) ||
+								) &&
+									!(
+										this.awaitingAccounting(entry) &&
+										this.bound(entry) > this.now()
+									)) ||
 								(expired && this.bound(entry) <= this.now());
 						}
 						this.emit(entry);

@@ -200,3 +200,107 @@ it("starts tracking a newer pending loader revision after an earlier eligible mo
 	expect(fetch).toHaveBeenCalledTimes(3);
 	off();
 });
+
+describe("claimed-attempt accounting after manual rename", () => {
+	const running = {
+		...source("running"),
+		naming: {
+			...source("running").naming,
+			deadline: new Date(4000),
+			revision: 2,
+		},
+	};
+	const renamedPatch = (
+		revision: number,
+		missing: boolean,
+		inputTokens: number,
+		deadline: Date | null = new Date(4000),
+	): NamingPatch => ({
+		id,
+		title: "Mine",
+		naming: {
+			state: "skipped",
+			locked: true,
+			expiresAt: new Date(5000),
+			deadline,
+			revision,
+		},
+		usageTotal: { inputTokens } as unknown as NamingPatch["usageTotal"],
+		namingUsage: { rows: [], missing, incomplete: missing, unknown: missing },
+	});
+	it("keeps polling after rename until the delayed accounting-only revision arrives", async () => {
+		let resolveStale!: (p: NamingPatch[]) => void;
+		const fetch = vi.fn(
+			(): Promise<NamingPatch[]> =>
+				new Promise((r) => {
+					resolveStale = r;
+				}),
+		);
+		const poller = new NamingPoller(fetch);
+		const notify = vi.fn();
+		const off = poller.subscribe(running, notify);
+		await flush();
+		const stale = resolveStale;
+		fetch.mockResolvedValue([renamedPatch(3, true, 10)]);
+		poller.renamed(id, "Mine");
+		// A pre-rename response cannot replace the manual title or its revision.
+		stale([{ ...patch("succeeded", "Generated", 3) }]);
+		await flush();
+		expect(poller.get(id)?.title).toBe("Mine");
+		expect(poller.get(id)?.naming.revision).toBe(3);
+		expect(poller.get(id)?.namingUsage.missing).toBe(true);
+		const calls = fetch.mock.calls.length;
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(fetch.mock.calls.length).toBe(calls + 1);
+		fetch.mockResolvedValue([renamedPatch(4, false, 25)]);
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(poller.get(id)?.naming.revision).toBe(4);
+		expect(poller.get(id)?.title).toBe("Mine");
+		expect(poller.get(id)?.naming.locked).toBe(true);
+		expect(poller.get(id)?.namingUsage.missing).toBe(false);
+		expect(
+			(poller.get(id)?.usageTotal as unknown as { inputTokens: number })
+				.inputTokens,
+		).toBe(25);
+		const settled = fetch.mock.calls.length;
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(fetch).toHaveBeenCalledTimes(settled);
+		off();
+		expect(vi.getTimerCount()).toBe(0);
+	});
+	it("stops at the persisted deadline when the claimed attempt never saves usage", async () => {
+		const fetch = vi.fn(
+			async (): Promise<NamingPatch[]> => [{ ...patch("running"), ...running }],
+		);
+		const poller = new NamingPoller(fetch);
+		const off = poller.subscribe(running, vi.fn());
+		await flush();
+		fetch.mockResolvedValue([renamedPatch(3, true, 10)]);
+		poller.renamed(id, "Mine");
+		await flush();
+		await vi.advanceTimersByTimeAsync(20_000);
+		// Immediate reconcile plus ~1s polling until the 4s deadline, then a final fetch.
+		expect(fetch.mock.calls.length).toBeLessThanOrEqual(7);
+		const stopped = fetch.mock.calls.length;
+		await vi.advanceTimersByTimeAsync(20_000);
+		expect(fetch).toHaveBeenCalledTimes(stopped);
+		expect(poller.get(id)?.title).toBe("Mine");
+		expect(vi.getTimerCount()).toBe(0);
+		off();
+	});
+	it("does not poll after rename when no attempt was claimed", async () => {
+		const fetch = vi.fn(async () => [patch()]);
+		const poller = new NamingPoller(fetch);
+		const off = poller.subscribe(source(), vi.fn());
+		await flush();
+		fetch.mockResolvedValue([renamedPatch(2, false, 0, null)]);
+		poller.renamed(id, "Mine");
+		await flush();
+		const after = fetch.mock.calls.length;
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(fetch).toHaveBeenCalledTimes(after);
+		expect(poller.get(id)?.naming.state).toBe("skipped");
+		expect(vi.getTimerCount()).toBe(0);
+		off();
+	});
+});

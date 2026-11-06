@@ -150,3 +150,44 @@ describe("metadata-only header updates", () => {
 		expect(container.querySelector("output")?.textContent).toBe("55");
 	});
 });
+
+it("updates the mounted total when naming usage is saved after a manual rename", async () => {
+	const running = {
+		...original,
+		id: "rename-accounting",
+		naming: {
+			...original.naming,
+			state: "running" as const,
+			deadline: new Date(Date.now() + 10_000),
+			revision: 2,
+		},
+	} as unknown as typeof original;
+	const renamed = (revision: number, missing: boolean, inputTokens: number) =>
+		({
+			id: running.id,
+			title: "My title",
+			naming: { ...running.naming, state: "skipped", locked: true, revision },
+			namingUsage: { rows: [], missing, unknown: missing, incomplete: missing },
+			usageTotal: { inputTokens },
+		}) as unknown as NamingPatch;
+	mocks.metadata.mockResolvedValue([
+		{ ...renamed(2, false, 20), title: "Provisional", naming: running.naming },
+	]);
+	await act(async () => root.render(<View source={running} />));
+	await settle();
+	mocks.metadata.mockResolvedValue([renamed(3, true, 20)]);
+	await act(async () => {
+		namingRenamed(running.id, "My title");
+	});
+	await settle();
+	expect(container.querySelector("h1")?.textContent).toBe("My title");
+	expect(container.querySelector("output")?.textContent).toBe("20");
+	mocks.metadata.mockResolvedValue([renamed(4, false, 40)]);
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 1100));
+	});
+	await settle();
+	expect(container.querySelector("output")?.textContent).toBe("40");
+	expect(container.querySelector("h1")?.textContent).toBe("My title");
+	expect(container.querySelector("input")?.value).toBe("Typed unsent draft");
+});
