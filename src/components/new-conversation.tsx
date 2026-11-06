@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { Composer } from "#/components/book-composer";
 import { Button } from "#/components/ui/button";
 import {
 	Dialog,
+	DialogClose,
 	DialogContent,
 	DialogDescription,
 	DialogHeader,
@@ -36,17 +37,33 @@ export function NewConversation() {
 				</Button>
 			</DialogTrigger>
 			<DialogContent
-				className="sm:max-w-2xl"
+				className="gap-6 max-sm:p-5 sm:max-w-[720px]"
 				data-testid="header-new-conversation-dialog"
 			>
-				<DialogHeader>
-					<DialogTitle>New conversation</DialogTitle>
+				<DialogHeader className="border-b pb-5 text-left pr-8">
+					<DialogTitle className="text-[38px]">New conversation</DialogTitle>
 					<DialogDescription>
 						Choose up to three books and ask a question.
 					</DialogDescription>
 				</DialogHeader>
+				<DialogClose asChild>
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						className="absolute top-5 right-5"
+						aria-label="Close new conversation"
+					>
+						<X aria-hidden />
+					</Button>
+				</DialogClose>
 				{/* Mounted only while open, so the AI status is fetched on opening. */}
 				<NewConversationComposer onStarted={() => setOpen(false)} />
+				<DialogClose asChild>
+					<Button type="button" variant="ghost" className="justify-self-end">
+						Cancel
+					</Button>
+				</DialogClose>
 			</DialogContent>
 		</Dialog>
 	);
@@ -61,7 +78,7 @@ function NewConversationComposer({ onStarted }: { onStarted: () => void }) {
 	});
 	if (aiStatus.isError)
 		return (
-			<p role="alert" className="text-sm text-destructive">
+			<p role="alert" className="text-sm text-destructive-foreground">
 				Could not check the AI settings. Close this and try again.
 			</p>
 		);

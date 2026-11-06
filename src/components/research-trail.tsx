@@ -80,10 +80,10 @@ export function ResearchTrail({
 			<Collapsible.Root
 				open={open}
 				onOpenChange={setChosen}
-				className="border-l-2 pl-3 text-xs text-muted-foreground"
+				className="min-w-0 text-[13px] text-muted-foreground"
 				data-testid="research-trail"
 			>
-				<Collapsible.Trigger className="flex cursor-pointer items-center gap-1 rounded-sm py-0.5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+				<Collapsible.Trigger className="flex max-w-full cursor-pointer items-center gap-2 rounded-full border bg-card px-3 py-2 text-left hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
 					<ChevronRight
 						className={`size-3 transition-transform ${open ? "rotate-90" : ""}`}
 						aria-hidden
@@ -91,7 +91,7 @@ export function ResearchTrail({
 					{summarizeTrail(steps)}
 				</Collapsible.Trigger>
 				<Collapsible.Content>
-					<ul className="mt-1 space-y-1.5">
+					<ul className="mt-3 space-y-2 border-l pl-4">
 						{steps.map((step, i) => (
 							// Steps are append-only, so the index is a stable key.
 							// biome-ignore lint/suspicious/noArrayIndexKey: append-only list

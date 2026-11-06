@@ -436,7 +436,7 @@ function ConversationPage() {
 
 	return (
 		<PositionOfferProvider>
-			<main className="mx-auto flex min-h-[calc(100dvh-4rem)] max-w-3xl flex-col px-4 py-6 max-sm:pt-3">
+			<main className="mx-auto flex min-h-[calc(100dvh-4rem)] max-w-[960px] flex-col px-4 py-8 sm:px-8 sm:py-12 max-sm:pt-5">
 				<ReplySelection
 					key={conversationId}
 					onAttach={aiEnabled ? composer.attachQuote : undefined}
@@ -478,7 +478,7 @@ function ConversationPage() {
 					)}
 					{/* Below sm: the title and the books take one line each. */}
 					<h1
-						className="mt-2 font-serif text-2xl font-semibold max-sm:mt-1 max-sm:truncate max-sm:text-xl"
+						className="mt-3 font-serif text-[clamp(36px,4vw,52px)] leading-[1.06] font-semibold tracking-[-0.015em] max-sm:mt-2"
 						title={conversation.title}
 					>
 						{conversation.title}
@@ -589,7 +589,7 @@ function ConversationPage() {
 					</div>
 				</header>
 
-				<ol className="flex-1 space-y-5 py-6" aria-live="polite">
+				<ol className="min-w-0 flex-1 space-y-8 py-8" aria-live="polite">
 					{messages.length === 0 && (
 						<li className="space-y-3 text-sm text-muted-foreground">
 							{effect.status === "ok" && (
@@ -608,7 +608,7 @@ function ConversationPage() {
 					{messages.map((m) => (
 						<li key={m.id}>
 							{m.role === "user" ? (
-								<div className="ml-auto w-fit max-w-[85%] break-words rounded-lg bg-secondary px-3 py-2">
+								<div className="ml-auto w-fit max-w-[90%] break-words rounded-[20px_20px_6px_20px] border bg-secondary px-5 py-4 text-[15.5px] leading-relaxed sm:max-w-[80%]">
 									<AttachmentPreview attachment={attachmentOf(m.parts)} />
 									<UserMarkdown text={textOf(m)} />
 								</div>
@@ -890,7 +890,7 @@ function AssistantMessage({
 				{note && <p className="text-xs text-muted-foreground">{note}</p>}
 				{(usage || model) && !streaming && (
 					<p
-						className="text-xs text-muted-foreground/70 tabular-nums"
+						className="text-xs text-faint-foreground tabular-nums"
 						title={usage && exactUsage(usage)}
 						data-testid="reply-usage"
 					>
