@@ -1,7 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { createContext, useContext, useEffect } from "react";
-import { UNVERIFIED_QUOTE } from "#/components/pieces";
+import {
+	CITE_MARKER,
+	CITE_MARKER_UNVERIFIED,
+	UNVERIFIED_QUOTE,
+} from "#/components/pieces";
 import { PREPROCESS_ID } from "#/components/preprocess-card";
 import { Badge } from "#/components/ui/badge";
 import { getAiStatusFn } from "#/fns/conversations";
@@ -83,7 +87,7 @@ export function GuideCitations({
 }) {
 	if (citations.length === 0) return null;
 	return (
-		<ul className="mt-2 space-y-1 text-sm">
+		<ul className="mt-3 space-y-2 text-base">
 			{citations.map((c, i) => (
 				<li
 					// Quotes may repeat; their order is fixed.
@@ -101,6 +105,12 @@ export function GuideCitations({
 								: `font-reading italic ${UNVERIFIED_QUOTE}`
 						}
 					>
+						<span
+							className={c.verified ? CITE_MARKER : CITE_MARKER_UNVERIFIED}
+							aria-hidden
+						>
+							{c.verified ? i + 1 : "!"}
+						</span>{" "}
 						“{c.quote}”
 					</Link>
 					{!c.verified && (
@@ -195,7 +205,7 @@ export function GuideEmpty() {
 	});
 	return (
 		<div
-			className="rounded-md border bg-muted/40 p-4 text-sm"
+			className="rounded-2xl border bg-card p-6 text-sm"
 			data-testid="guide-empty"
 		>
 			<p className="font-medium">No guide data for this book yet.</p>

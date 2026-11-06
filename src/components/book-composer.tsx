@@ -673,78 +673,71 @@ function ComposerForm({
 		} else setAsking({ ...asking, queue, chosen, error: null });
 	};
 
+	const bookSlots =
+		books.length === 0 ? (
+			<p
+				className="text-sm text-muted-foreground"
+				data-testid="composer-no-book"
+			>
+				Add a book to start a conversation about it.
+			</p>
+		) : (
+			<ul
+				className="space-y-3"
+				aria-label="Books in this conversation"
+				data-testid="composer-books"
+			>
+				{books.map((book) => (
+					<BookRow
+						key={book.editionId}
+						book={book}
+						named={books.length > 1}
+						removable={!(keepOne && books.length === 1)}
+						onRemove={() => removeBook(book.editionId)}
+						override={overrides[book.editionId] ?? null}
+						onOverrideChange={(choice) =>
+							setOverrides((current) =>
+								choice === null
+									? without(current, book.editionId)
+									: { ...current, [book.editionId]: choice },
+							)
+						}
+						onScope={reportScope}
+						disabled={busy}
+						ask={
+							asking?.queue[0] === book.editionId
+								? {
+										token: asking.token,
+										error: asking.error,
+										last: asking.queue.length === 1,
+									}
+								: null
+						}
+						onAnswered={(choice) => answered(book.editionId, choice)}
+						onDismissed={() => setAsking(null)}
+					/>
+				))}
+			</ul>
+		);
 	return (
 		<section
 			aria-label="Start a conversation"
-			className="space-y-3"
+			className="flex min-w-0 flex-col gap-4"
 			data-testid="book-composer"
 		>
-			{books.length === 0 ? (
-				<p
-					className="text-sm text-muted-foreground"
-					data-testid="composer-no-book"
-				>
-					Add a book to start a conversation about it.
-				</p>
-			) : (
-				<ul
-					className="space-y-3"
-					aria-label="Books in this conversation"
-					data-testid="composer-books"
-				>
-					{books.map((book) => (
-						<BookRow
-							key={book.editionId}
-							book={book}
-							named={books.length > 1}
-							removable={!(keepOne && books.length === 1)}
-							onRemove={() => removeBook(book.editionId)}
-							override={overrides[book.editionId] ?? null}
-							onOverrideChange={(choice) =>
-								setOverrides((current) =>
-									choice === null
-										? without(current, book.editionId)
-										: { ...current, [book.editionId]: choice },
-								)
-							}
-							onScope={reportScope}
-							disabled={busy}
-							ask={
-								asking?.queue[0] === book.editionId
-									? {
-											token: asking.token,
-											error: asking.error,
-											last: asking.queue.length === 1,
-										}
-									: null
-							}
-							onAnswered={(choice) => answered(book.editionId, choice)}
-							onDismissed={() => setAsking(null)}
-						/>
-					))}
-				</ul>
-			)}
-			{books.length < MAX_CONVERSATION_BOOKS && (
-				<Button
-					type="button"
-					size="sm"
-					variant="outline"
-					className="pointer-coarse:h-11 pointer-coarse:min-w-11"
-					disabled={busy}
-					onClick={() => setPicking(true)}
-				>
-					<Plus aria-hidden />
-					Add book
-				</Button>
-			)}
+			{!keepOne && bookSlots}
+
 			<form
-				className="rounded-2xl border bg-card p-2 shadow-sm focus-within:border-ring/60"
+				className="overflow-hidden rounded-2xl border bg-card shadow-sm focus-within:border-ring/60"
 				onSubmit={(e) => {
 					e.preventDefault();
 					send();
 				}}
 			>
-				<div className="flex items-end gap-2">
+				<div className="px-5 pt-5 pb-3 sm:px-6">
+					<p className="mb-3 text-[11px] font-semibold tracking-[0.14em] text-faint-foreground uppercase">
+						Your question
+					</p>
 					<AutogrowTextarea
 						value={draft}
 						onValueChange={setDraft}
@@ -764,26 +757,42 @@ function ComposerForm({
 						aria-label="Your question"
 						placeholder="Ask about a scene, a character, or a theory…"
 						containerClassName="min-w-0 flex-1"
-						className="px-2 py-1.5 text-base sm:text-sm"
+						className="min-h-24 px-0 py-1.5 text-base"
 					/>
+				</div>
+				<div className="flex flex-wrap items-center gap-3 border-t bg-background-2 px-4 py-3 sm:px-5">
+					{books.length < MAX_CONVERSATION_BOOKS && (
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							className="pointer-coarse:h-11 pointer-coarse:min-w-11"
+							disabled={busy}
+							onClick={() => setPicking(true)}
+						>
+							<Plus aria-hidden />
+							Add book
+						</Button>
+					)}
+					<div
+						className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-sm"
+						data-testid="book-composer-model"
+					>
+						<span className="py-0.5 text-muted-foreground">Model:</span>
+						<div className="min-w-0 flex-1">
+							<ModelChoice
+								providers={status.providers}
+								fallback={fallback}
+								value={model}
+								onChange={setModel}
+								disabled={busy}
+							/>
+						</div>
+					</div>
 					<SendButton busy={false} reason={reason} onStop={() => {}} />
 				</div>
 			</form>
-			<div
-				className="flex flex-wrap items-start gap-x-2 gap-y-1 text-sm"
-				data-testid="book-composer-model"
-			>
-				<span className="py-0.5 text-muted-foreground">Model:</span>
-				<div className="min-w-0 flex-1">
-					<ModelChoice
-						providers={status.providers}
-						fallback={fallback}
-						value={model}
-						onChange={setModel}
-						disabled={busy}
-					/>
-				</div>
-			</div>
+			{keepOne && bookSlots}
 			{error && (
 				<p role="alert" className="text-sm text-destructive-foreground">
 					{error}

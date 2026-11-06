@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GuideChapter } from "#/modules/guide";
 import { Route } from "./books.$editionId.guide.chapters";
 
-const mocks = vi.hoisted(() => ({ chapters: vi.fn() }));
+const mocks = vi.hoisted(() => ({ chapters: vi.fn(), bounded: false }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
@@ -23,7 +23,10 @@ vi.mock("#/components/guide", async (importOriginal) => ({
 	...(await importOriginal<typeof import("#/components/guide")>()),
 	useGuide: () => ({
 		editionId: "ed-1",
-		bound: { choice: { kind: "whole" }, label: null },
+		bound: mocks.bounded
+			? { choice: { kind: "unit", endPosition: 9 }, label: "First" }
+			: { choice: { kind: "whole" }, label: null },
+		units: [{ endPosition: 9 }, { endPosition: 19 }],
 		preprocessed: true,
 		onStaleBound: () => {},
 	}),
@@ -74,6 +77,7 @@ let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
 	mocks.chapters.mockReset();
+	mocks.bounded = false;
 	container = document.createElement("div");
 	document.body.append(container);
 	root = createRoot(container);
@@ -101,6 +105,20 @@ async function render() {
 }
 
 describe("Chapters view", () => {
+	it("marks hidden later sections without revealing their titles or summaries", async () => {
+		mocks.bounded = true;
+		mocks.chapters.mockResolvedValue({
+			ok: true,
+			chapters: [chapter(0, "First")],
+		});
+		await render();
+		expect(container.textContent).toContain(
+			"Sections past this bound are hidden.",
+		);
+		expect(
+			container.querySelectorAll('[data-testid="guide-chapter"]'),
+		).toHaveLength(1);
+	});
 	it("lists chapters latest first, each keeping its own controls", async () => {
 		// The query returns reading order; the view shows the latest first.
 		mocks.chapters.mockResolvedValue({

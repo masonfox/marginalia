@@ -22,10 +22,10 @@
 - [x] 4.1 Dashboard (`Dashboard.dc.html`): continue-reading hero, recent conversations rows, nightstand shelf, library counts
 - [x] 4.2 Library (`Library.dc.html`): heading row with Scan folder / Upload EPUB, search, filter pills with counts, cover grid with status, processing and needs-attention cards
 - [x] 4.3 Conversations (`Conversations.dc.html`): date groups, book filter pills, rows with meta column
-- [ ] 4.4 Book Discuss (`BookDiscuss.dc.html`): composer card with footer bar, scope note with Update, conversation list
-- [ ] 4.5 Book Guide (`BookGuide.dc.html`): Chapters/Index/Notes segmented control, numbered chapter summaries in reading face with citations, locked "past your position" row, index tags
-- [ ] 4.6 Book Contents (`BookContents.dc.html`): read/current/later states, "Your position" marker, in-book search
-- [ ] 4.7 Book About (`BookAbout.dc.html`): description in reading face, Guide preparation card, file card, details and identifiers cards, delete zone
+- [x] 4.4 Book Discuss (`BookDiscuss.dc.html`): composer card with footer bar, scope note with Update, conversation list
+- [x] 4.5 Book Guide (`BookGuide.dc.html`): Chapters/Index/Notes segmented control, numbered chapter summaries in reading face with citations, locked "past your position" row, index tags
+- [x] 4.6 Book Contents (`BookContents.dc.html`): read/current/later states, "Your position" marker, in-book search
+- [x] 4.7 Book About (`BookAbout.dc.html`): description in reading face, Guide preparation card, file card, details and identifiers cards, delete zone
 - [ ] 4.8 Conversation (`Conversation.dc.html`): title header, book/scope/model/cost row, user bubbles, research trail pill, answer typography with inline quotes, citation popover, streaming state, composer
 - [ ] 4.9 New conversation dialog (`NewConversation.dc.html`): book slots with scope selects, scope listbox, add-book slot, question field, model chip, Cancel / Start
 - [ ] 4.10 Reader (`Reader.dc.html`): chapter title, reading-face text column, reference gutter, margin glosses column (stacks below `lg`), highlighted passage, selection toolbar, section nav

@@ -62,7 +62,7 @@ export const noteFrame = "rounded-md border border-amber/40 bg-amber-soft";
 /** Marks a note as the reader's own writing. */
 export function YourNoteBadge() {
 	return (
-		<Badge variant="outline" className="border-amber-500/50">
+		<Badge variant="outline" className="border-amber/50">
 			<NotebookPen aria-hidden /> Your note
 		</Badge>
 	);
@@ -79,7 +79,10 @@ export function NoteCard({
 	showAttachment?: boolean;
 }) {
 	return (
-		<article className={cn(noteFrame, "p-3")} data-testid="reader-note">
+		<article
+			className={cn(noteFrame, "rounded-2xl p-5")}
+			data-testid="reader-note"
+		>
 			<div className="flex flex-wrap items-center gap-2">
 				<YourNoteBadge />
 				<h3 className="font-medium">

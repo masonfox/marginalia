@@ -124,12 +124,16 @@ export function PreprocessCardView({
 	// A run needs a model: the default, or one chosen here.
 	const startable = choice ? choice.model.trim() !== "" : fallback !== null;
 	return (
-		<section className="mt-8" aria-labelledby={PREPROCESS_ID}>
-			<h2 id={PREPROCESS_ID} tabIndex={-1} className="font-medium">
+		<section className="mt-8 min-w-0" aria-labelledby={PREPROCESS_ID}>
+			<h2
+				id={PREPROCESS_ID}
+				tabIndex={-1}
+				className="text-[11px] font-semibold tracking-[0.14em] text-faint-foreground uppercase"
+			>
 				Preprocessing
 			</h2>
-			<div className="mt-2 max-w-xl space-y-2 rounded-md border p-3 text-sm">
-				<div className="flex items-center gap-2">
+			<div className="mt-4 space-y-3 rounded-2xl border bg-card p-5 text-sm sm:p-6">
+				<div className="flex flex-wrap items-center gap-2">
 					<Badge
 						variant={failed ? "destructive" : "status"}
 						className={failed ? undefined : STATUS_CLASS[view.status]}
