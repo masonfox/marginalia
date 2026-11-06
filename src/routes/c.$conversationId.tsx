@@ -478,7 +478,7 @@ function ConversationPage() {
 					)}
 					{/* Below sm: the title and the books take one line each. */}
 					<h1
-						className="mt-3 font-serif text-[clamp(36px,4vw,52px)] leading-[1.06] font-semibold tracking-[-0.015em] max-sm:mt-2"
+						className="mt-3 font-serif text-[clamp(36px,4vw,52px)] leading-[1.06] font-semibold tracking-[-0.015em] max-sm:mt-2 max-sm:truncate"
 						title={conversation.title}
 					>
 						{conversation.title}
