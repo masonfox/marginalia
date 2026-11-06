@@ -33,6 +33,34 @@ buttons so native focus scrolling exposes the whole action and its focus ring.
   soft/page contrast rises from 4.465069 to 5.223382; nested marker/page contrast
   rises from 3.866414 to 4.523056. Light nested marker/page is 4.523802 and dark
   is 6.395048. This token coverage is not a full rendered accessibility audit.
+- Full configured `pnpm test:e2e`: 191 passed, zero failures, two passwordless
+  scenarios skipped on the protected instance; both passed separately. All 193
+  configured scenarios have passing coverage, with no flaky tests. The affected
+  phone header regression and three short-height theme checks also passed.
+  `pnpm build`, targeted Biome and diff checks passed.
+
+## Full E2E follow-up
+
+Updated outdated copy/role selectors and layout assertions for the redesigned
+scrolling shelf, multiline conversation previews, active tabs, scope pills, and
+Start conversation action. Keyboard menu checks now assert each navigation step;
+filter scroll checks allow a one-pixel scroll-offset rounding tolerance.
+
+A genuine long-title phone regression was found: the conversation header grew
+to 683 pixels. Restoring `max-sm:truncate` on its heading keeps the phone title on
+one line while preserving full title text and its title attribute.
+
+The final invocation was `pnpm test:e2e --reporter=line,json
+--output=test-results/e2e-isolated-definitive/artifacts`, run through an isolated
+local harness. It used a fresh disposable pgvector container, temporary storage,
+the repository Manifesto EPUB and generated reading-unit fixtures, local Guide
+and citation fixtures, and fake chat streams with no real provider credentials.
+The final app ran on port 4326; passwordless coverage ran separately on 4318.
+All owned servers, containers and temporary directories were removed. The user
+database, storage and server on port 3000 were not targeted. The detailed report
+is `test-results/e2e-isolated-definitive/report.json` (ignored local artifact).
+`titles.spec.ts` is excluded by the existing default Playwright configuration
+and is not included in the 193 configured scenarios.
 
 The visual suite selects existing content using read-only database connections.
 It captures each screen at 1440 and 390 pixels in every theme, checks horizontal
@@ -48,8 +76,8 @@ the main run artifacts are in `test-results/visual-system-resumed-run/`.
 
 - Tasks 1.2 and 1.3 are complete after expanded contrast verification and the LF
   policy fix. The earlier review's contrast and formatting blockers are resolved.
-- Task 6.1 requires the complete application E2E suite; the focused suites above
-  do not establish that all application E2E scenarios pass.
+- Task 6.1 is complete after the isolated full configured E2E run and separate
+  passwordless coverage. All required tasks are complete (25 of 31 total).
 - Optional tasks 5.1 through 5.6 remain unimplemented and unchecked.
 
 The earlier groups-1-3 review is a historical checkpoint. This report records the

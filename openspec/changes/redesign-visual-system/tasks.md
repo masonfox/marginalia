@@ -44,5 +44,5 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Update e2e and component tests broken by markup changes, preferring role/text selectors; verify `pnpm test` and `pnpm test:e2e` pass
+- [x] 6.1 Update e2e and component tests broken by markup changes, preferring role/text selectors; verify `pnpm test` and `pnpm test:e2e` pass
 - [x] 6.2 Add a Playwright screenshot pass of each screen in light, sepia, and dark at 1440 and 390 widths for review against the mockups

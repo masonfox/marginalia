@@ -453,7 +453,9 @@ test.describe("dashboard", () => {
 		await expect(
 			page.getByRole("heading", { name: "Dashboard", level: 1 }),
 		).toBeVisible();
-		await expect(page.getByRole("heading", { name: "Reading" })).toBeVisible();
+		await expect(
+			page.getByRole("heading", { name: "On the nightstand" }),
+		).toBeVisible();
 		await expect(readingCards(page)).toHaveCount(4);
 		await expect(readingCards(page).getByRole("heading")).toHaveText(
 			[1, 2, 3, 4].map(titleOf),
@@ -474,16 +476,23 @@ test.describe("dashboard", () => {
 		await expect(page).toHaveURL(`/books/${ids[0]}`);
 	});
 
-	test("Reading shows two books at 360 pixels", async ({ page }) => {
+	test("Reading shows two books at 360 pixels and scrolls to the rest", async ({
+		page,
+	}) => {
 		await page.setViewportSize({ width: 360, height: 740 });
 		await page.goto("/");
 		await page.waitForLoadState("networkidle");
 		await expect(readingCards(page)).toHaveCount(4);
-		await expect(readingCards(page).filter({ visible: true })).toHaveCount(2);
-		// Hidden cards are not exposed to assistive technology either.
+		await readingCards(page).first().scrollIntoViewIfNeeded();
+		await expect(readingCards(page).nth(0)).toBeInViewport({ ratio: 1 });
+		await expect(readingCards(page).nth(1)).toBeInViewport({ ratio: 1 });
+		await expect(readingCards(page).nth(2)).not.toBeInViewport({ ratio: 1 });
+		// Every book stays accessible in the horizontally scrolling shelf.
 		await expect(
 			page.getByTestId("reading-shelf").getByRole("heading", { level: 3 }),
-		).toHaveText([1, 2].map(titleOf));
+		).toHaveText([1, 2, 3, 4].map(titleOf));
+		await readingCards(page).nth(3).scrollIntoViewIfNeeded();
+		await expect(readingCards(page).nth(3)).toBeInViewport({ ratio: 1 });
 	});
 
 	test("an old library URL opens the Library with its search and filter, replacing the root URL", async ({
@@ -656,7 +665,11 @@ test.describe("book page", () => {
 		const look = (link: Locator) =>
 			link.evaluate((el) => {
 				const style = getComputedStyle(el);
-				return { border: style.borderBottomColor, text: style.color };
+				return {
+					border: style.borderBottomColor,
+					background: style.backgroundColor,
+					text: style.color,
+				};
 			});
 		// Alpha of a computed `rgb(...)`, `rgba(...)`, `oklch(... / a)` or
 		// `color(... / a)`: transparent computes to alpha 0.
@@ -673,7 +686,9 @@ test.describe("book page", () => {
 			const on = await look(current);
 			const off = await look(other);
 			expect(alpha(on.border)).toBeGreaterThan(0);
-			expect(on.border).not.toBe(off.border);
+			expect(on.border !== off.border || on.background !== off.background).toBe(
+				true,
+			);
 			expect(on.text).not.toBe(off.text);
 		};
 
@@ -1189,7 +1204,7 @@ test.describe("conversation list", () => {
 		page,
 	}) => {
 		const { id: editionId } = await manifesto();
-		const title = `A long conversation title ${"that keeps on going ".repeat(8)}${randomUUID().slice(0, 8)}`;
+		const title = `A long conversation title ${"that keeps on going ".repeat(24)}${randomUUID().slice(0, 8)}`;
 		const id = await conversation(title);
 		await assistantMessage(id, "**Hal** is reading the\n\ndictionary because");
 		try {
@@ -1198,14 +1213,21 @@ test.describe("conversation list", () => {
 			const row = page
 				.getByTestId("conversation-row")
 				.filter({ has: page.locator(`a[href="/c/${id}"]`) });
+			await row.scrollIntoViewIfNeeded();
 			await expect(row.getByTestId("conversation-preview")).toHaveText(
 				"Hal is reading the dictionary because",
 			);
 			const titleText = row.getByTestId("conversation-title");
 			expect(
-				await titleText.evaluate((el) => el.scrollWidth > el.clientWidth),
+				await titleText.evaluate(
+					(el) =>
+						el.scrollWidth > el.clientWidth ||
+						el.scrollHeight > el.clientHeight,
+				),
 			).toBe(true);
-			const menu = row.getByRole("button", { name: `Actions for “${title}”` });
+			const menu = row.getByRole("button", {
+				name: `Actions for “${title}”`,
+			});
 			await expect(menu).toBeInViewport();
 
 			await menu.click();
@@ -1340,8 +1362,9 @@ test.describe("conversations home", () => {
 			.first();
 		await expect(latest.locator(`a[href="/c/${id}"]`)).toBeVisible();
 		await expect(latest.getByTestId("conversation-books")).toContainText(
-			"The Communist Manifesto · Whole book",
+			"The Communist Manifesto",
 		);
+		await expect(latest.getByText("Whole book", { exact: true })).toBeVisible();
 		await latest.locator(`a[href="/c/${id}"]`).click();
 		await expect(page).toHaveURL(`/c/${id}`);
 		// The header's navigation is on every page; neither entry is current here.
@@ -1624,7 +1647,7 @@ test.describe("new conversation from the header", () => {
 		await expect(composer.getByTestId("composer-no-book")).toBeVisible();
 		await composer.getByLabel("Your question").fill("How do these compare?");
 		await expect(
-			composer.getByRole("button", { name: "Send", exact: true }),
+			composer.getByRole("button", { name: "Start conversation", exact: true }),
 		).toHaveAttribute("aria-disabled", "true");
 
 		await addBook(page, "The Communist Manifesto");
@@ -1648,7 +1671,9 @@ test.describe("new conversation from the header", () => {
 		);
 		expect(created).toEqual([]);
 
-		await composer.getByRole("button", { name: "Send", exact: true }).click();
+		await composer
+			.getByRole("button", { name: "Start conversation", exact: true })
+			.click();
 		// Only the book without a position asks for its scope.
 		const sheet = page.getByTestId("composer-scope-sheet");
 		await sheet.getByRole("radio", { name: "Whole book" }).check();
@@ -2866,8 +2891,28 @@ test.describe("phone layout", () => {
 			);
 			for (let i = 0; i < 3; i++) await expectTouchTarget(options.nth(i));
 
-			// Opening by keyboard focuses Dashboard; Dark is five items down.
-			for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowDown");
+			// Establish the first item before moving through the menu by keyboard.
+			await page.keyboard.press("Home");
+			await expect(
+				menu.getByRole("menuitem", { name: "Dashboard", exact: true }),
+			).toBeFocused();
+			for (const name of [
+				"Library",
+				"Conversations",
+				"Light",
+				"Sepia",
+				"Dark",
+			]) {
+				await page.keyboard.press("ArrowDown");
+				await expect(
+					menu.getByRole(
+						name === "Library" || name === "Conversations"
+							? "menuitem"
+							: "menuitemradio",
+						{ name, exact: true },
+					),
+				).toBeFocused();
+			}
 			await expect(options.filter({ hasText: "Dark" })).toBeFocused();
 			await page.keyboard.press("Enter");
 			await expect(menu).toHaveCount(0);
@@ -2916,7 +2961,8 @@ test.describe("phone layout", () => {
 				const filter = filters.nth(i);
 				expect((await filter.boundingBox())?.y).toBe(first?.y);
 				await filter.scrollIntoViewIfNeeded();
-				await expect(filter).toBeInViewport({ ratio: 1 });
+				// The scrollport can round its final scroll offset to a whole pixel.
+				await expect(filter).toBeInViewport({ ratio: 0.99 });
 				await expectTouchTarget(filter);
 			}
 			await page.evaluate(() => window.scrollTo(0, 0));
