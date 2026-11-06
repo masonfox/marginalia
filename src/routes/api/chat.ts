@@ -6,8 +6,8 @@ export const Route = createFileRoute("/api/chat")({
 	server: {
 		handlers: {
 			POST: async ({ request }) => {
-				const { db, ai, log } = appContext();
-				return handleChatRequest(request, { db, ai, log });
+				const { db, ai, log, enqueue } = appContext();
+				return handleChatRequest(request, { db, ai, log, enqueue });
 			},
 		},
 	},

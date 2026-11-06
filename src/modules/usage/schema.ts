@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
 	boolean,
 	index,
@@ -5,6 +6,7 @@ import {
 	pgTable,
 	text,
 	timestamp,
+	uniqueIndex,
 	uuid,
 } from "drizzle-orm/pg-core";
 import { conversations, messages } from "#/modules/conversation";
@@ -20,7 +22,7 @@ export const aiUsage = pgTable(
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
 		purpose: text("purpose", {
-			enum: ["conversation", "preprocess"],
+			enum: ["conversation", "preprocess", "conversation-title"],
 		}).notNull(),
 		conversationId: uuid("conversation_id").references(() => conversations.id, {
 			onDelete: "cascade",
@@ -32,6 +34,7 @@ export const aiUsage = pgTable(
 		messageId: uuid("message_id").references(() => messages.id, {
 			onDelete: "set null",
 		}),
+		attemptId: uuid("attempt_id"),
 		provider: text("provider").notNull(),
 		model: text("model").notNull(),
 		/** Total input, including cache reads and writes. */
@@ -49,6 +52,9 @@ export const aiUsage = pgTable(
 			.defaultNow(),
 	},
 	(t) => [
+		uniqueIndex("ai_usage_title_attempt_idx")
+			.on(t.attemptId)
+			.where(sql`${t.purpose} = 'conversation-title'`),
 		index("ai_usage_conversation_idx").on(t.conversationId),
 		index("ai_usage_message_idx").on(t.messageId),
 		index("ai_usage_edition_idx").on(t.editionId),

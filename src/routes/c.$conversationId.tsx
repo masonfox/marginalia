@@ -48,6 +48,10 @@ import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
+import {
+	beginNamingTracking,
+	useNamingMetadata,
+} from "#/hooks/use-naming-metadata";
 import { loadComposerDraft } from "#/lib/composer-draft";
 import { excerptNoteDraft } from "#/lib/note-prefill";
 import {
@@ -120,9 +124,14 @@ const FINISH_NOTES: Record<string, string> = {
 };
 
 function ConversationPage() {
-	const { conversation, status: aiStatus } = Route.useLoaderData();
+	const { conversation: loadedConversation, status: aiStatus } =
+		Route.useLoaderData();
+	const conversation = useNamingMetadata(loadedConversation);
 	const router = useRouter();
 	const conversationId = conversation.id;
+	useEffect(() => {
+		if (conversation.deleted) void router.navigate({ to: "/conversations" });
+	}, [conversation.deleted, router]);
 	// The model the next reply uses; without one, guidance replaces the composer.
 	const effect = modelInEffect(aiStatus, conversation.model);
 	const aiEnabled = effect.status === "ok";
@@ -157,6 +166,7 @@ function ConversationPage() {
 					if (trigger === "regenerate-message") {
 						return { body: { conversationId } };
 					}
+					beginNamingTracking(conversationId);
 					return {
 						body: {
 							conversationId,
@@ -528,6 +538,7 @@ function ConversationPage() {
 								onOpenChange={setModelPickerOpen}
 							/>
 							<UsageTotal total={conversation.usageTotal} />
+							<NamingUsageDetails usage={conversation.namingUsage} />
 						</span>
 					</p>
 					<div id={`${controlsId}-scope`} className={collapsed}>
@@ -911,5 +922,43 @@ function UsageTotal({ total }: { total: ConversationWithUsage["usageTotal"] }) {
 			{hasUsage && <> · {totalUsageLine(total)}</>}
 			{missing && <> · {missing}</>}
 		</span>
+	);
+}
+
+function NamingUsageDetails({
+	usage,
+}: {
+	usage: ConversationWithUsage["namingUsage"];
+}) {
+	if (!usage || (!usage.rows.length && !usage.missing)) return null;
+	return (
+		<details className="inline text-xs" data-testid="naming-usage">
+			<summary className="inline cursor-pointer">
+				{" "}
+				? Title naming
+				{usage.incomplete
+					? " (incomplete)"
+					: usage.unknown
+						? " (unknown usage)"
+						: ""}
+			</summary>
+			<div>
+				{usage.rows.map((row) => (
+					<p key={row.model}>
+						{row.model}: {row.inputTokens ?? "unknown"} input tokens,{" "}
+						{row.outputTokens ?? "unknown"} output tokens
+						{!row.complete && " ? incomplete"}
+					</p>
+				))}
+				{usage.missing && (
+					<p>Title naming was interrupted; usage and cost are unknown.</p>
+				)}
+				{usage.unknown && !usage.missing && (
+					<p>
+						Some naming token counts are unknown; total cost is unavailable.
+					</p>
+				)}
+			</div>
+		</details>
 	);
 }

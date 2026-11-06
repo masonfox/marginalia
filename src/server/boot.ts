@@ -13,6 +13,7 @@ import { createDb } from "./db";
 import { migrateOrExit } from "./db/migrate";
 import { everyMinutes, JobRuntime } from "./jobs";
 import { jobHandlers } from "./jobs/handlers";
+import type { JobHandler, JobKind } from "./jobs/kinds";
 import { createLogger, type Logger } from "./logger";
 
 const key = Symbol.for("marginalia.boot");
@@ -47,13 +48,27 @@ async function start(): Promise<AppContext> {
 	};
 
 	const worker = runsWorker(config);
+	let markReady!: () => void;
+	const ready = new Promise<void>((resolve) => {
+		markReady = resolve;
+	});
+	const handlers = jobHandlers();
 	const jobs = await JobRuntime.start({
 		connectionString: config.databaseUrl,
 		config,
 		log,
 		worker,
-		handlers: jobHandlers(),
+		handlers: Object.fromEntries(
+			Object.entries(handlers).map(([kind, handler]) => [
+				kind,
+				async (...args: Parameters<typeof handler>) => {
+					await ready;
+					return (handler as JobHandler<JobKind>)(args[0], args[1]);
+				},
+			]),
+		) as typeof handlers,
 		schedules: {
+			"conversation.dispatch-titles": everyMinutes(1),
 			"library.scan": everyMinutes(config.scanIntervalMinutes),
 			"access.purge-sessions": "0 4 * * *",
 		},
@@ -74,6 +89,7 @@ async function start(): Promise<AppContext> {
 		access,
 	};
 	setAppContext(ctx);
+	markReady();
 	await onStarted(ctx, log);
 
 	installShutdown(log, async () => {
@@ -84,6 +100,8 @@ async function start(): Promise<AppContext> {
 }
 
 async function onStarted(ctx: AppContext, log: Logger) {
+	if (runsWorker(ctx.config))
+		await ctx.enqueue("conversation.dispatch-titles", {});
 	if (ctx.config.libraryPaths.length > 0 && runsWorker(ctx.config)) {
 		await ctx.enqueue("library.scan", {});
 		log.info(

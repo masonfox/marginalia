@@ -36,6 +36,7 @@ import {
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
 import type { AiSelection } from "#/server/config";
 import type { Database } from "#/server/db";
+import type { Enqueue } from "#/server/jobs/kinds";
 import type { Logger } from "#/server/logger";
 import { loadBookMaps } from "./guide-context";
 import { checkPassageRef, type PassageRefInvalid } from "./passage-ref";
@@ -49,7 +50,6 @@ import {
 	type ConversationDetail,
 	getConversation,
 	type StoredMessage,
-	setProvisionalTitle,
 	updateConversationModel,
 } from "./repository";
 import {
@@ -73,6 +73,7 @@ export type ChatUIMessage = UIMessage<
 
 export interface ChatDeps {
 	db: Database;
+	enqueue?: Enqueue;
 	ai: AiRuntime;
 	log: Pick<Logger, "warn" | "error">;
 }
@@ -155,6 +156,23 @@ export async function startChat(
 		const history = await prepareHistory(db, conversation, input.message, {
 			replyContext: input.replyContext,
 			passage,
+			selection,
+			onEnrolled: () => {
+				const enqueue = deps.enqueue;
+				if (enqueue)
+					void Promise.resolve()
+						.then(() =>
+							enqueue("conversation.title", {
+								conversationId: conversation.id,
+							}),
+						)
+						.catch(() =>
+							deps.log.warn(
+								{ conversationId: conversation.id },
+								"title enqueue failed; dispatcher will recover",
+							),
+						);
+			},
 		});
 		if (!history) {
 			inFlight.delete(conversation.id);
@@ -212,7 +230,14 @@ async function prepareHistory(
 	{
 		replyContext,
 		passage,
-	}: { replyContext?: ReplyContext; passage?: PassageSnapshot } = {},
+		selection,
+		onEnrolled,
+	}: {
+		replyContext?: ReplyContext;
+		passage?: PassageSnapshot;
+		selection?: AiSelection;
+		onEnrolled?: () => void;
+	} = {},
 ): Promise<StoredMessage[] | null> {
 	const stored = [...conversation.messages];
 	if (text === undefined) {
@@ -239,8 +264,9 @@ async function prepareHistory(
 		conversationId: conversation.id,
 		role: "user",
 		parts,
+		namingSelection: selection,
 	});
-	if (stored.length === 0) await setProvisionalTitle(db, conversation.id, text);
+	if (saved.namingPending) onEnrolled?.();
 	stored.push({
 		id: saved.id,
 		seq: saved.seq,

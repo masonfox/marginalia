@@ -23,6 +23,15 @@ function errorOf(env: Record<string, string | undefined>): ConfigError {
 }
 
 describe("loadConfig", () => {
+	it("validates per-process title concurrency", () => {
+		expect(
+			loadConfig({ ...base, TITLE_CONCURRENCY: "4" }).titleConcurrency,
+		).toBe(4);
+		for (const value of ["0", "-1", "2.5", "abc"])
+			expect(() => loadConfig({ ...base, TITLE_CONCURRENCY: value })).toThrow(
+				"TITLE_CONCURRENCY",
+			);
+	});
 	it("applies defaults", () => {
 		const c = loadConfig(base);
 		expect(c).toMatchObject({
@@ -34,6 +43,7 @@ describe("loadConfig", () => {
 			worker: true,
 			role: "all",
 			ingestConcurrency: 2,
+			titleConcurrency: 2,
 			publicUrl: undefined,
 			authPassword: undefined,
 			sessionDays: 30,

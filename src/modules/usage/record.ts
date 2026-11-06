@@ -49,7 +49,8 @@ export function addUsage(
 }
 
 export interface NewUsage extends TokenUsage {
-	purpose: "conversation" | "preprocess";
+	purpose: "conversation" | "preprocess" | "conversation-title";
+	attemptId?: string | null;
 	conversationId: string | null;
 	/** Set for `preprocess` rows. */
 	editionId?: string | null;

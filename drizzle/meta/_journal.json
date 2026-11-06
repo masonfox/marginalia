@@ -127,6 +127,13 @@
       "when": 1793833324206,
       "tag": "0017_conversations_recent",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793916387108,
+      "tag": "0018_red_lethal_legion",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { Ellipsis, Pencil, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	DeleteConversation,
 	RenameConversationDialog,
@@ -12,6 +13,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
+import { useNamingMetadata } from "#/hooks/use-naming-metadata";
 import {
 	conversationBooksLabel,
 	MAX_CONVERSATION_BOOKS,
@@ -66,8 +68,15 @@ export type ConversationRowProps =
  * delete in its actions menu. Every list refreshes after either.
  */
 export function ConversationRow(props: ConversationRowProps) {
-	const c = props.conversation;
+	const c = useNamingMetadata(props.conversation);
 	const router = useRouter();
+	const queryClient = useQueryClient();
+	useEffect(() => {
+		if (c.deleted) {
+			void router.invalidate();
+			void queryClient.invalidateQueries({ queryKey: ["conversations"] });
+		}
+	}, [c.deleted, router, queryClient]);
 	const [renaming, setRenaming] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 	const updated = new Date(c.updatedAt);
@@ -79,6 +88,7 @@ export function ConversationRow(props: ConversationRowProps) {
 		props.bookLabel === "scope"
 			? scopeText(props.conversation.scopeLabel)
 			: null;
+	if (c.deleted) return null;
 	return (
 		<li
 			className="flex items-start gap-1 hover:bg-accent/40"

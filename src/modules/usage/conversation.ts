@@ -7,7 +7,7 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
-import { messages } from "#/modules/conversation";
+import { conversations, messages } from "#/modules/conversation";
 import type { Executor } from "#/server/db";
 import { estimateCost, type PriceTable } from "./pricing";
 import type { TokenUsage } from "./record";
@@ -27,6 +27,14 @@ export interface ConversationUsage {
 	byModel: (TokenUsage & { model: string })[];
 	/** Assistant replies with no recorded usage: saved before recording began, or the provider reported none. */
 	missing: number;
+	naming?: NamingUsage;
+}
+
+export interface NamingUsage {
+	rows: (TokenUsage & { model: string; steps: number; complete: boolean })[];
+	missing: boolean;
+	incomplete: boolean;
+	unknown: boolean;
 }
 
 const sum = (column: AnyColumn) => sql<number | null>`sum(${column})::int`;
@@ -35,7 +43,7 @@ export async function usageForConversation(
 	db: Executor,
 	conversationId: string,
 ): Promise<ConversationUsage> {
-	const [rows, models, [unrecorded]] = await Promise.all([
+	const [rows, models, [unrecorded], namingRows, [parent]] = await Promise.all([
 		db
 			.select({
 				messageId: aiUsage.messageId,
@@ -53,6 +61,7 @@ export async function usageForConversation(
 				and(
 					eq(aiUsage.conversationId, conversationId),
 					isNotNull(aiUsage.messageId),
+					eq(aiUsage.purpose, "conversation"),
 				),
 			),
 		db
@@ -71,7 +80,13 @@ export async function usageForConversation(
 		db
 			.select({ count: sql<number>`count(*)::int` })
 			.from(messages)
-			.leftJoin(aiUsage, eq(aiUsage.messageId, messages.id))
+			.leftJoin(
+				aiUsage,
+				and(
+					eq(aiUsage.messageId, messages.id),
+					eq(aiUsage.purpose, "conversation"),
+				),
+			)
 			.where(
 				and(
 					eq(messages.conversationId, conversationId),
@@ -82,12 +97,55 @@ export async function usageForConversation(
 					),
 				),
 			),
+		db
+			.select({
+				model: aiUsage.model,
+				inputTokens: aiUsage.inputTokens,
+				outputTokens: aiUsage.outputTokens,
+				cacheReadTokens: aiUsage.cacheReadTokens,
+				cacheWriteTokens: aiUsage.cacheWriteTokens,
+				reasoningTokens: aiUsage.reasoningTokens,
+				steps: aiUsage.steps,
+				complete: aiUsage.complete,
+			})
+			.from(aiUsage)
+			.where(
+				and(
+					eq(aiUsage.conversationId, conversationId),
+					eq(aiUsage.purpose, "conversation-title"),
+				),
+			),
+		db
+			.select({
+				state: conversations.namingState,
+				attempt: conversations.namingAttemptId,
+			})
+			.from(conversations)
+			.where(eq(conversations.id, conversationId)),
 	]);
 	const byMessage: Record<string, MessageUsage> = {};
 	for (const { messageId, ...usage } of rows) {
 		if (messageId && reported(usage)) byMessage[messageId] = usage;
 	}
-	return { byMessage, byModel: models, missing: unrecorded?.count ?? 0 };
+	const missing =
+		!!parent?.attempt &&
+		!["pending", "running"].includes(parent.state) &&
+		namingRows.length === 0;
+	return {
+		byMessage,
+		byModel: models,
+		missing: unrecorded?.count ?? 0,
+		naming: {
+			rows: namingRows,
+			missing,
+			incomplete: missing || namingRows.some((r) => !r.complete),
+			unknown:
+				missing ||
+				namingRows.some(
+					(r) => r.inputTokens === null || r.outputTokens === null,
+				),
+		},
+	};
 }
 
 /** A row with no input or output count (e.g. a call that failed at once) counts as no usage. */
@@ -136,6 +194,8 @@ export function totalOf(
 				? null
 				: total.estimatedCost + cost;
 	}
+	if (usage.naming?.unknown || usage.naming?.missing)
+		total.estimatedCost = null;
 	return total;
 }
 

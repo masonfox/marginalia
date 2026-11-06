@@ -16,6 +16,15 @@ import {
 import { editions } from "#/modules/library";
 import type { AiProviderName } from "#/server/config";
 
+export type NamingState =
+	| "ineligible"
+	| "eligible"
+	| "pending"
+	| "running"
+	| "succeeded"
+	| "failed"
+	| "skipped";
+
 /** A discussion. Its books are the rows of `conversation_editions`. */
 export const conversations = pgTable(
 	"conversations",
@@ -24,6 +33,17 @@ export const conversations = pgTable(
 		title: text("title").notNull(),
 		/** True once the reader renamed it, so the provisional title is never overwritten. */
 		titleLocked: boolean("title_locked").notNull().default(false),
+		namingState: text("naming_state")
+			.$type<NamingState>()
+			.notNull()
+			.default("ineligible"),
+		namingMessageId: uuid("naming_message_id"),
+		namingProvider: text("naming_provider").$type<AiProviderName>(),
+		namingModel: text("naming_model"),
+		namingAttemptId: uuid("naming_attempt_id"),
+		namingExpiresAt: timestamp("naming_expires_at", { withTimezone: true }),
+		namingDeadline: timestamp("naming_deadline", { withTimezone: true }),
+		namingRevision: integer("naming_revision").notNull().default(0),
 		/** The conversation's own model; both null means it follows the chat default. */
 		aiProvider: text("ai_provider").$type<AiProviderName>(),
 		aiModel: text("ai_model"),
@@ -35,6 +55,24 @@ export const conversations = pgTable(
 			.defaultNow(),
 	},
 	(t) => [
+		check(
+			"conversations_naming_state_check",
+			sql`${t.namingState} in ('ineligible', 'eligible', 'pending', 'running', 'succeeded', 'failed', 'skipped')`,
+		),
+		check(
+			"conversations_naming_capture_check",
+			sql`${t.namingState} not in ('pending', 'running', 'succeeded') or (${t.namingMessageId} is not null and ${t.namingProvider} is not null and ${t.namingModel} is not null and ${t.namingExpiresAt} is not null)`,
+		),
+		check(
+			"conversations_naming_attempt_check",
+			sql`${t.namingState} not in ('running', 'succeeded') or (${t.namingAttemptId} is not null and ${t.namingDeadline} is not null)`,
+		),
+		index("conversations_naming_pending_idx")
+			.on(t.namingExpiresAt)
+			.where(sql`${t.namingState} = 'pending'`),
+		index("conversations_naming_running_idx")
+			.on(t.namingDeadline)
+			.where(sql`${t.namingState} = 'running'`),
 		check(
 			"conversations_ai_model_check",
 			sql`(${t.aiProvider} is null) = (${t.aiModel} is null)`,

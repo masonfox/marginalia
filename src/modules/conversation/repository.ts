@@ -31,6 +31,7 @@ import {
 	type GuideContextEntry,
 	type Json,
 	messages,
+	type NamingState,
 } from "./schema";
 
 export const DEFAULT_TITLE = "New conversation";
@@ -73,7 +74,15 @@ export const newConversationBooksSchema = z
 /** A stored bound: null for whole book. */
 export type ResolvedScope = { maxPosition: number; scopeLabel: string } | null;
 
+export interface NamingMetadata {
+	state: NamingState;
+	locked: boolean;
+	expiresAt: Date | string | null;
+	deadline: Date | string | null;
+	revision: number;
+}
 export interface ConversationSummary {
+	naming?: NamingMetadata;
 	id: string;
 	title: string;
 	createdAt: Date;
@@ -102,6 +111,7 @@ export interface StoredMessage {
 }
 
 export interface ConversationDetail {
+	naming?: NamingMetadata;
 	id: string;
 	title: string;
 	createdAt: Date;
@@ -144,6 +154,7 @@ async function insertConversation(
 		.insert(conversations)
 		.values({
 			title: input.title?.trim() || DEFAULT_TITLE,
+			namingState: "eligible",
 			aiProvider: input.model?.provider ?? null,
 			aiModel: input.model?.model ?? null,
 		})
@@ -186,6 +197,7 @@ function listColumns(db: Executor) {
 		columns: {
 			id: conversations.id,
 			title: conversations.title,
+			naming: sql<NamingMetadata>`json_build_object('state', ${conversations.namingState}, 'locked', ${conversations.titleLocked}, 'expiresAt', ${conversations.namingExpiresAt}, 'deadline', ${conversations.namingDeadline}, 'revision', ${conversations.namingRevision})`,
 			createdAt: conversations.createdAt,
 			updatedAt: conversations.updatedAt,
 			previewSource: sql<string | null>`(
@@ -391,6 +403,13 @@ export async function getConversation(
 	return {
 		id: row.id,
 		title: row.title,
+		naming: {
+			state: row.namingState,
+			locked: row.titleLocked,
+			expiresAt: row.namingExpiresAt,
+			deadline: row.namingDeadline,
+			revision: row.namingRevision,
+		},
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 		model:
@@ -412,7 +431,12 @@ export async function renameConversation(
 	if (!trimmed) return false;
 	const rows = await db
 		.update(conversations)
-		.set({ title: trimmed, titleLocked: true })
+		.set({
+			title: trimmed,
+			titleLocked: true,
+			namingState: sql`case when ${conversations.namingState} in ('eligible', 'pending', 'running') then 'skipped' else ${conversations.namingState} end`,
+			namingRevision: sql`${conversations.namingRevision} + 1`,
+		})
 		.where(eq(conversations.id, conversationId))
 		.returning({ id: conversations.id });
 	return rows.length > 0;
@@ -472,7 +496,10 @@ export async function deleteConversation(
  * Deletes conversations that no longer have any book (after editions were
  * removed). Returns how many were deleted.
  */
-export async function pruneEmptyConversations(db: Executor): Promise<number> {
+export async function pruneEmptyConversations(
+	db: Executor,
+	cancel?: (id: string) => Promise<unknown>,
+): Promise<number> {
 	const rows = await db
 		.delete(conversations)
 		.where(
@@ -484,6 +511,8 @@ export async function pruneEmptyConversations(db: Executor): Promise<number> {
 			),
 		)
 		.returning({ id: conversations.id });
+	if (cancel)
+		await Promise.all(rows.map((row) => cancel(row.id).catch(() => undefined)));
 	return rows.length;
 }
 
@@ -500,20 +529,23 @@ export interface NewMessage {
 	promptVersion?: string | null;
 	error?: string | null;
 	guideContext?: GuideContextEntry[] | null;
+	/** Present only for a new user turn, never a retry. */
+	namingSelection?: AiSelection;
 }
 
 /** Appends a message with the next sequence number and bumps the conversation's activity time. */
 export async function appendMessage(
 	db: Database,
 	m: NewMessage,
-): Promise<{ id: string; seq: number }> {
+): Promise<{ id: string; seq: number; namingPending: boolean }> {
 	return db.transaction(async (tx) => {
 		// Serialize appends per conversation so `seq` stays gap-free.
-		await tx
-			.select({ id: conversations.id })
+		const [parent] = await tx
+			.select()
 			.from(conversations)
 			.where(eq(conversations.id, m.conversationId))
 			.for("update");
+		if (!parent) throw new Error("conversation not found");
 		const [{ next }] = await tx
 			.select({ next: sql<number>`coalesce(max(${messages.seq}), 0) + 1` })
 			.from(messages)
@@ -537,11 +569,46 @@ export async function appendMessage(
 			})
 			.returning({ id: messages.id, seq: messages.seq });
 		if (!row) throw new Error("could not append message");
+		if (next === 1 && m.role === "user") {
+			const text = m.parts
+				.flatMap((p) =>
+					p &&
+					typeof p === "object" &&
+					!Array.isArray(p) &&
+					p.type === "text" &&
+					typeof p.text === "string"
+						? [p.text]
+						: [],
+				)
+				.join("\n");
+			await setProvisionalTitle(tx, m.conversationId, text);
+			if (parent.namingState === "eligible" && m.namingSelection) {
+				await tx
+					.update(conversations)
+					.set({
+						namingState: parent.titleLocked ? "skipped" : "pending",
+						namingMessageId: row.id,
+						namingProvider: m.namingSelection.provider,
+						namingModel: m.namingSelection.model,
+						namingExpiresAt: sql`clock_timestamp() + interval '5 minutes'`,
+						namingRevision: sql`${conversations.namingRevision} + 1`,
+					})
+					.where(eq(conversations.id, m.conversationId));
+			}
+		}
 		await tx
 			.update(conversations)
 			.set({ updatedAt: new Date() })
 			.where(eq(conversations.id, m.conversationId));
-		return row;
+		return {
+			...row,
+			namingPending:
+				next === 1 &&
+				m.role === "user" &&
+				parent.namingState === "eligible" &&
+				!parent.titleLocked &&
+				!!m.namingSelection,
+		};
 	});
 }
 

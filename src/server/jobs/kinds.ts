@@ -7,6 +7,18 @@ import { AI_PROVIDERS, type Config } from "../config";
  * enqueue without creating import cycles; handlers are wired in `runtime.ts`.
  */
 export const jobKinds = {
+	"conversation.title": {
+		payload: z.object({ conversationId: z.uuid() }).strict(),
+		key: (p: { conversationId: string }) => p.conversationId,
+		retryLimit: 2,
+		concurrency: (c: JobConfig) => c.titleConcurrency ?? 2,
+	},
+	"conversation.dispatch-titles": {
+		payload: z.object({}).strict(),
+		key: () => "titles",
+		retryLimit: 2,
+		concurrency: () => 1,
+	},
 	"library.scan": {
 		payload: z.object({
 			/** Ignore the (size, mtime) cache and re-hash every file. */
@@ -51,7 +63,8 @@ export const jobKinds = {
 	},
 } as const;
 
-export type JobConfig = Pick<Config, "ingestConcurrency">;
+export type JobConfig = Pick<Config, "ingestConcurrency"> &
+	Partial<Pick<Config, "titleConcurrency">>;
 export type JobKind = keyof typeof jobKinds;
 export type JobPayload<K extends JobKind> = z.input<
 	(typeof jobKinds)[K]["payload"]

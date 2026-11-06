@@ -7,6 +7,7 @@ import {
 import { selectionSchema } from "#/modules/ai";
 import { getReadingUnits } from "#/modules/catalog";
 import {
+	cancelTitleBestEffort,
 	checkPassageRef,
 	createConversationForEditions,
 	deleteConversation,
@@ -19,6 +20,7 @@ import {
 	newConversationBooksSchema,
 	type PassageCheck,
 	passageRefSchema,
+	readNamingMetadata,
 	renameConversation,
 	scopeSchema,
 	setConversationModel,
@@ -27,6 +29,13 @@ import {
 import { getAiStatus } from "#/modules/settings";
 import { priceTable } from "#/modules/usage";
 import { appContext } from "#/server/context";
+
+export const getNamingMetadataFn = createServerFn({ method: "GET" })
+	.validator(z.object({ ids: z.array(z.uuid()).min(1).max(100) }))
+	.handler(({ data }) => {
+		const { db, config } = appContext();
+		return readNamingMetadata(db, data.ids, priceTable(config.ai?.prices));
+	});
 
 // Only server functions are exported here: anything else would pull server code into the client bundle.
 
@@ -194,16 +203,22 @@ export const renameConversationFn = createServerFn({ method: "POST" })
 			title: z.string().trim().min(1).max(200),
 		}),
 	)
-	.handler(async ({ data }) => ({
-		renamed: await renameConversation(
-			appContext().db,
+	.handler(async ({ data }) => {
+		const ctx = appContext();
+		const renamed = await renameConversation(
+			ctx.db,
 			data.conversationId,
 			data.title,
-		),
-	}));
+		);
+		if (renamed) await cancelTitleBestEffort(ctx, data.conversationId);
+		return { renamed };
+	});
 
 export const deleteConversationFn = createServerFn({ method: "POST" })
 	.validator(z.object({ conversationId: z.uuid() }))
-	.handler(async ({ data }) => ({
-		deleted: await deleteConversation(appContext().db, data.conversationId),
-	}));
+	.handler(async ({ data }) => {
+		const ctx = appContext();
+		const deleted = await deleteConversation(ctx.db, data.conversationId);
+		if (deleted) await cancelTitleBestEffort(ctx, data.conversationId);
+		return { deleted };
+	});

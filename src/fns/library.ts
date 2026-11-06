@@ -99,8 +99,10 @@ export const reparseEditions = createServerFn({ method: "POST" })
 export const deleteEditionFn = createServerFn({ method: "POST" })
 	.validator(z.object({ editionId: z.uuid() }))
 	.handler(async ({ data }) => {
-		const { db, config, log } = appContext();
+		const { db, config, log, cancelJob } = appContext();
 		const result = await deleteEdition(db, config.dataDir, data.editionId, log);
-		await pruneEmptyConversations(db);
+		await pruneEmptyConversations(db, (conversationId) =>
+			cancelJob("conversation.title", { conversationId }),
+		);
 		return { deleted: result.deleted };
 	});

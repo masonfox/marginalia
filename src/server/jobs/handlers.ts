@@ -10,7 +10,12 @@ import {
 	ingestEdition,
 	reparseEdition,
 } from "#/modules/catalog";
-import { rebaseGuideContexts, rebaseScopes } from "#/modules/conversation";
+import {
+	dispatchTitles,
+	rebaseGuideContexts,
+	rebaseScopes,
+	runTitle,
+} from "#/modules/conversation";
 import { reanchor, rebaseReadingPositions } from "#/modules/guide";
 import { scanLibraries } from "#/modules/library";
 import { getAiDefaults } from "#/modules/settings";
@@ -79,6 +84,9 @@ export function jobHandlers(): JobHandlers {
 		} satisfies IngestDeps;
 	};
 	return {
+		"conversation.title": async ({ conversationId }, ctx) =>
+			runTitle(appContext(), conversationId, ctx.signal),
+		"conversation.dispatch-titles": async () => dispatchTitles(appContext()),
 		"library.scan": async ({ full }) => {
 			const { db, config, enqueue, log } = appContext();
 			await scanLibraries(
