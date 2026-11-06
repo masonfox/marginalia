@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Library</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&amp;family=Instrument+Sans:wght@400;500;600;700&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.m{--serif:'Cormorant Garamond','EB Garamond',Georgia,serif;--sans:'Instrument Sans',ui-sans-serif,system-ui,sans-serif;--read:'Newsreader',Georgia,serif;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.m[data-theme="dark"]{--bg:#0d0a08;--bg2:#120e0b;--surface:#18130f;--surface2:#221c16;--line:rgba(255,236,214,.09);--line2:rgba(255,236,214,.17);--ink:#f5efe6;--muted:#b3a99c;--faint:#8f8578;--accent:#f0a556;--accent-text:#f3b06a;--accent-soft:rgba(240,165,86,.14);--primary:#f0a556;--primary-ink:#1a0f05;--hl:rgba(240,165,86,.2);--ok:#8cc49a;--info:#93b8de;--bad:#ec9580;--cshadow:0 18px 40px -12px rgba(0,0,0,.85),0 2px 6px rgba(0,0,0,.5);--glow:rgba(240,165,86,.10)}
+.m[data-theme="sepia"]{--bg:#f2e8d6;--bg2:#ebdfc9;--surface:#f8f1e4;--surface2:#ecdfc8;--line:rgba(74,50,26,.13);--line2:rgba(74,50,26,.24);--ink:#2a1d12;--muted:#665341;--faint:#725f4c;--accent:#c9822f;--accent-text:#8f4f12;--accent-soft:rgba(176,108,36,.15);--primary:#2a1d12;--primary-ink:#f8f1e4;--hl:rgba(214,150,62,.3);--ok:#3d6b3f;--info:#355d86;--bad:#9c3a22;--cshadow:0 18px 36px -14px rgba(60,35,10,.55),0 2px 5px rgba(60,35,10,.25);--glow:rgba(201,130,47,.16)}
+.m[data-theme="light"]{--bg:#faf8f4;--bg2:#f3efe8;--surface:#ffffff;--surface2:#f2eee7;--line:rgba(30,22,14,.09);--line2:rgba(30,22,14,.17);--ink:#17120d;--muted:#655c52;--faint:#736a5f;--accent:#e0923f;--accent-text:#9a520f;--accent-soft:rgba(224,146,63,.15);--primary:#17120d;--primary-ink:#faf8f4;--hl:#fbe3bd;--ok:#2f6b3c;--info:#2f5f91;--bad:#a63a26;--cshadow:0 16px 32px -14px rgba(30,20,10,.38),0 2px 4px rgba(30,20,10,.15);--glow:rgba(224,146,63,.12)}
+.m *{box-sizing:border-box}
+.m a{color:inherit;text-decoration:none}
+.m button{font:inherit;color:inherit}
+.m h1,.m h2,.m h3,.m h4,.m p{margin:0}
+.disp{font-family:var(--serif);font-weight:600;letter-spacing:-.015em;line-height:1.02}
+.eyebrow{font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.muted{color:var(--muted)}.faint{color:var(--faint)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 16px;border-radius:10px;font:600 14px/1 var(--sans);border:1px solid transparent;cursor:pointer;white-space:nowrap}
+.btn svg{width:16px;height:16px;flex:none}
+.btn-p{background:var(--primary);color:var(--primary-ink)}
+.btn-o{background:transparent;color:var(--ink);border-color:var(--line2)}
+.btn-g{background:transparent;color:var(--muted)}
+.btn-g:hover,.btn-o:hover{background:var(--surface2);color:var(--ink)}
+.ibtn{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:10px;border:0;background:transparent;color:var(--muted);cursor:pointer;flex:none}
+.ibtn svg{width:18px;height:18px}
+.nav{display:flex;gap:2px}
+.nl{font:500 14px/1 var(--sans);color:var(--muted);padding:11px 12px;border-radius:8px}
+.nl:hover{color:var(--ink)}
+.nl.on{color:var(--ink);background:var(--surface2)}
+.seg{display:inline-flex;padding:3px;gap:2px;border-radius:999px;background:var(--surface2);border:1px solid var(--line)}
+.sb{display:grid;place-items:center;width:34px;height:34px;border-radius:999px;border:0;background:transparent;color:var(--faint);cursor:pointer}
+.sb svg{width:16px;height:16px}
+.sb.on{background:var(--surface);color:var(--accent-text);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.input{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 14px;border-radius:12px;background:var(--surface);border:1px solid var(--line2);color:var(--faint);font:400 14px/1.4 var(--sans)}
+.input svg{width:16px;height:16px;flex:none}
+.input input{all:unset;flex:1;min-width:0;color:var(--ink)}
+.input input::placeholder{color:var(--faint)}
+.bar{height:3px;border-radius:99px;background:var(--line2);overflow:hidden}
+.bar span{display:block;height:100%;background:var(--accent);border-radius:99px}
+.cover{position:relative;aspect-ratio:2/3;border-radius:3px 7px 7px 3px;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:13% 11% 11% 14%;box-shadow:var(--cshadow);container-type:inline-size}
+.cover::before{content:"";position:absolute;inset:0 auto 0 0;width:7%;background:linear-gradient(90deg,rgba(0,0,0,.28),rgba(255,255,255,.10) 70%,transparent)}
+.cover::after{content:"";position:absolute;inset:0;background:linear-gradient(160deg,rgba(255,255,255,.10),transparent 40%,rgba(0,0,0,.12))}
+.ct{font-family:var(--serif);font-weight:600;line-height:.95;letter-spacing:-.01em;font-size:16cqw}
+.ca{font:600 6.5cqw/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;opacity:.85}
+.badge{display:inline-flex;align-items:center;gap:6px;font:600 11.5px/1 var(--sans);letter-spacing:.02em}
+.badge i{width:7px;height:7px;border-radius:50%;background:currentColor;display:block}
+.notice{display:flex;justify-content:center;align-items:center;gap:10px;padding:9px 16px;font:500 12.5px/1.3 var(--sans);color:var(--muted);background:var(--bg2);border-top:1px solid var(--line);text-align:center}
+.notice a{color:var(--accent-text);font-weight:600}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+.fp{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);font:500 13.5px/1 var(--sans);cursor:pointer;white-space:nowrap}
+.fp b{font-weight:600;color:var(--faint);font-size:12px}
+.fp.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.fp.on b{color:inherit;opacity:.7}
+.book{display:block;min-width:0}
+.book:hover .cover{transform:translateY(-3px)}
+.book .cover{transition:transform .2s ease}
+.bt{font:600 14.5px/1.3 var(--sans);margin-top:14px}
+.shim{background:linear-gradient(100deg,var(--surface2) 30%,var(--surface) 50%,var(--surface2) 70%);background-size:200% 100%;animation:sh 1.6s linear infinite}
+@keyframes sh{to{background-position:-200% 0}}
+@media (max-width:760px){.sm-hide{display:none !important}.pad{padding-left:16px !important;padding-right:16px !important}}
+</style>
+</helmet>
+<div class="m" data-theme="{{theme}}" style="min-height: 1450px">
+<header style="border-bottom: 1px solid var(--line)">
+  <div class="pad" style="max-width: 1240px; margin: 0 auto; padding: 14px 32px; display: flex; align-items: center; gap: 28px">
+    <a href="Dashboard.dc.html" style="display: flex; align-items: center; gap: 10px" aria-label="Marginalia home">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="2.5" width="17" height="19" rx="2.5"></rect><path d="M8.5 2.5v19"></path><path d="M11.5 8h5.5M11.5 12h5.5M11.5 16h3.5"></path><path d="M5.6 9.5h.8M5.6 13.5h.8"></path></svg>
+      <span class="disp" style="font-size: 27px">Marginalia</span>
+    </a>
+    <nav class="nav sm-hide" aria-label="Primary">
+      <a class="nl" href="Dashboard.dc.html">Dashboard</a>
+      <a class="nl on" href="Library.dc.html" aria-current="page">Library</a>
+      <a class="nl" href="Conversations.dc.html">Conversations</a>
+    </nav>
+    <div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+      <div class="seg" role="group" aria-label="Theme">
+        <button class="{{sbL}}" onClick="{{setL}}" aria-pressed="{{pL}}" aria-label="Light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg></button>
+        <button class="{{sbS}}" onClick="{{setS}}" aria-pressed="{{pS}}" aria-label="Sepia theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5h6a3.5 3.5 0 0 1 3.5 3.5v12a3 3 0 0 0-3-3H2.5zM21.5 4.5h-6A3.5 3.5 0 0 0 12 8v12a3 3 0 0 1 3-3h6.5z"></path></svg></button>
+        <button class="{{sbD}}" onClick="{{setD}}" aria-pressed="{{pD}}" aria-label="Dark theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg></button>
+      </div>
+      <a class="btn btn-p" href="NewConversation.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg><span class="sm-hide">New conversation</span></a>
+      <a class="ibtn sm-hide" href="Settings.dc.html" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h9M18 6h2M4 12h3M11 12h9M4 18h11M19 18h1"></path><circle cx="15.5" cy="6" r="2"></circle><circle cx="9" cy="12" r="2"></circle><circle cx="17" cy="18" r="2"></circle></svg></a>
+    </div>
+  </div>
+  <div class="notice" role="status"><span class="dot"></span><span>No password set: anyone who can reach this instance can use it.</span><a href="Settings.dc.html">Set one</a></div>
+</header>
+
+<main class="pad" style="max-width: 1240px; margin: 0 auto; padding: 56px 32px 96px">
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap">
+    <div>
+      <h1 class="disp" style="font-size: clamp(48px, 5vw, 68px)">Library</h1>
+      <p class="muted" style="margin-top: 8px">21 books · 2 reading · watching <span style="font-family: ui-monospace, monospace; font-size: 13px">/books</span> for new files</p>
+    </div>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap">
+      <button class="btn btn-o"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4"></path></svg>Scan folder</button>
+      <button class="btn btn-p"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"></path></svg>Upload EPUB</button>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 36px">
+    <label class="input" style="flex: 1 1 280px; max-width: 380px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><input placeholder="Search by title or author" aria-label="Search by title or author"></label>
+    <div role="group" aria-label="Filter by status" style="display: flex; gap: 6px; flex-wrap: wrap">
+      <sc-for list="{{filters}}" as="f" hint-placeholder-count="5">
+        <button class="{{f.cls}}" onClick="{{f.pick}}" aria-pressed="{{f.pressed}}">{{f.label}} <b>{{f.n}}</b></button>
+      </sc-for>
+    </div>
+    <button class="btn btn-g" style="margin-left: auto">Recently active<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(164px, 1fr)); gap: 44px 28px; margin-top: 40px">
+    <sc-if value="{{showSpecial}}" hint-placeholder-val="{{ true }}">
+      <div class="book" aria-busy="true">
+        <div class="shim" style="aspect-ratio: 2/3; border-radius: 3px 7px 7px 3px; display: flex; align-items: flex-end; padding: 14px">
+          <div style="width: 100%"><div class="bar"><span style="width: 42%; background: var(--info)"></span></div></div>
+        </div>
+        <p class="bt">Anathem</p>
+        <p class="muted" style="font-size: 13px">Neal Stephenson</p>
+        <p class="badge" style="color: var(--info); margin-top: 10px"><i></i>Processing · 42%</p>
+      </div>
+      <div class="book">
+        <div style="aspect-ratio: 2/3; border-radius: 3px 7px 7px 3px; border: 1.5px dashed color-mix(in srgb, var(--bad) 55%, transparent); display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; padding: 16px; text-align: center; background: color-mix(in srgb, var(--bad) 6%, transparent)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--bad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 21h20z"></path><path d="M12 10v5M12 18v.01"></path></svg>
+          <p class="muted" style="font-size: 12.5px; line-height: 1.4">The EPUB’s table of contents could not be read.</p>
+          <button class="btn btn-o" style="min-height: 34px; font-size: 13px; padding: 0 12px">Retry</button>
+        </div>
+        <p class="bt">the_name_of_the_rose.epub</p>
+        <p class="muted" style="font-size: 13px">Unknown author</p>
+        <p class="badge" style="color: var(--bad); margin-top: 10px"><i></i>Needs attention</p>
+      </div>
+    </sc-if>
+    <sc-for list="{{books}}" as="b" hint-placeholder-count="12">
+      <a class="book" href="BookDiscuss.dc.html">
+        <div class="cover" style="{{b.cover}}"><div class="ct">{{b.title}}</div><div class="ca">{{b.short}}</div></div>
+        <p class="bt">{{b.title}}</p>
+        <p class="muted" style="font-size: 13px">{{b.author}}</p>
+        <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px">
+          <span class="badge" style="{{b.sc}}"><i></i>{{b.status}}</span>
+          <sc-if value="{{b.reading}}" hint-placeholder-val="{{ false }}"><div class="bar" style="flex: 1"><span style="width: {{b.pct}}"></span></div></sc-if>
+        </div>
+      </a>
+    </sc-for>
+  </div>
+  <p class="faint" style="text-align: center; font-size: 13px; margin-top: 64px">Drop EPUB files anywhere on this page to import them.</p>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","sepia","light"],"default":"dark"},"$preview":{"width":1440,"height":1450}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const t = (this.state && this.state.theme) || this.props.theme || 'dark';
+    const f = (this.state && this.state.filter) || 'all';
+    const set = (v) => () => this.setState({ theme: v });
+    const S = {
+      reading: ['Reading', 'color: var(--accent-text)'],
+      finished: ['Finished', 'color: var(--ok)'],
+      not: ['Not started', 'color: var(--faint)']
+    };
+    const raw = [
+      ['Tress of the Emerald Sea', 'Brandon Sanderson', 'Sanderson', '#1f4a43', '#e6c97a', 'reading', '61%'],
+      ['Infinite Jest', 'David Foster Wallace', 'Wallace', '#1d3a5f', '#f1e6cf', 'reading', '59%'],
+      ['Moby-Dick', 'Herman Melville', 'Melville', '#4d4a44', '#efe9dc', 'finished'],
+      ['Middlemarch', 'George Eliot', 'Eliot', '#6b2d2a', '#f2dfc4', 'finished'],
+      ['Piranesi', 'Susanna Clarke', 'Clarke', '#c9d3cf', '#24433f', 'finished'],
+      ['The Brothers Karamazov', 'Fyodor Dostoevsky', 'Dostoevsky', '#2b2b2b', '#d9b26a', 'not'],
+      ['Wolf Hall', 'Hilary Mantel', 'Mantel', '#8a1c1c', '#f5e9d6', 'not'],
+      ['Blood Meridian', 'Cormac McCarthy', 'McCarthy', '#b5592a', '#1f120a', 'not'],
+      ['The Left Hand of Darkness', 'Ursula K. Le Guin', 'Le Guin', '#dfe6ea', '#24313a', 'not'],
+      ['Gravity’s Rainbow', 'Thomas Pynchon', 'Pynchon', '#e8b64a', '#2a1a0e', 'not'],
+      ['The Remains of the Day', 'Kazuo Ishiguro', 'Ishiguro', '#3a4a3a', '#efe3c8', 'not'],
+      ['Gilead', 'Marilynne Robinson', 'Robinson', '#efe3cf', '#5a3418', 'not']
+    ];
+    const books = raw
+      .filter((r) => f === 'all' || (f === 'reading' && r[5] === 'reading') || (f === 'finished' && r[5] === 'finished') || (f === 'not' && r[5] === 'not'))
+      .map((r) => ({ title: r[0], author: r[1], short: r[2], cover: 'background: ' + r[3] + '; color: ' + r[4], status: S[r[5]][0], sc: S[r[5]][1], reading: r[5] === 'reading', pct: r[6] || '0%' }));
+    const defs = [['all', 'All', 21], ['not', 'Not started', 15], ['reading', 'Reading', 2], ['finished', 'Finished', 3], ['attn', 'Needs attention', 1]];
+    return {
+      theme: t,
+      sbL: 'sb' + (t === 'light' ? ' on' : ''), sbS: 'sb' + (t === 'sepia' ? ' on' : ''), sbD: 'sb' + (t === 'dark' ? ' on' : ''),
+      pL: t === 'light' ? 'true' : 'false', pS: t === 'sepia' ? 'true' : 'false', pD: t === 'dark' ? 'true' : 'false',
+      setL: set('light'), setS: set('sepia'), setD: set('dark'),
+      filters: defs.map((d) => ({ label: d[1], n: d[2], cls: 'fp' + (f === d[0] ? ' on' : ''), pressed: f === d[0] ? 'true' : 'false', pick: () => this.setState({ filter: d[0] }) })),
+      showSpecial: f === 'all' || f === 'attn',
+      books: f === 'attn' ? [] : books
+    };
+  }
+}
+</script>
+</body>
+</html>

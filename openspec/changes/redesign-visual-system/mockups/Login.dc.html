@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Log in</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&amp;family=Instrument+Sans:wght@400;500;600;700&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.m{--serif:'Cormorant Garamond','EB Garamond',Georgia,serif;--sans:'Instrument Sans',ui-sans-serif,system-ui,sans-serif;--read:'Newsreader',Georgia,serif;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.m[data-theme="dark"]{--bg:#0d0a08;--bg2:#120e0b;--surface:#18130f;--surface2:#221c16;--line:rgba(255,236,214,.09);--line2:rgba(255,236,214,.17);--ink:#f5efe6;--muted:#b3a99c;--faint:#8f8578;--accent:#f0a556;--accent-text:#f3b06a;--accent-soft:rgba(240,165,86,.14);--primary:#f0a556;--primary-ink:#1a0f05;--bad:#ec9580;--glow:rgba(240,165,86,.13);--fade:.34}
+.m[data-theme="sepia"]{--bg:#f2e8d6;--bg2:#ebdfc9;--surface:#f8f1e4;--surface2:#ecdfc8;--line:rgba(74,50,26,.13);--line2:rgba(74,50,26,.24);--ink:#2a1d12;--muted:#665341;--faint:#725f4c;--accent:#c9822f;--accent-text:#8f4f12;--accent-soft:rgba(176,108,36,.15);--primary:#2a1d12;--primary-ink:#f8f1e4;--bad:#9c3a22;--glow:rgba(201,130,47,.2);--fade:.22}
+.m[data-theme="light"]{--bg:#faf8f4;--bg2:#f3efe8;--surface:#ffffff;--surface2:#f2eee7;--line:rgba(30,22,14,.09);--line2:rgba(30,22,14,.17);--ink:#17120d;--muted:#655c52;--faint:#736a5f;--accent:#e0923f;--accent-text:#9a520f;--accent-soft:rgba(224,146,63,.15);--primary:#17120d;--primary-ink:#faf8f4;--bad:#a63a26;--glow:rgba(224,146,63,.15);--fade:.18}
+.m *{box-sizing:border-box}
+.m button,.m input{font:inherit;color:inherit}
+.m h1,.m p{margin:0}
+.disp{font-family:var(--serif);font-weight:600;letter-spacing:-.015em;line-height:1.02}
+.muted{color:var(--muted)}.faint{color:var(--faint)}
+.sp{position:absolute;bottom:-40px;width:150px;aspect-ratio:2/3;border-radius:3px 7px 7px 3px;opacity:var(--fade);box-shadow:0 30px 60px -20px rgba(0,0,0,.7)}
+.sb{display:grid;place-items:center;width:34px;height:34px;border-radius:999px;border:0;background:transparent;color:var(--faint);cursor:pointer}
+.sb svg{width:16px;height:16px}
+.sb.on{background:var(--surface);color:var(--accent-text);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+</style>
+</helmet>
+<div class="m" data-theme="{{theme}}" style="min-height: 900px; position: relative; overflow: hidden; display: grid; place-items: center; padding: 48px 16px">
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(50% 50% at 50% 38%, var(--glow), transparent 70%)"></div>
+  <div aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; height: 280px">
+    <div class="sp" style="left: 6%; background: #1d3a5f; transform: rotate(-8deg)"></div>
+    <div class="sp" style="left: 17%; background: #6b2d2a; transform: rotate(4deg); bottom: -70px"></div>
+    <div class="sp" style="left: 30%; background: #4d4a44; transform: rotate(-3deg); bottom: -110px"></div>
+    <div class="sp" style="right: 30%; background: #1f4a43; transform: rotate(5deg); bottom: -110px"></div>
+    <div class="sp" style="right: 17%; background: #b5592a; transform: rotate(-4deg); bottom: -70px"></div>
+    <div class="sp" style="right: 6%; background: #c9d3cf; transform: rotate(8deg)"></div>
+    <div style="position: absolute; inset: 0; background: linear-gradient(180deg, var(--bg), transparent 70%)"></div>
+  </div>
+
+  <div style="position: absolute; top: 20px; right: 24px; display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--line)" role="group" aria-label="Theme">
+    <button class="{{sbL}}" onClick="{{setL}}" aria-pressed="{{pL}}" aria-label="Light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg></button>
+    <button class="{{sbS}}" onClick="{{setS}}" aria-pressed="{{pS}}" aria-label="Sepia theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5h6a3.5 3.5 0 0 1 3.5 3.5v12a3 3 0 0 0-3-3H2.5zM21.5 4.5h-6A3.5 3.5 0 0 0 12 8v12a3 3 0 0 1 3-3h6.5z"></path></svg></button>
+    <button class="{{sbD}}" onClick="{{setD}}" aria-pressed="{{pD}}" aria-label="Dark theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg></button>
+  </div>
+
+  <main style="position: relative; width: 100%; max-width: 420px; text-align: center; margin-top: -80px">
+    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="2.5" width="17" height="19" rx="2.5"></rect><path d="M8.5 2.5v19"></path><path d="M11.5 8h5.5M11.5 12h5.5M11.5 16h3.5"></path><path d="M5.6 9.5h.8M5.6 13.5h.8"></path></svg>
+    <h1 class="disp" style="font-size: 64px; margin-top: 18px">Marginalia</h1>
+    <p class="muted" style="font-size: 17px; margin-top: 12px">A reading companion that only knows what you’ve read.</p>
+    <form style="margin-top: 40px; text-align: left" aria-label="Log in">
+      <label for="pw" style="display: block; font: 600 13px var(--sans); margin-bottom: 8px">Password</label>
+      <div style="display: flex; gap: 10px">
+        <input id="pw" type="password" value="••••••••••" autocomplete="current-password" style="flex: 1; min-width: 0; min-height: 48px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--line2); background: var(--surface); outline: none; font-size: 16px; letter-spacing: .1em">
+        <a href="Dashboard.dc.html" style="display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 20px; border-radius: 12px; background: var(--primary); color: var(--primary-ink); font: 600 15px var(--sans); text-decoration: none">Log in<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a>
+      </div>
+      <p role="alert" style="font-size: 13px; color: var(--bad); margin-top: 10px">That password didn’t match. Try again.</p>
+    </form>
+    <p class="faint" style="font-size: 12.5px; margin-top: 40px">Self-hosted · your books stay on this server</p>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","sepia","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const t = (this.state && this.state.theme) || this.props.theme || 'dark';
+    const set = (v) => () => this.setState({ theme: v });
+    return {
+      theme: t,
+      sbL: 'sb' + (t === 'light' ? ' on' : ''), sbS: 'sb' + (t === 'sepia' ? ' on' : ''), sbD: 'sb' + (t === 'dark' ? ' on' : ''),
+      pL: t === 'light' ? 'true' : 'false', pS: t === 'sepia' ? 'true' : 'false', pD: t === 'dark' ? 'true' : 'false',
+      setL: set('light'), setS: set('sepia'), setD: set('dark')
+    };
+  }
+}
+</script>
+</body>
+</html>

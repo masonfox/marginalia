@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>First chapter exploration</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&amp;family=Instrument+Sans:wght@400;500;600;700&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.m{--serif:'Cormorant Garamond','EB Garamond',Georgia,serif;--sans:'Instrument Sans',ui-sans-serif,system-ui,sans-serif;--read:'Newsreader',Georgia,serif;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.m[data-theme="dark"]{--bg:#0d0a08;--bg2:#120e0b;--surface:#18130f;--surface2:#221c16;--line:rgba(255,236,214,.09);--line2:rgba(255,236,214,.17);--ink:#f5efe6;--muted:#b3a99c;--faint:#8f8578;--accent:#f0a556;--accent-text:#f3b06a;--accent-soft:rgba(240,165,86,.14);--primary:#f0a556;--primary-ink:#1a0f05;--hl:rgba(240,165,86,.2);--ok:#8cc49a;--info:#93b8de;--bad:#ec9580;--cshadow:0 18px 40px -12px rgba(0,0,0,.85),0 2px 6px rgba(0,0,0,.5);--glow:rgba(240,165,86,.10);--pop:0 24px 60px -16px rgba(0,0,0,.8)}
+.m[data-theme="sepia"]{--bg:#f2e8d6;--bg2:#ebdfc9;--surface:#f8f1e4;--surface2:#ecdfc8;--line:rgba(74,50,26,.13);--line2:rgba(74,50,26,.24);--ink:#2a1d12;--muted:#665341;--faint:#725f4c;--accent:#c9822f;--accent-text:#8f4f12;--accent-soft:rgba(176,108,36,.15);--primary:#2a1d12;--primary-ink:#f8f1e4;--hl:rgba(214,150,62,.3);--ok:#3d6b3f;--info:#355d86;--bad:#9c3a22;--cshadow:0 18px 36px -14px rgba(60,35,10,.55),0 2px 5px rgba(60,35,10,.25);--glow:rgba(201,130,47,.16);--pop:0 24px 50px -18px rgba(60,35,10,.45)}
+.m[data-theme="light"]{--bg:#faf8f4;--bg2:#f3efe8;--surface:#ffffff;--surface2:#f2eee7;--line:rgba(30,22,14,.09);--line2:rgba(30,22,14,.17);--ink:#17120d;--muted:#655c52;--faint:#736a5f;--accent:#e0923f;--accent-text:#9a520f;--accent-soft:rgba(224,146,63,.15);--primary:#17120d;--primary-ink:#faf8f4;--hl:#fbe3bd;--ok:#2f6b3c;--info:#2f5f91;--bad:#a63a26;--cshadow:0 16px 32px -14px rgba(30,20,10,.38),0 2px 4px rgba(30,20,10,.15);--glow:rgba(224,146,63,.12);--pop:0 24px 50px -18px rgba(30,20,10,.3)}
+.m *{box-sizing:border-box}
+.m a{color:inherit;text-decoration:none}
+.m button{font:inherit;color:inherit}
+.m h1,.m h2,.m h3,.m h4,.m p,.m ul{margin:0}
+.disp{font-family:var(--serif);font-weight:600;letter-spacing:-.015em;line-height:1.02}
+.eyebrow{font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.muted{color:var(--muted)}.faint{color:var(--faint)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 16px;border-radius:10px;font:600 14px/1 var(--sans);border:1px solid transparent;cursor:pointer;white-space:nowrap}
+.btn svg{width:16px;height:16px;flex:none}
+.btn-p{background:var(--primary);color:var(--primary-ink)}
+.btn-g{background:transparent;color:var(--muted)}
+.btn-g:hover{background:var(--surface2);color:var(--ink)}
+.ibtn{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:10px;border:0;background:transparent;color:var(--muted);cursor:pointer;flex:none}
+.ibtn svg{width:18px;height:18px}
+.ibtn:hover{background:var(--surface2);color:var(--ink)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px}
+.chip{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:0 12px;border-radius:999px;font:500 13px/1 var(--sans);background:transparent;color:var(--muted);border:1px solid var(--line2);white-space:nowrap;cursor:pointer}
+.chip svg{width:14px;height:14px}
+.scope{display:inline-flex;align-items:center;gap:7px;min-height:30px;padding:0 12px;border-radius:999px;font:600 11.5px/1 var(--sans);letter-spacing:.04em;background:var(--accent-soft);color:var(--accent-text);white-space:nowrap}
+.scope svg{width:13px;height:13px;flex:none}
+.cite{display:inline-grid;place-items:center;min-width:19px;height:19px;padding:0 5px;margin-left:3px;border-radius:999px;background:var(--accent-soft);color:var(--accent-text);font:700 10.5px/1 var(--sans);vertical-align:2px;font-style:normal;border:0;cursor:pointer}
+.cite.act{background:var(--accent);color:var(--primary-ink)}
+.m[data-theme="sepia"] .cite.act,.m[data-theme="light"] .cite.act{color:#1a0f05}
+.q{font-family:var(--read);font-style:italic;font-size:1.06em}
+.nav{display:flex;gap:2px}
+.nl{font:500 14px/1 var(--sans);color:var(--muted);padding:11px 12px;border-radius:8px}
+.nl:hover{color:var(--ink)}
+.nl.on{color:var(--ink);background:var(--surface2)}
+.seg{display:inline-flex;padding:3px;gap:2px;border-radius:999px;background:var(--surface2);border:1px solid var(--line)}
+.sb{display:grid;place-items:center;width:34px;height:34px;border-radius:999px;border:0;background:transparent;color:var(--faint);cursor:pointer}
+.sb svg{width:16px;height:16px}
+.sb.on{background:var(--surface);color:var(--accent-text);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.notice{display:flex;justify-content:center;align-items:center;gap:10px;padding:9px 16px;font:500 12.5px/1.3 var(--sans);color:var(--muted);background:var(--bg2);border-top:1px solid var(--line);text-align:center}
+.notice a{color:var(--accent-text);font-weight:600}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+.ans{font-size:16px;line-height:1.75}
+.ans li{margin-top:14px}
+.ans b{font-weight:600}
+.trail{display:inline-flex;align-items:center;gap:10px;min-height:36px;padding:0 14px 0 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg2);color:var(--muted);font:500 13px/1 var(--sans);cursor:pointer}
+.src{display:grid;grid-template-columns:24px minmax(0,1fr) 18px;gap:12px;align-items:start;padding:14px 4px;border-top:1px solid var(--line)}
+.src .n{display:grid;place-items:center;width:22px;height:22px;border-radius:999px;background:var(--accent-soft);color:var(--accent-text);font:700 11px/1 var(--sans)}
+.src p.qq{font-family:var(--read);font-style:italic;font-size:15.5px;line-height:1.4}
+.src.on{background:var(--accent-soft);border-radius:10px;border-top-color:transparent}
+.src.on + .src{border-top-color:transparent}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pl 1.2s ease-in-out infinite}
+@keyframes pl{50%{opacity:.25;transform:scale(.7)}}
+.skel{height:12px;border-radius:6px;background:var(--surface2)}
+textarea.ta{all:unset;display:block;width:100%;min-height:28px;font:400 16px/1.55 var(--sans);color:var(--ink)}
+textarea.ta::placeholder{color:var(--faint)}
+@media (max-width:760px){.sm-hide{display:none !important}.pad{padding-left:16px !important;padding-right:16px !important}}
+</style>
+</helmet>
+<div class="m" data-theme="{{theme}}" style="min-height: 1900px">
+<header style="border-bottom: 1px solid var(--line)">
+  <div class="pad" style="max-width: 1240px; margin: 0 auto; padding: 14px 32px; display: flex; align-items: center; gap: 28px">
+    <a href="Dashboard.dc.html" style="display: flex; align-items: center; gap: 10px" aria-label="Marginalia home">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="2.5" width="17" height="19" rx="2.5"></rect><path d="M8.5 2.5v19"></path><path d="M11.5 8h5.5M11.5 12h5.5M11.5 16h3.5"></path><path d="M5.6 9.5h.8M5.6 13.5h.8"></path></svg>
+      <span class="disp" style="font-size: 27px">Marginalia</span>
+    </a>
+    <nav class="nav sm-hide" aria-label="Primary">
+      <a class="nl" href="Dashboard.dc.html">Dashboard</a>
+      <a class="nl" href="Library.dc.html">Library</a>
+      <a class="nl on" href="Conversations.dc.html">Conversations</a>
+    </nav>
+    <div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+      <div class="seg" role="group" aria-label="Theme">
+        <button class="{{sbL}}" onClick="{{setL}}" aria-pressed="{{pL}}" aria-label="Light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg></button>
+        <button class="{{sbS}}" onClick="{{setS}}" aria-pressed="{{pS}}" aria-label="Sepia theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5h6a3.5 3.5 0 0 1 3.5 3.5v12a3 3 0 0 0-3-3H2.5zM21.5 4.5h-6A3.5 3.5 0 0 0 12 8v12a3 3 0 0 1 3-3h6.5z"></path></svg></button>
+        <button class="{{sbD}}" onClick="{{setD}}" aria-pressed="{{pD}}" aria-label="Dark theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg></button>
+      </div>
+      <a class="btn btn-p" href="NewConversation.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg><span class="sm-hide">New conversation</span></a>
+      <a class="ibtn sm-hide" href="Settings.dc.html" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h9M18 6h2M4 12h3M11 12h9M4 18h11M19 18h1"></path><circle cx="15.5" cy="6" r="2"></circle><circle cx="9" cy="12" r="2"></circle><circle cx="17" cy="18" r="2"></circle></svg></a>
+    </div>
+  </div>
+  <div class="notice" role="status"><span class="dot"></span><span>No password set: anyone who can reach this instance can use it.</span><a href="Settings.dc.html">Set one</a></div>
+</header>
+
+<div class="pad" style="max-width: 1240px; margin: 0 auto; padding: 36px 32px 0">
+  <a href="Conversations.dc.html" class="faint" style="font: 500 13px var(--sans)">← Conversations</a>
+  <div style="display: flex; align-items: flex-start; gap: 16px; margin-top: 14px">
+    <h1 class="disp" style="font-size: clamp(36px, 4vw, 52px); flex: 1">First chapter exploration</h1>
+    <button class="ibtn" aria-label="Rename or delete conversation"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg></button>
+  </div>
+  <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px">
+    <a href="BookDiscuss.dc.html" class="chip" style="padding-left: 5px"><span style="width: 16px; height: 22px; border-radius: 2px 3px 3px 2px; background: #1d3a5f; display: block"></span>Infinite Jest</a>
+    <span class="scope"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"></path></svg>THROUGH YEAR OF GLAD</span>
+    <button class="chip">Widen</button>
+    <span style="flex: 1"></span>
+    <button class="chip">Claude Haiku 5.5<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+    <span class="faint" style="font-size: 12.5px">110.4k tokens · ~$0.22</span>
+  </div>
+  <p class="muted" style="display: flex; gap: 10px; align-items: center; font-size: 13px; margin-top: 16px; padding-bottom: 24px; border-bottom: 1px solid var(--line)">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"></path><path d="M9 12l2 2 4-4"></path></svg>
+    Reads only through YEAR OF GLAD and is told not to discuss later events, but may still know the book from its training.
+  </p>
+</div>
+
+<main class="pad" style="max-width: 1240px; margin: 0 auto; padding: 36px 32px 72px; display: flex; flex-wrap: wrap; gap: 56px; align-items: flex-start">
+  <div style="flex: 999 1 600px; min-width: 0; max-width: 780px">
+    <div style="display: flex; justify-content: flex-end">
+      <div style="max-width: 600px; background: var(--surface2); border: 1px solid var(--line); border-radius: 20px 20px 6px 20px; padding: 16px 20px; font-size: 15.5px; line-height: 1.6">Explore the first chapter with me, where Hal and C.T. meet the academic advisers. Hal has a physical and psychological breakdown on the outside, but inside he’s exceptionally competent, and at times clearly delusional, with the end of the chapter trailing into incoherent ramblings. I get the sense we’re given a challenging juxtaposition: while competent, Hal is also unreliable.</div>
+    </div>
+
+    <div style="margin-top: 32px">
+      <button class="trail" aria-expanded="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>Researched <span class="faint">·</span> 6 searches, 160 passages read</button>
+
+      <div class="ans" style="margin-top: 22px">
+        <p>Your juxtaposition is there, but I’d adjust two details. The people in the room are three Deans, a Director of Composition, and the tennis coach, not advisers. And the ending isn’t incoherent on the page. Only the outside view of Hal is.</p>
+        <ul style="padding-left: 20px; margin-top: 6px">
+          <li><b>Competence.</b> The Deans concede his record is <span class="q">“frankly incredible”</span><button class="cite" aria-label="Citation 1">1</button> before they ever hear him speak.</li>
+          <li><b>The inside/outside split.</b> Hal opens with <span class="q">“I am in here”</span><button class="{{c2}}" onClick="{{toggle}}" aria-label="Citation 2" aria-expanded="{{open}}">2</button> and hedges his own self-image: <span class="q">“I believe I appear neutral”</span><button class="cite" aria-label="Citation 3">3</button>.</li>
+          <li><b>What he says versus what they hear.</b> He reports speaking <span class="q">“slowly. Distinctly”</span><button class="cite" aria-label="Citation 4">4</button>. The Deans hear <span class="q">“subanimalistic noises”</span><button class="cite" aria-label="Citation 5">5</button>.</li>
+        </ul>
+        <sc-if value="{{isOpen}}" hint-placeholder-val="{{ true }}">
+          <div role="dialog" aria-label="Citation 2" style="margin: 18px 0 4px 40px; max-width: 460px; background: var(--surface); border: 1px solid var(--line2); border-radius: 14px; box-shadow: var(--pop); padding: 18px 20px">
+            <p style="font-family: var(--read); font-size: 19px; font-style: italic; line-height: 1.45">“I am in here.”</p>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; font-size: 12.5px">
+              <span style="display: inline-flex; gap: 5px; align-items: center; color: var(--ok); font-weight: 600"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Matches your copy</span>
+              <span class="faint">YEAR OF GLAD · passage 3</span>
+              <a href="Reader.dc.html" style="margin-left: auto; color: var(--accent-text); font-weight: 600">Open in book →</a>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="margin-top: 26px; padding: 20px 22px; border-radius: 14px; background: var(--bg2); border: 1px solid var(--line)">
+          <p class="eyebrow" style="color: var(--accent-text); display: flex; gap: 8px; align-items: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"></path></svg>Where the text pushes back</p>
+          <p style="margin-top: 10px">Calling the ending “incoherent ramblings” takes the Deans’ view as the book’s. Inside Hal’s narration the sentences stay controlled to the last line. The horror is that no one in the room can hear them; to the Deans he sounds <span class="q" style="text-decoration: underline wavy color-mix(in srgb, var(--bad) 70%, transparent); text-underline-offset: 4px">“like a trapped animal”</span><button class="cite" style="background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad)" aria-label="Citation 6, not found in your copy">6</button>.</p>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 4px; margin-top: 16px; flex-wrap: wrap">
+        <button class="ibtn" aria-label="Copy reply" style="width: 34px; height: 34px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true" style="width: 16px; height: 16px"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path></svg></button>
+        <button class="ibtn" aria-label="Ask again" style="width: 34px; height: 34px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 16px; height: 16px"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4"></path></svg></button>
+        <span class="faint" style="font-size: 12.5px; margin-left: 8px">6 quotes · 5 match your copy · 1 not found · ~$0.04</span>
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; margin-top: 40px">
+      <div style="max-width: 600px; background: var(--surface2); border: 1px solid var(--line); border-radius: 20px 20px 6px 20px; padding: 16px 20px; font-size: 15.5px; line-height: 1.6">So is Hal the unreliable one, or are the Deans?</div>
+    </div>
+    <div style="margin-top: 28px" aria-live="polite">
+      <div style="display: flex; align-items: center; gap: 12px; font-size: 13.5px" class="muted"><span class="pulse"></span>Searching YEAR OF GLAD for “unresponsive”, “neutral”, “appear”…</div>
+      <div style="display: grid; gap: 10px; margin-top: 18px; max-width: 640px" aria-hidden="true">
+        <div class="skel" style="width: 92%"></div><div class="skel" style="width: 78%"></div><div class="skel" style="width: 64%"></div>
+      </div>
+    </div>
+
+    <form class="card" style="margin-top: 48px; padding: 14px 14px 14px 20px; display: flex; align-items: flex-end; gap: 12px; box-shadow: 0 16px 40px -20px rgba(0,0,0,.5)" aria-label="Reply">
+      <div style="flex: 1; min-width: 0">
+        <textarea class="ta" aria-label="Say what you think" placeholder="Say what you think…"></textarea>
+        <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap">
+          <span class="scope" style="min-height: 26px; font-size: 10.5px">THROUGH YEAR OF GLAD</span>
+        </div>
+      </div>
+      <button class="btn" type="button" style="background: var(--surface2); color: var(--muted); min-height: 40px" aria-label="Stop generating"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"></rect></svg>Stop</button>
+    </form>
+  </div>
+
+  <aside style="flex: 1 1 300px; min-width: 0" aria-labelledby="srcs">
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <h2 id="srcs" class="disp" style="font-size: 28px">Sources</h2>
+      <span class="faint" style="font-size: 12.5px">6 passages</span>
+    </div>
+    <p class="muted" style="font-size: 13px; margin-top: 6px">Every quote is checked against your copy of the book.</p>
+    <div style="margin-top: 16px; border-bottom: 1px solid var(--line)">
+      <sc-for list="{{sources}}" as="s" hint-placeholder-count="6">
+        <a class="{{s.cls}}" href="Reader.dc.html">
+          <span class="n">{{s.n}}</span>
+          <div style="min-width: 0">
+            <p class="qq">{{s.q}}</p>
+            <p class="faint" style="font-size: 12px; margin-top: 4px">{{s.where}}</p>
+          </div>
+          <span style="{{s.iconStyle}}" aria-label="{{s.label}}"><sc-if value="{{s.ok}}" hint-placeholder-val="{{ true }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if><sc-if value="{{s.bad}}" hint-placeholder-val="{{ false }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 21h20z"></path><path d="M12 10v5M12 18v.01"></path></svg></sc-if></span>
+        </a>
+      </sc-for>
+    </div>
+    <p style="font-size: 12.5px; margin-top: 14px; color: var(--bad)">“like a trapped animal” isn’t in your copy. Treat it as the assistant’s paraphrase.</p>
+  </aside>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","sepia","light"],"default":"dark"},"$preview":{"width":1440,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const t = (this.state && this.state.theme) || this.props.theme || 'dark';
+    const open = !(this.state && this.state.closed);
+    const set = (v) => () => this.setState({ theme: v });
+    const src = [
+      ['1', '“frankly incredible”', 'YEAR OF GLAD · passage 2', 'ok'],
+      ['2', '“I am in here.”', 'YEAR OF GLAD · passage 3', 'ok'],
+      ['3', '“I believe I appear neutral”', 'YEAR OF GLAD · passage 4', 'ok'],
+      ['4', '“slowly. Distinctly.”', 'YEAR OF GLAD · passage 31', 'ok'],
+      ['5', '“subanimalistic noises”', 'YEAR OF GLAD · passage 38', 'ok'],
+      ['6', '“like a trapped animal”', 'Not found in your copy', 'bad']
+    ];
+    return {
+      theme: t,
+      sbL: 'sb' + (t === 'light' ? ' on' : ''), sbS: 'sb' + (t === 'sepia' ? ' on' : ''), sbD: 'sb' + (t === 'dark' ? ' on' : ''),
+      pL: t === 'light' ? 'true' : 'false', pS: t === 'sepia' ? 'true' : 'false', pD: t === 'dark' ? 'true' : 'false',
+      setL: set('light'), setS: set('sepia'), setD: set('dark'),
+      isOpen: open,
+      open: open ? 'true' : 'false',
+      c2: 'cite' + (open ? ' act' : ''),
+      toggle: () => this.setState({ closed: open }),
+      sources: src.map((s) => ({
+        n: s[0], q: s[1], where: s[2], ok: s[3] === 'ok', bad: s[3] === 'bad',
+        label: s[3] === 'ok' ? 'Matches your copy' : 'Not found in your copy',
+        iconStyle: s[3] === 'ok' ? 'color: var(--ok)' : 'color: var(--bad)',
+        cls: 'src' + (s[0] === '2' && open ? ' on' : '')
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>
