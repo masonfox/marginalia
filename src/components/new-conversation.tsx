@@ -71,10 +71,11 @@ export function NewConversation({
 					</Button>
 				</DialogClose>
 				{/* Only the body scrolls: long scopes and additional books cannot push
-				    the dismissal action out of the viewport. Native focus scrolling
-				    keeps the composer's Start action reachable by keyboard too. */}
+				    the dismissal action out of the viewport. Match the scrollport's
+				    focus inset to its padding, with room for button focus rings, so
+				    native keyboard scrolling reveals the whole action above the footer. */}
 				<div
-					className="min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-7"
+					className="min-h-0 scroll-py-5 overflow-y-auto overscroll-contain p-5 sm:scroll-py-7 sm:p-7 [&_button]:scroll-my-2"
 					data-testid="new-conversation-body"
 				>
 					{/* Mounted only while open, so the AI status is fetched on opening. */}
