@@ -70,6 +70,11 @@ vi.mock("#/fns/guide", () => ({
 	setReadingPositionFn: vi.fn(),
 }));
 vi.mock("#/fns/settings", () => ({ listModelsFn: vi.fn() }));
+vi.mock("#/fns/progress-book", () => ({
+	getBookSyncFn: vi.fn(async () => null),
+	setBookSyncExcludedFn: vi.fn(),
+	syncBookFn: vi.fn(),
+}));
 vi.mock("#/fns/library", () => ({
 	listShelfFn: (...args: unknown[]) => mocks.shelf(...args),
 	getEditionFn: (...args: unknown[]) => mocks.edition(...args),

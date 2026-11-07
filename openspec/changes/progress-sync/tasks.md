@@ -37,8 +37,8 @@
 
 ## 7. Position control
 
-- [ ] 7.1 Show a synced position's source, raw reading and relative time, plus the "moved back from …" note, in the position control, reading them from the source link when a sync cleared the position to unset. Verify component tests for the spec scenarios under "Position source".
-- [ ] 7.2 Add per-book "Sync" and "Exclude from sync / Include in sync" actions to the position control. Verify component tests and an integration test that an excluded book isn't changed.
+- [x] 7.1 Show a synced position's source, raw reading and relative time, plus the "moved back from …" note, in the position control, reading them from the source link when a sync cleared the position to unset. Verify component tests for the spec scenarios under "Position source".
+- [x] 7.2 Add per-book "Sync" and "Exclude from sync / Include in sync" actions to the position control. Verify component tests and an integration test that an excluded book isn't changed.
 
 ## 8. Built-in providers: BookOrbit and Hardcover
 

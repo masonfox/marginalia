@@ -18,6 +18,7 @@ export {
 	type ProviderErrorReason,
 	RateLimitedError,
 } from "./errors";
+export { setSyncExcluded } from "./exclude";
 export { readingFingerprint } from "./fingerprint";
 export { normalizeIsbn } from "./isbn";
 export {

@@ -6,6 +6,11 @@ import {
 	ScopePill,
 	ProgressBar as SharedProgressBar,
 } from "#/components/pieces";
+import {
+	SyncActions,
+	SyncDetails,
+	SyncMessage,
+} from "#/components/position-sync";
 import { type Choice, positionChoice, ScopeChoices } from "#/components/scope";
 import {
 	AlertDialog,
@@ -28,6 +33,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "#/components/ui/dialog";
+import { useBookSync } from "#/hooks/use-book-sync";
 import {
 	type SaveResult,
 	useReadingPosition,
@@ -66,6 +72,7 @@ export function ReadingPositionControl({
 	compact?: boolean;
 }) {
 	const reading = useReadingPosition(editionId);
+	const bookSync = useBookSync(editionId);
 	const { position: current, units, busy, error } = reading;
 	const [open, setOpen] = useState(false);
 	const [choice, setChoice] = useState<Choice | null>(null);
@@ -108,6 +115,7 @@ export function ReadingPositionControl({
 					{error}
 				</p>
 			)}
+			<SyncMessage sync={bookSync} />
 			<MoveBackDialog reading={reading} label={label} onSettled={after} />
 		</>
 	);
@@ -222,7 +230,11 @@ export function ReadingPositionControl({
 				) : (
 					status
 				)}
+				<div className="basis-full empty:hidden">
+					<SyncDetails sync={bookSync} />
+				</div>
 				<div>{dialog}</div>
+				<SyncActions sync={bookSync} compact />
 				{alerts}
 			</section>
 		);
@@ -252,6 +264,7 @@ export function ReadingPositionControl({
 			) : (
 				status
 			)}
+			<SyncDetails sync={bookSync} />
 			<div className="mt-4 flex flex-wrap items-center gap-1.5">
 				{next && (
 					<Button asChild variant="outline">
@@ -266,6 +279,7 @@ export function ReadingPositionControl({
 					</Button>
 				)}
 				{dialog}
+				<SyncActions sync={bookSync} />
 			</div>
 			{alerts}
 		</section>
