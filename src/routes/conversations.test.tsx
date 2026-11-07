@@ -342,4 +342,32 @@ describe("conversation calendar groups", () => {
 		]);
 		expect(groups.flatMap((g) => g.items)).toEqual(items);
 	});
+
+	it("groups by UTC calendar days and labels months in UTC when asked", () => {
+		// Thursday 2026-01-01 00:30 UTC: still Dec 31 in negative-offset zones.
+		const now = new Date(Date.UTC(2026, 0, 1, 0, 30));
+		const items = [
+			new Date(Date.UTC(2026, 0, 1, 0, 0)),
+			new Date(Date.UTC(2025, 11, 31, 23, 59)),
+			new Date(Date.UTC(2025, 11, 30, 23, 59)),
+			new Date(Date.UTC(2025, 11, 29, 0, 0)),
+			new Date(Date.UTC(2025, 11, 28, 23, 59)),
+			new Date(Date.UTC(2025, 10, 1, 0, 0)),
+		].map((updatedAt, id) => ({ id, updatedAt }));
+		const groups = groupConversationsByDate(items, now, { utc: true });
+		expect(groups.map((g) => [g.label, g.items.map((i) => i.id)])).toEqual([
+			["Today", [0]],
+			["Yesterday", [1]],
+			["This week", [2, 3]],
+			["December 2025", [4]],
+			["November 2025", [5]],
+		]);
+	});
+
+	it("omits the year for months in the current UTC year in UTC mode", () => {
+		const now = new Date(Date.UTC(2026, 5, 15, 12));
+		const items = [{ id: 0, updatedAt: new Date(Date.UTC(2026, 2, 1, 0, 0)) }];
+		const groups = groupConversationsByDate(items, now, { utc: true });
+		expect(groups.map((g) => g.label)).toEqual(["March"]);
+	});
 });

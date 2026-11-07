@@ -190,19 +190,21 @@ describe("search", () => {
 		expect(await titles({ q: "woolf", status })).toEqual(expected);
 	});
 
-	it("counts the library, the matches, and what needs attention", async () => {
+	it("counts the library, the matches, what needs attention, and each status regardless of the search", async () => {
 		const page = await listShelf(t.db, { q: "woolf", status: "finished" });
 		expect(page).toMatchObject({
 			total: 12,
 			matching: 1,
 			needsAttention: 2,
 			processing: 1,
+			statusCounts: { "not-started": 8, reading: 1, finished: 1 },
 		});
 		expect(await listShelf(t.db, {})).toMatchObject({
 			total: 12,
 			matching: 12,
 			needsAttention: 2,
 			processing: 1,
+			statusCounts: { "not-started": 8, reading: 1, finished: 1 },
 		});
 		expect(await listShelf(t.db, { q: "nothing like this" })).toMatchObject({
 			items: [],
@@ -211,6 +213,7 @@ describe("search", () => {
 			matching: 0,
 			needsAttention: 2,
 			processing: 1,
+			statusCounts: { "not-started": 8, reading: 1, finished: 1 },
 		});
 	});
 });
@@ -279,6 +282,7 @@ describe("paging", () => {
 			matching: expect.any(Number),
 			needsAttention: expect.any(Number),
 			processing: expect.any(Number),
+			statusCounts: expect.any(Object),
 		});
 		expect(first.nextCursor).not.toBeNull();
 		const next = await listShelf(t.db, {
@@ -291,6 +295,7 @@ describe("paging", () => {
 			matching: null,
 			needsAttention: null,
 			processing: null,
+			statusCounts: null,
 		});
 	});
 
@@ -339,6 +344,7 @@ describe("reading shelf", () => {
 		expect(await listReadingShelf(t.db, { limit: 4 })).toEqual({
 			items: [],
 			total: 0,
+			statusCounts: { "not-started": 0, reading: 0, finished: 0 },
 		});
 	});
 
@@ -367,6 +373,12 @@ describe("reading shelf", () => {
 
 		const shelf = await listReadingShelf(t.db, { limit: 4 });
 		expect(shelf.total).toBe(9);
+		// Unavailable, processing, and failed books count in no reading status.
+		expect(shelf.statusCounts).toEqual({
+			"not-started": 1,
+			reading: 3,
+			finished: 1,
+		});
 		expect(shelf.items).toEqual([
 			{
 				id: jest,

@@ -6,6 +6,7 @@ import { ConversationRow } from "#/components/conversation-list";
 import { Eyebrow } from "#/components/pieces";
 import { Button } from "#/components/ui/button";
 import { listRecentConversationsFn } from "#/fns/conversations";
+import { useHydrated } from "#/hooks/use-hydrated";
 import { useSentinel } from "#/hooks/use-sentinel";
 import { uniqueById } from "#/lib/conversation-pages";
 
@@ -39,7 +40,11 @@ function ConversationsPage() {
 	const visible = conversations.filter(
 		(c) => !bookFilter || c.books.some((b) => b.editionId === bookFilter),
 	);
-	const groups = groupConversationsByDate(visible);
+	// The server and the hydrating client group in UTC so their labels match; local time follows hydration.
+	const hydrated = useHydrated();
+	const groups = groupConversationsByDate(visible, undefined, {
+		utc: !hydrated,
+	});
 	const { hasNextPage, isFetching, isFetchNextPageError, fetchNextPage } = list;
 	const loadMore = useCallback(() => {
 		void fetchNextPage();
@@ -144,15 +149,29 @@ function ConversationsPage() {
 	);
 }
 
-/** Calendar groups preserve the server's most-recent-first order. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Calendar groups preserve the server's most-recent-first order. With `utc`, day boundaries and month labels use UTC. */
 export function groupConversationsByDate<
 	T extends { updatedAt: Date | string },
->(items: T[], now = new Date()) {
-	const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-	const yesterday = new Date(today);
-	yesterday.setDate(today.getDate() - 1);
-	const week = new Date(today);
-	week.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+>(items: T[], now = new Date(), { utc = false }: { utc?: boolean } = {}) {
+	let today: Date;
+	let yesterday: Date;
+	let week: Date;
+	if (utc) {
+		today = new Date(
+			Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+		);
+		yesterday = new Date(today.getTime() - DAY_MS);
+		week = new Date(today.getTime() - ((today.getUTCDay() + 6) % 7) * DAY_MS);
+	} else {
+		today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+		yesterday = new Date(today);
+		yesterday.setDate(today.getDate() - 1);
+		week = new Date(today);
+		week.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+	}
+	const year = (d: Date) => (utc ? d.getUTCFullYear() : d.getFullYear());
 	const groups = new Map<string, T[]>();
 	for (const item of items) {
 		const date = new Date(item.updatedAt);
@@ -165,9 +184,10 @@ export function groupConversationsByDate<
 						? "This week"
 						: date.toLocaleDateString("en", {
 								month: "long",
-								...(date.getFullYear() !== now.getFullYear()
+								...(year(date) !== year(now)
 									? { year: "numeric" as const }
 									: {}),
+								...(utc ? { timeZone: "UTC" } : {}),
 							});
 		const group = groups.get(label) ?? [];
 		group.push(item);

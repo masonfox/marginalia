@@ -256,7 +256,7 @@ The action SHALL be reachable and operable by pointer, touch, and keyboard, SHAL
 - **THEN** the reference action offers only "Copy link"
 
 ### Requirement: Reading position and Guide on book detail
-For a ready edition, the book page header SHALL show the reading position on every tab: a unit label, "Finished", or "Not set". With it the header SHALL show progress: when a unit is set, which unit it is out of how many and a bar for the share of the book's passages through it; when finished, a full bar; when unset, no bar. The header SHALL offer a control to set, advance, move back, or clear the position, following the reading-position rules, and the header SHALL update as soon as the position changes anywhere on the page. The Guide SHALL be offered as a tab. Editions that are not ready SHALL offer neither.
+For a ready edition, the book page header SHALL show the reading position on every tab: a unit label, "Finished", or "Not set". On the Discuss and Contents tabs the header SHALL be shown in full and SHALL show progress with the position: when a unit is set, which unit it is out of how many and a bar for the share of the book's passages through it; when finished, a full bar; when unset, no bar. On the Guide and About tabs the header SHALL be compact, so the tab's content leads, and SHALL show the position and its control without progress. The header SHALL offer a control to set, advance, move back, or clear the position, following the reading-position rules, and the header SHALL update as soon as the position changes anywhere on the page. The Guide SHALL be offered as a tab. Editions that are not ready SHALL offer neither.
 
 #### Scenario: Set position from the book page
 - **WHEN** a reader opens a ready book with no position and sets it to Chapter 3 from the header
@@ -270,6 +270,10 @@ For a ready edition, the book page header SHALL show the reading position on eve
 - **WHEN** a reader moves from Discuss to Contents
 - **THEN** the header still shows the reading position and its progress
 
+#### Scenario: Compact header on the Guide
+- **WHEN** a reader whose position is Chapter 3 moves from Discuss to Guide
+- **THEN** the compact header still shows the position as Chapter 3 with its control, without the unit count or bar, and the progress returns when the reader goes back to Discuss or Contents
+
 #### Scenario: Open the Guide
 - **WHEN** a reader selects the Guide tab on a ready book
 - **THEN** the book's Guide opens
@@ -282,11 +286,15 @@ When an edition has reader notes, corrections, or confirmed subjects, the deleti
 - **THEN** the confirmation says the book's notes and guide edits will be deleted
 
 ### Requirement: Dashboard
-The page at the site root SHALL be titled "Dashboard" and SHALL show, in order, the Continue section and the Reading section. It SHALL NOT show the library list, its count, the library search, the status filter, or the upload and rescan actions; those are on the Library page. When the library holds no editions, the dashboard SHALL say that there are no books yet and SHALL link to the Library page to upload one. When the library holds editions but neither section has anything to show, the dashboard SHALL link to the Library page.
+The page at the site root SHALL be titled "Dashboard" and SHALL show, in order, the Continue section and the Reading section. It SHALL also show a compact library summary: the library's total number of books and the counts of books in the Reading and Finished states, each linking to the Library page, the status counts to the Library filtered to that status. It SHALL NOT show the library list, the library search, the status filter, or the upload and rescan actions; those are on the Library page. When the library holds no editions, the dashboard SHALL say that there are no books yet and SHALL link to the Library page to upload one. When the library holds editions but neither section has anything to show, the dashboard SHALL link to the Library page.
 
 #### Scenario: Dashboard with activity
 - **WHEN** the reader has recent conversations and is reading two books
-- **THEN** the dashboard shows the Continue section followed by the Reading section, and no search box, status filter, or upload action
+- **THEN** the dashboard shows the Continue section followed by the Reading section, and no library list, search box, status filter, or upload action
+
+#### Scenario: Library summary
+- **WHEN** the library holds ten books, two being read and three finished, and the reader opens the dashboard
+- **THEN** the dashboard shows a library summary of 10 books, 2 Reading, and 3 Finished; selecting the total opens the Library page, and selecting Reading opens the Library filtered to Reading
 
 #### Scenario: Empty library
 - **WHEN** a reader opens the dashboard and no books have been imported
@@ -297,7 +305,7 @@ The page at the site root SHALL be titled "Dashboard" and SHALL show, in order, 
 - **THEN** the dashboard shows neither section and links to the Library page
 
 ### Requirement: Reading section on the dashboard
-When at least one edition is in the Reading state (a ready edition with a reading position that is not finished, as on the library list), the dashboard SHALL show a "Reading" section listing those editions, most recently updated reading position first, with at most four on wider viewports and at most two on narrow viewports. Each book SHALL show its cover (or a placeholder), title, authors, and its reading position as "Through" followed by the position's label, and selecting it SHALL open the book's page. The section SHALL link to the Library page filtered to Reading. When no edition is in the Reading state, the section SHALL NOT be shown. Unavailable, processing, and failed editions SHALL NOT be shown in the section.
+When at least one edition is in the Reading state (a ready edition with a reading position that is not finished, as on the library list), the dashboard SHALL show a Reading section titled "On the nightstand" listing those editions, most recently updated reading position first, with at most four on every viewport. On wider viewports the books SHALL be laid out as a grid; on narrow viewports they SHALL be a single row that scrolls horizontally within the section, with about two books fully visible at 360 pixels wide, and the page SHALL NOT scroll horizontally. Each book SHALL show its cover (or a placeholder), title, authors, and its reading position as "Through" followed by the position's label, and selecting it SHALL open the book's page. The section SHALL link to the Library page filtered to Reading, with the link text "See all books you're reading". When no edition is in the Reading state, the section SHALL NOT be shown. Unavailable, processing, and failed editions SHALL NOT be shown in the section.
 
 #### Scenario: Most recent position first
 - **WHEN** the reader set a position in "Mrs Dalloway" yesterday and in "Infinite Jest" today
@@ -309,11 +317,11 @@ When at least one edition is in the Reading state (a ready edition with a readin
 
 #### Scenario: More books than fit
 - **WHEN** six books are being read and the reader opens the dashboard on a desktop
-- **THEN** the four with the most recently updated positions are shown, with a link that opens the Library filtered to Reading
+- **THEN** the four with the most recently updated positions are shown, with a "See all books you're reading" link that opens the Library filtered to Reading
 
 #### Scenario: On a phone
 - **WHEN** three books are being read and the reader opens the dashboard at 360 pixels wide
-- **THEN** two books are shown
+- **THEN** the first two books are fully visible, the third is reachable by scrolling the shelf sideways, and the page does not scroll horizontally
 
 #### Scenario: Finished and unstarted books
 - **WHEN** the library holds only finished books and books with no reading position

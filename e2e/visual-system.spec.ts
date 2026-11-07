@@ -33,6 +33,8 @@ interface Fixtures {
 	conversationId?: string;
 	citationConversationId?: string;
 	readerLocator?: string;
+	/** A ready, available edition with an in-progress reading position exists. */
+	hasReadingBook?: boolean;
 }
 let fixtures: Fixtures = {};
 test.use({ reducedMotion: "reduce", timezoneId: "America/New_York" });
@@ -93,6 +95,13 @@ test.beforeAll(async () => {
 				[edition.rows[0].id],
 			)
 		: undefined;
+	const reading = await db.query<{ exists: boolean }>(
+		`select exists (select 1 from editions e
+     join reading_positions rp on rp.edition_id = e.id
+     where e.status = 'ready' and rp.max_position is not null
+     and exists (select 1 from library_files lf
+       where lf.sha256 = e.sha256 and lf.status = 'available')) as exists`,
+	);
 	fixtures = {
 		edition: edition.rows[0],
 		additionalEdition: additional?.rows[0],
@@ -100,6 +109,7 @@ test.beforeAll(async () => {
 		citationConversationId: citation.rows[0]?.id,
 		readerLocator:
 			process.env.E2E_VISUAL_READER_LOCATOR ?? passage?.rows[0]?.locator,
+		hasReadingBook: reading.rows[0]?.exists ?? false,
 	};
 });
 test.afterAll(async () => {
@@ -444,15 +454,16 @@ for (const theme of themes) {
 		test(`dashboard new-conversation ${theme} ${width}`, async ({
 			page,
 		}, info) => {
+			test.skip(
+				!fixtures.hasReadingBook,
+				"Dashboard dialog requires an existing in-progress reading position",
+			);
 			await prepare(page, theme, width);
 			await login(page);
 			const hero = page.locator(
 				'section[aria-labelledby="continue-reading-title"]',
 			);
-			test.skip(
-				(await hero.count()) === 0,
-				"Dashboard dialog requires an existing in-progress reading position",
-			);
+			await expect(hero).toBeVisible();
 			const title = await hero.getByRole("heading", { level: 1 }).innerText();
 			const trigger = hero.getByRole("button", {
 				name: "New conversation",

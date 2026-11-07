@@ -1,4 +1,4 @@
-import { queryOptions, useQueries, useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { z } from "zod";
 import {
@@ -7,12 +7,12 @@ import {
 	DashboardEmpty,
 	ReadingSection,
 } from "#/components/dashboard";
-import { listReadingShelfFn, listShelfFn } from "#/fns/library";
+import { listReadingShelfFn } from "#/fns/library";
 import { continueQuery } from "#/lib/continue-query";
 import { MAX_SHELF_QUERY, SHELF_FILTERS } from "#/lib/shelf-status";
 
 /**
- * The books being read and the library's size. Upload, retry, and delete
+ * The books being read, the library's size, and its per-status counts. Upload, retry, and delete
  * invalidate it; it refetches on mount, so a position set on a book's page
  * shows up on return.
  */
@@ -60,12 +60,7 @@ function DashboardPage() {
 	const reading = shelf.data?.items ?? [];
 	const total = shelf.data?.total ?? 0;
 
-	const counts = useQueries({
-		queries: (["reading", "finished"] as const).map((status) => ({
-			queryKey: ["shelf", "count", status],
-			queryFn: () => listShelfFn({ data: { status } }),
-		})),
-	});
+	const statusCounts = shelf.data?.statusCounts;
 	const active = reading[0];
 	const conversation = active
 		? conversations.find((c) => c.books.some((b) => b.editionId === active.id))
@@ -94,7 +89,7 @@ function DashboardPage() {
 							<span className="text-muted-foreground">All books</span>
 							<span className="font-serif text-3xl">{total}</span>
 						</Link>
-						{(["reading", "finished"] as const).map((status, i) => (
+						{(["reading", "finished"] as const).map((status) => (
 							<Link
 								key={status}
 								to="/library"
@@ -105,7 +100,7 @@ function DashboardPage() {
 									{status === "reading" ? "Reading" : "Finished"}
 								</span>
 								<span className="font-serif text-3xl">
-									{counts[i]?.data?.matching ?? "\u2014"}
+									{statusCounts?.[status] ?? "\u2014"}
 								</span>
 							</Link>
 						))}
