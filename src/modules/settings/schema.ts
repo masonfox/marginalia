@@ -19,6 +19,7 @@ export const aiSettings = pgTable(
 		id: smallint("id").primaryKey().default(1),
 		chatProvider: text("chat_provider").$type<AiProviderName>(),
 		chatModel: text("chat_model"),
+		discussionPrompt: text("discussion_prompt"),
 		/** Null when nothing is saved; `model` uses the preprocess pair. */
 		preprocessMode: text("preprocess_mode", {
 			enum: ["same-as-chat", "model"],

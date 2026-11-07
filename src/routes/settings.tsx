@@ -16,12 +16,16 @@ import { getShellInfo } from "#/fns/library";
 import {
 	clearChatDefaultFn,
 	clearPreprocessDefaultFn,
+	getDiscussionPromptFn,
 	listProviderCredentialsFn,
 	removeProviderCredentialsFn,
+	resetDiscussionPromptFn,
 	saveChatDefaultFn,
+	saveDiscussionPromptFn,
 	savePreprocessDefaultFn,
 	saveProviderCredentialsFn,
 } from "#/fns/settings";
+import { discussionPromptError } from "#/lib/conversation-prompt";
 import {
 	setThemeChoice,
 	THEMES,
@@ -30,6 +34,11 @@ import {
 } from "#/lib/theme";
 import type { AiDefault } from "#/modules/settings";
 import type { AiProviderName, AiSelection } from "#/server/config";
+
+const promptQuery = queryOptions({
+	queryKey: ["discussion-prompt"],
+	queryFn: () => getDiscussionPromptFn(),
+});
 
 const statusQuery = queryOptions({
 	queryKey: ["ai-status"],
@@ -43,6 +52,7 @@ const credentialsQuery = queryOptions({
 export const Route = createFileRoute("/settings")({
 	loader: async ({ context }) => {
 		await Promise.all([
+			context.queryClient.ensureQueryData(promptQuery),
 			context.queryClient.ensureQueryData(statusQuery),
 			context.queryClient.ensureQueryData(credentialsQuery),
 		]);
@@ -79,6 +89,7 @@ function SettingsPage() {
 						["appearance", "Appearance"],
 						["providers", "Providers"],
 						["models", "Default models"],
+						["conversation-prompt", "Conversation prompt"],
 						["library", "Library"],
 						["access", "Access"],
 					].map(([id, label]) => (
@@ -159,6 +170,7 @@ function SettingsPage() {
 							</>
 						)}
 					</div>
+					<ConversationPrompt />
 					<InstanceSettings />
 				</div>
 			</div>
@@ -502,5 +514,102 @@ function InstanceSettings() {
 				)}
 			</section>
 		</>
+	);
+}
+
+function ConversationPrompt() {
+	const { data } = useQuery(promptQuery);
+	const queryClient = useQueryClient();
+	const save = useServerFn(saveDiscussionPromptFn);
+	const reset = useServerFn(resetDiscussionPromptFn);
+	const [draft, setDraft] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	if (!data) return <output>Loading conversation prompt...</output>;
+	const text = draft ?? data.text;
+	const run = async (resetting: boolean) => {
+		const invalid = resetting ? null : discussionPromptError(text);
+		if (invalid) {
+			setError(invalid);
+			return;
+		}
+		setBusy(true);
+		setError(null);
+		try {
+			if (resetting) {
+				const latest = await reset();
+				queryClient.setQueryData(promptQuery.queryKey, latest);
+			} else {
+				const result = await save({ data: text });
+				if (result.error) {
+					setError(result.error);
+					return;
+				}
+			}
+			await queryClient.invalidateQueries({ queryKey: promptQuery.queryKey });
+			setDraft(null);
+		} catch {
+			setError("The conversation prompt could not be saved. Please try again.");
+		} finally {
+			setBusy(false);
+		}
+	};
+	return (
+		<section
+			id="conversation-prompt"
+			aria-label="Conversation prompt"
+			className="scroll-mt-8 border-t py-8 space-y-4"
+		>
+			<h2 className="font-serif text-[30px] font-semibold">
+				Conversation prompt
+			</h2>
+			<p>
+				Current:{" "}
+				<strong>{data.mode === "custom" ? "Custom" : "Default"}</strong>
+			</p>
+			<p className="text-sm text-muted-foreground">
+				Saving replaces the global discussion instructions for the next reply in
+				all new and existing conversations. Unsaved edits have no effect. Custom
+				prompts do not receive default discussion improvements; Return to
+				default restores the latest default and future improvements.
+			</p>
+			<p className="text-sm text-muted-foreground">
+				You own grounding, interpretation, stance, style, and spoiler behavior.
+				Marginalia still maintains citation syntax, tool contracts and budgets,
+				and current book and scope context. Scope controls still bound tool
+				access, and citations are verified. Changing spoiler instructions can
+				reveal later events from the assistant’s own knowledge.
+			</p>
+			<label htmlFor="discussion-prompt" className="block text-sm font-medium">
+				Discussion instructions
+			</label>
+			<textarea
+				id="discussion-prompt"
+				rows={18}
+				value={text}
+				disabled={busy}
+				onChange={(e) => setDraft(e.target.value)}
+				aria-describedby="discussion-prompt-limit"
+				className="w-full rounded-md border bg-background p-3 text-sm"
+			/>
+			<p id="discussion-prompt-limit" className="text-sm text-muted-foreground">
+				{text.length.toLocaleString()} / 32,000 characters
+			</p>
+			{error && (
+				<p role="alert" className="text-sm text-destructive-foreground">
+					{error}
+				</p>
+			)}
+			<div className="flex gap-2">
+				<Button disabled={busy} onClick={() => run(false)}>
+					Save conversation prompt
+				</Button>
+				{data.mode === "custom" && (
+					<Button variant="outline" disabled={busy} onClick={() => run(true)}>
+						Return to default
+					</Button>
+				)}
+			</div>
+		</section>
 	);
 }

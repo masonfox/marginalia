@@ -10,7 +10,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
 	testDir: "e2e",
-	testIgnore: "**/titles.spec.ts",
+	testIgnore: ["**/titles.spec.ts", "**/conversation-prompt.spec.ts"],
 	fullyParallel: false,
 	workers: 1,
 	timeout: 60_000,

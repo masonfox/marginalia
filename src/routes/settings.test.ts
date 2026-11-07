@@ -9,6 +9,9 @@ import type { AiSelection } from "#/server/config";
 import { Route } from "./settings";
 
 const mocks = vi.hoisted(() => ({
+	prompt: vi.fn(),
+	savePrompt: vi.fn(),
+	resetPrompt: vi.fn(),
 	status: vi.fn(),
 	credentials: vi.fn(),
 	models: vi.fn(),
@@ -25,6 +28,9 @@ vi.mock("#/fns/library", () => ({
 }));
 vi.mock("#/fns/conversations", () => ({ getAiStatusFn: mocks.status }));
 vi.mock("#/fns/settings", () => ({
+	getDiscussionPromptFn: mocks.prompt,
+	saveDiscussionPromptFn: mocks.savePrompt,
+	resetDiscussionPromptFn: mocks.resetPrompt,
 	listModelsFn: mocks.models,
 	listProviderCredentialsFn: mocks.credentials,
 	saveProviderCredentialsFn: vi.fn(),
@@ -62,6 +68,10 @@ beforeEach(() => {
 		preprocess: { selection: gpt, available: true, sameAsChat: false },
 	};
 	mocks.status.mockImplementation(async () => status);
+	mocks.prompt.mockResolvedValue({
+		mode: "default",
+		text: "Managed discussion policy",
+	});
 	mocks.credentials.mockResolvedValue([]);
 	mocks.models.mockResolvedValue({ models: [], error: null });
 	mocks.saveChat.mockResolvedValue({ error: null });
@@ -86,6 +96,7 @@ async function mount() {
 	// The route loader fills these before the page renders.
 	client.setQueryData(["ai-status"], status);
 	client.setQueryData(["provider-credentials"], []);
+	client.setQueryData(["discussion-prompt"], await mocks.prompt());
 	const Page = Route.options.component as ComponentType;
 	await act(async () => {
 		root = createRoot(container);
@@ -317,5 +328,95 @@ describe("Appearance", () => {
 		await click(system);
 		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe(current);
 		expect(system.checked).toBe(false);
+	});
+});
+
+describe("Conversation prompt settings", () => {
+	const edit = async (text: string) => {
+		const textarea = card("Conversation prompt").querySelector("textarea");
+		if (!textarea) throw new Error("No prompt editor");
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(
+				HTMLTextAreaElement.prototype,
+				"value",
+			)?.set?.call(textarea, text);
+			textarea.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+	};
+	it("saves verbatim without providers, reloads custom text, discards drafts, and resets to an upgraded default", async () => {
+		status = {
+			enabled: false,
+			providers: [],
+			chat: { selection: null, available: false },
+			preprocess: { selection: null, available: false, sameAsChat: true },
+		};
+		let current = { mode: "default", text: "Managed discussion policy" };
+		mocks.prompt.mockImplementation(async () => current);
+		mocks.savePrompt.mockImplementation(async ({ data }: { data: string }) => {
+			current = { mode: "custom", text: data };
+			return { error: null };
+		});
+		mocks.resetPrompt.mockImplementation(async () => {
+			current = { mode: "default", text: "Upgraded discussion policy" };
+			return current;
+		});
+		await mount();
+		await edit("  My discussion policy\n");
+		await click(
+			button(card("Conversation prompt"), "Save conversation prompt"),
+		);
+		expect(mocks.savePrompt).toHaveBeenCalledWith({
+			data: "  My discussion policy\n",
+		});
+		expect(card("Conversation prompt").textContent).toContain("Custom");
+		await edit("discard this draft");
+		await act(() => root.unmount());
+		container.remove();
+		await mount();
+		expect(card("Conversation prompt").querySelector("textarea")?.value).toBe(
+			"  My discussion policy\n",
+		);
+		// Upgrade while custom stays effective; reset must fetch the latest value.
+		await click(button(card("Conversation prompt"), "Return to default"));
+		expect(card("Conversation prompt").querySelector("textarea")?.value).toBe(
+			"Upgraded discussion policy",
+		);
+		expect(card("Conversation prompt").textContent).toContain("Default");
+	});
+	it("validates blanks and length on the client, and preserves drafts after refused or failed saves", async () => {
+		await mount();
+		await edit("  \n");
+		await click(
+			button(card("Conversation prompt"), "Save conversation prompt"),
+		);
+		expect(
+			card("Conversation prompt").querySelector('[role="alert"]')?.textContent,
+		).toContain("Enter a discussion prompt");
+		await edit("x".repeat(32001));
+		await click(
+			button(card("Conversation prompt"), "Save conversation prompt"),
+		);
+		expect(
+			card("Conversation prompt").querySelector('[role="alert"]')?.textContent,
+		).toContain("32,000");
+		expect(mocks.savePrompt).not.toHaveBeenCalled();
+		mocks.savePrompt.mockResolvedValue({ error: "Server refused this save" });
+		await edit("My draft");
+		await click(
+			button(card("Conversation prompt"), "Save conversation prompt"),
+		);
+		expect(card("Conversation prompt").textContent).toContain(
+			"Server refused this save",
+		);
+		mocks.savePrompt.mockRejectedValue(new Error("offline"));
+		await click(
+			button(card("Conversation prompt"), "Save conversation prompt"),
+		);
+		expect(card("Conversation prompt").textContent).toContain(
+			"could not be saved",
+		);
+		expect(card("Conversation prompt").querySelector("textarea")?.value).toBe(
+			"My draft",
+		);
 	});
 });

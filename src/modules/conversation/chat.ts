@@ -31,6 +31,7 @@ import { createRetrieval } from "#/modules/retrieval";
 import {
 	checkSelection,
 	getAiDefaults,
+	getDiscussionPromptOverride,
 	type SaveResult,
 } from "#/modules/settings";
 import { addUsage, NO_USAGE, recordUsage } from "#/modules/usage";
@@ -43,7 +44,8 @@ import { checkPassageRef, type PassageRefInvalid } from "./passage-ref";
 import {
 	buildBookMapMessage,
 	buildSystemPrompt,
-	PROMPT_VERSION,
+	effectiveDiscussionText,
+	effectivePromptIdentity,
 } from "./prompt";
 import {
 	appendMessage,
@@ -178,11 +180,13 @@ export async function startChat(
 			inFlight.delete(conversation.id);
 			return { status: "nothing_to_retry" };
 		}
+		const discussionPrompt = await getDiscussionPromptOverride(db);
 		const response = generate(
 			deps,
 			resolved,
 			conversation,
 			history,
+			discussionPrompt,
 			input.abortSignal,
 		);
 		return { status: "ok", response };
@@ -289,9 +293,18 @@ function generate(
 	{ model, providerOptions, selection }: Extract<ResolvedModel, { ok: true }>,
 	conversation: ConversationDetail,
 	history: StoredMessage[],
+	discussionPrompt: string | null,
 	abortSignal: AbortSignal | undefined,
 ): Response {
 	const { db, ai, log } = deps;
+	const system = buildSystemPrompt(conversation.books, {
+		maxSteps: ai.maxSteps,
+		discussionPrompt,
+	});
+	const promptIdentity = effectivePromptIdentity(
+		effectiveDiscussionText(conversation.books, discussionPrompt),
+		discussionPrompt === null ? "default" : "custom",
+	);
 	const retrieval = createRetrieval(db);
 	const verifyDeps = { retrieval, books: conversation.books };
 	const tools = createConversationTools({
@@ -324,9 +337,7 @@ function generate(
 			const map = buildBookMapMessage(conversation.books, bookMaps.maps);
 			const result = streamText({
 				model,
-				system: buildSystemPrompt(conversation.books, {
-					maxSteps: ai.maxSteps,
-				}),
+				system,
 				messages: [
 					...(map === null ? [] : [{ role: "user" as const, content: map }]),
 					...(await convertToModelMessages(history.map(toUIMessage), {
@@ -405,7 +416,7 @@ function generate(
 							: (finishReason ?? "stop"),
 					provider: selection.provider,
 					model: modelName,
-					promptVersion: PROMPT_VERSION,
+					promptVersion: promptIdentity,
 					error: failure,
 					guideContext,
 				});
