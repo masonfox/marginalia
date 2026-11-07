@@ -128,6 +128,26 @@ export function testResultMessage(label: string, result: TestResult): string {
 }
 
 /**
+ * Details that only say again what the status's message says, such as
+ * "Unauthorized" or "Hardcover rejected the API token" under "Hardcover
+ * rejected the credentials.": not shown, so the reason reads once.
+ */
+const RESTATED: Record<TestResult["status"], RegExp | null> = {
+	ok: null,
+	rejected:
+		/^(unauthori[sz]ed|forbidden|invalid credentials|http 40[13]|.* rejected the (credentials|api token|api key|password))\.?$/i,
+	unreachable: /^.* could not be reached\.?$/i,
+	"rate-limited":
+		/^(too many requests|rate limited|http 429|.* is rate limiting requests)\.?$/i,
+};
+
+/** True when a test result's detail adds nothing to its message. */
+export function restatesStatus(result: TestResult): boolean {
+	const pattern = RESTATED[result.status];
+	return !!pattern && !!result.detail && pattern.test(result.detail.trim());
+}
+
+/**
  * Tests a provider with the form's unsaved values merged over its saved
  * configuration. A blank or omitted secret uses the saved one; a plain field
  * that is given replaces the saved value (blank clears it). Nothing is
@@ -182,9 +202,10 @@ export async function testProviderConnection(
 			detail: err instanceof Error ? err.message : String(err),
 		};
 	}
-	const detail = result.detail
-		? maskSecrets(result.detail).slice(0, MAX_DETAIL_LENGTH)
-		: undefined;
+	const detail =
+		result.detail && !restatesStatus(result)
+			? maskSecrets(result.detail).slice(0, MAX_DETAIL_LENGTH)
+			: undefined;
 	return {
 		...result,
 		detail,

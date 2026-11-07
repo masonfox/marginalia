@@ -102,7 +102,7 @@ function fakeActions(): {
 		test: vi.fn(async () => ({
 			status: "rejected" as const,
 			message: "Hardcover rejected the credentials.",
-			detail: "HTTP 401",
+			detail: "No Hardcover user for this token",
 		})),
 		syncNow: vi.fn(async () => ({ status: "already-queued" as const })),
 		link: vi.fn(async () => ({ status: "ok" as const })),
@@ -245,7 +245,7 @@ describe("Reading sync settings", () => {
 		expect(actions.test).toHaveBeenCalledWith("hardcover", { token: "" });
 		const alert = hc.querySelector('[role="alert"]');
 		expect(hc.textContent).toContain("Hardcover rejected the credentials.");
-		expect(hc.textContent).toContain("HTTP 401");
+		expect(hc.textContent).toContain("No Hardcover user for this token");
 		expect(alert).toBeTruthy();
 
 		await type(input(hc, "API token"), "new-token-1234");

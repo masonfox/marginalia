@@ -23,6 +23,7 @@ interface BookSync {
 	movedBackFrom: string | null;
 	excluded: boolean;
 	linked: boolean;
+	links: { kind: "hardcover" | "bookorbit"; label: string; auto: boolean }[];
 	pending: "queued" | "active" | null;
 }
 
@@ -32,6 +33,7 @@ const mocks = vi.hoisted(() => ({
 	getBookSync: vi.fn(),
 	syncBook: vi.fn(),
 	setExcluded: vi.fn(),
+	unlink: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -51,6 +53,9 @@ vi.mock("#/fns/progress-book", () => ({
 	getBookSyncFn: (...args: unknown[]) => mocks.getBookSync(...args),
 	syncBookFn: (...args: unknown[]) => mocks.syncBook(...args),
 	setBookSyncExcludedFn: (...args: unknown[]) => mocks.setExcluded(...args),
+}));
+vi.mock("#/fns/progress-settings", () => ({
+	unlinkBookFn: (...args: unknown[]) => mocks.unlink(...args),
 }));
 vi.mock("#/hooks/use-reading-position", async (original) => ({
 	...(await original<typeof import("#/hooks/use-reading-position")>()),
@@ -102,6 +107,7 @@ const synced = (over: Partial<BookSync> = {}): BookSync => ({
 	movedBackFrom: null,
 	excluded: false,
 	linked: true,
+	links: [{ kind: "hardcover", label: "Hardcover", auto: true }],
 	pending: null,
 	...over,
 });
@@ -128,6 +134,7 @@ beforeEach(() => {
 	mocks.getBookSync.mockImplementation(async () => mocks.status);
 	mocks.syncBook.mockReset();
 	mocks.setExcluded.mockReset();
+	mocks.unlink.mockReset();
 });
 
 afterEach(() => {
@@ -238,7 +245,7 @@ describe("Position source", () => {
 	});
 
 	it("shows nothing about sync for a book without a provider", async () => {
-		await render(at(5), byHand({ linked: false }));
+		await render(at(5), byHand({ linked: false, links: [] }));
 		expect(text("position-source")).toBeNull();
 		expect(findButton("Sync")).toBeUndefined();
 		expect(findButton("Exclude from sync")).toBeUndefined();
@@ -311,5 +318,86 @@ describe("Per-book sync actions", () => {
 		expect(document.querySelector('[role="alert"]')?.textContent).toBe(
 			"Could not start a sync. Please try again.",
 		);
+	});
+});
+
+describe("Unlink", () => {
+	const unlinkedState = () =>
+		synced({ linked: false, links: [], source: "hardcover" });
+
+	it("confirms in place, unlinks, and says an auto match will not come back", async () => {
+		await render(at(3), synced());
+		await click("Unlink from Hardcover");
+		expect(mocks.unlink).not.toHaveBeenCalled();
+		expect(document.body.textContent).toContain(
+			"Unlink this book from Hardcover?",
+		);
+		expect(findButton("Sync")).toBeUndefined();
+		expect(document.activeElement).toBe(findButton("Cancel"));
+
+		mocks.unlink.mockResolvedValue({ unlinked: true });
+		mocks.status = unlinkedState();
+		const calls = mocks.getBookSync.mock.calls.length;
+		await click("Unlink");
+		expect(mocks.unlink).toHaveBeenCalledWith({
+			data: { editionId: ID, kind: "hardcover" },
+		});
+		// The control reloads: no more sync actions for an unlinked book.
+		expect(mocks.getBookSync.mock.calls.length).toBeGreaterThan(calls);
+		expect(findButton("Unlink from Hardcover")).toBeUndefined();
+		expect(findButton("Sync")).toBeUndefined();
+		expect(text("book-sync-message")).toBe(
+			"Unlinked from Hardcover. It won’t be matched to this book again automatically; you can link it by hand in Settings, under Reading sync.",
+		);
+	});
+
+	it("says only that a hand-made link was removed", async () => {
+		await render(
+			at(3),
+			synced({
+				links: [{ kind: "hardcover", label: "Hardcover", auto: false }],
+			}),
+			true,
+		);
+		mocks.unlink.mockResolvedValue({ unlinked: true });
+		mocks.status = unlinkedState();
+		await click("Unlink from Hardcover");
+		await click("Unlink");
+		expect(text("book-sync-message")).toBe("Unlinked from Hardcover.");
+	});
+
+	it("offers one unlink per provider, and cancel keeps the link", async () => {
+		await render(
+			at(3),
+			synced({
+				links: [
+					{ kind: "bookorbit", label: "BookOrbit", auto: true },
+					{ kind: "hardcover", label: "Hardcover", auto: false },
+				],
+			}),
+		);
+		expect(findButton("Unlink from BookOrbit")).toBeDefined();
+		await click("Unlink from Hardcover");
+		await click("Cancel");
+		expect(mocks.unlink).not.toHaveBeenCalled();
+		expect(findButton("Sync")).toBeDefined();
+		expect(findButton("Unlink from Hardcover")).toBeDefined();
+	});
+
+	it("offers unlink on an excluded book", async () => {
+		await render(at(3), synced({ excluded: true }));
+		expect(findButton("Include in sync")).toBeDefined();
+		expect(findButton("Unlink from Hardcover")).toBeDefined();
+	});
+
+	it("reports an unlink that failed and keeps asking", async () => {
+		await render(at(3), synced());
+		mocks.unlink.mockRejectedValue(new Error("down"));
+		await click("Unlink from Hardcover");
+		await click("Unlink");
+		expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+			"Could not unlink this book from Hardcover.",
+		);
+		expect(findButton("Unlink")).toBeDefined();
 	});
 });

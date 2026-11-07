@@ -318,11 +318,11 @@ export function createHardcoverProvider(
 				key: "token",
 				label: "API token",
 				type: "secret",
-				hint: "From hardcover.app → Settings → API (hardcover.app/account/api).",
+				hint: "From Hardcover's account settings, under API (hardcover.app/account/api). With or without “Bearer ” works.",
 				required: true,
 			},
 		],
-		help: "Copy your API token from Hardcover's account settings, under API (hardcover.app/account/api). Pasting it with or without “Bearer ” works. Marginalia only reads your library and reading progress.",
+		help: "Marginalia only reads your Hardcover library and reading progress.",
 		testConnection,
 		matching: { mode: "list", list },
 	};

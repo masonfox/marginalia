@@ -36,6 +36,12 @@ export const getBookSyncFn = createServerFn({ method: "GET" })
 					? getProvider(rest.source).label
 					: null,
 			linked: links.some((l) => l.enabled),
+			/** Auto and manual links (never rejected ones), for "Unlink from …". */
+			links: links.map(({ kind, matchedBy }) => ({
+				kind,
+				label: getProvider(kind).label,
+				auto: matchedBy === "auto",
+			})),
 			pending,
 		};
 	});

@@ -1,4 +1,5 @@
 import { RefreshCw } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { Button } from "#/components/ui/button";
 import type { useBookSync } from "#/hooks/use-book-sync";
 import { relativeTime } from "#/lib/relative-time";
@@ -51,7 +52,8 @@ export function SyncDetails({
 
 /**
  * "Sync" and "Exclude from sync" for a book with an enabled linked provider;
- * only "Include in sync" once it is excluded. Nothing otherwise.
+ * only "Include in sync" once it is excluded. "Unlink from <provider>" for
+ * each linked provider, confirmed in place. Nothing for a book without links.
  */
 export function SyncActions({
 	sync,
@@ -61,9 +63,60 @@ export function SyncActions({
 	compact?: boolean;
 }) {
 	const { status, syncing, changing } = sync;
-	if (!status || !(status.linked || status.excluded)) return null;
+	const confirming =
+		status?.links.find((l) => l.kind === sync.confirmingUnlink) ?? null;
+	const asking = confirming !== null;
+	const cancelRef = useRef<HTMLButtonElement>(null);
+	// The clicked "Unlink from …" is gone: keep focus in the control.
+	useEffect(() => {
+		if (asking) cancelRef.current?.focus();
+	}, [asking]);
+	if (!status || !(status.linked || status.excluded || status.links.length > 0))
+		return null;
 	const size = compact ? "sm" : "default";
 	const touch = compact ? "pointer-coarse:h-11" : undefined;
+	if (confirming)
+		return (
+			<>
+				<span className="text-xs text-muted-foreground">
+					Unlink this book from {confirming.label}?
+				</span>
+				<Button
+					type="button"
+					size={size}
+					variant="destructive-outline"
+					className={touch}
+					disabled={changing}
+					onClick={() => void sync.unlink(confirming)}
+				>
+					Unlink
+				</Button>
+				<Button
+					ref={cancelRef}
+					type="button"
+					size={size}
+					variant="ghost"
+					className={touch}
+					disabled={changing}
+					onClick={() => sync.askUnlink(null)}
+				>
+					Cancel
+				</Button>
+			</>
+		);
+	const unlinkButtons = status.links.map((link) => (
+		<Button
+			key={link.kind}
+			type="button"
+			size={size}
+			variant="ghost"
+			className={touch}
+			disabled={syncing || changing}
+			onClick={() => sync.askUnlink(link.kind)}
+		>
+			Unlink from {link.label}
+		</Button>
+	));
 	if (status.excluded)
 		return (
 			<>
@@ -80,42 +133,48 @@ export function SyncActions({
 				>
 					Include in sync
 				</Button>
+				{unlinkButtons}
 			</>
 		);
 	return (
 		<>
-			<Button
-				type="button"
-				size={size}
-				variant="ghost"
-				className={touch}
-				disabled={syncing || changing}
-				aria-busy={syncing}
-				onClick={() => void sync.syncNow()}
-			>
-				<RefreshCw
-					className={syncing ? "animate-spin" : undefined}
-					aria-hidden
-				/>
-				Sync
-			</Button>
-			<Button
-				type="button"
-				size={size}
-				variant="ghost"
-				className={touch}
-				disabled={syncing || changing}
-				onClick={() => void sync.setSyncExcluded(true)}
-			>
-				Exclude from sync
-			</Button>
+			{status.linked && (
+				<>
+					<Button
+						type="button"
+						size={size}
+						variant="ghost"
+						className={touch}
+						disabled={syncing || changing}
+						aria-busy={syncing}
+						onClick={() => void sync.syncNow()}
+					>
+						<RefreshCw
+							className={syncing ? "animate-spin" : undefined}
+							aria-hidden
+						/>
+						Sync
+					</Button>
+					<Button
+						type="button"
+						size={size}
+						variant="ghost"
+						className={touch}
+						disabled={syncing || changing}
+						onClick={() => void sync.setSyncExcluded(true)}
+					>
+						Exclude from sync
+					</Button>
+				</>
+			)}
+			{unlinkButtons}
 		</>
 	);
 }
 
 /** The sync's progress or result, and errors, for screen readers too. */
 export function SyncMessage({ sync }: { sync: BookSync }) {
-	const { status, pending, outcome, error } = sync;
+	const { status, pending, outcome, error, unlinked } = sync;
 	if (error)
 		return (
 			<p
@@ -125,8 +184,11 @@ export function SyncMessage({ sync }: { sync: BookSync }) {
 				{error}
 			</p>
 		);
-	const text =
-		status?.excluded || (!status?.linked && !pending)
+	const text = unlinked
+		? unlinked.auto
+			? `Unlinked from ${unlinked.label}. It won’t be matched to this book again automatically; you can link it by hand in Settings, under Reading sync.`
+			: `Unlinked from ${unlinked.label}.`
+		: status?.excluded || (!status?.linked && !pending)
 			? null
 			: pending === "queued"
 				? "Sync queued…"

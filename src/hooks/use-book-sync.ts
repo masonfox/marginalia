@@ -6,7 +6,9 @@ import {
 	setBookSyncExcludedFn,
 	syncBookFn,
 } from "#/fns/progress-book";
+import { unlinkBookFn } from "#/fns/progress-settings";
 import { readingPositionKey } from "#/hooks/use-reading-position";
+import type { ProviderKind } from "#/modules/progress";
 
 /**
  * Under the reading position's key, so every refresh of the position (a save
@@ -26,6 +28,14 @@ export const SYNC_POLL_MS = 2_000;
  */
 export type BookSyncOutcome = "updated" | "unchanged" | null;
 
+/** A provider link the reader can remove from the position control. */
+export interface BookSyncLink {
+	kind: ProviderKind;
+	label: string;
+	/** Matched automatically: unlinking keeps it from being matched again. */
+	auto: boolean;
+}
+
 /**
  * The book's progress-sync status for the position control, with its "Sync"
  * and "Exclude from sync" actions. A queued sync is polled until its job
@@ -38,8 +48,15 @@ export function useBookSync(
 	const queryClient = useQueryClient();
 	const sync = useServerFn(syncBookFn);
 	const setExcluded = useServerFn(setBookSyncExcludedFn);
+	const unlinkBook = useServerFn(unlinkBookFn);
 	const [starting, setStarting] = useState(false);
 	const [changing, setChanging] = useState(false);
+	/** The link whose "Unlink" waits for confirmation. */
+	const [confirmingUnlink, setConfirmingUnlink] = useState<
+		BookSyncLink["kind"] | null
+	>(null);
+	/** The link just removed, for the note under the control. */
+	const [unlinked, setUnlinked] = useState<BookSyncLink | null>(null);
 	const [outcome, setOutcome] = useState<BookSyncOutcome>(null);
 	const [error, setError] = useState<string | null>(null);
 	const query = useQuery({
@@ -88,6 +105,7 @@ export function useBookSync(
 		setStarting(true);
 		setError(null);
 		setOutcome(null);
+		setUnlinked(null);
 		const appliedAt = status?.appliedAt?.getTime() ?? null;
 		try {
 			await sync({ data: { editionId } });
@@ -107,6 +125,7 @@ export function useBookSync(
 		setChanging(true);
 		setError(null);
 		setOutcome(null);
+		setUnlinked(null);
 		try {
 			await setExcluded({ data: { editionId, excluded } });
 			await query.refetch();
@@ -120,6 +139,35 @@ export function useBookSync(
 		setChanging(false);
 	};
 
+	/** Asks to confirm unlinking a provider, or stops asking (null). */
+	const askUnlink = (kind: BookSyncLink["kind"] | null) => {
+		setConfirmingUnlink(kind);
+		if (kind) {
+			setError(null);
+			setOutcome(null);
+			setUnlinked(null);
+		}
+	};
+
+	/** Removes the confirmed link, then reloads the position and its sync. */
+	const unlink = async (link: BookSyncLink) => {
+		setChanging(true);
+		setError(null);
+		setOutcome(null);
+		setUnlinked(null);
+		try {
+			await unlinkBook({ data: { editionId, kind: link.kind } });
+			setConfirmingUnlink(null);
+			setUnlinked(link);
+			await queryClient.invalidateQueries({
+				queryKey: readingPositionKey(editionId),
+			});
+		} catch {
+			setError(`Could not unlink this book from ${link.label}.`);
+		}
+		setChanging(false);
+	};
+
 	return {
 		status,
 		/** The sync is being queued, or its job waits or runs. */
@@ -128,7 +176,11 @@ export function useBookSync(
 		changing,
 		outcome,
 		error,
+		confirmingUnlink,
+		unlinked,
 		syncNow,
 		setSyncExcluded,
+		askUnlink,
+		unlink,
 	};
 }

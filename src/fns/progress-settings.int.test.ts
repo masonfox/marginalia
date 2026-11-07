@@ -122,7 +122,10 @@ describe("reading sync server functions", () => {
 		expect(hc?.configFields.map((f) => [f.key, f.type])).toEqual([
 			["token", "secret"],
 		]);
-		expect(hc?.help).toContain("hardcover.app");
+		expect(hc?.help).toBeTruthy();
+		// Where to find the token is said once, by the field.
+		expect(hc?.configFields[0]?.hint).toContain("hardcover.app/account/api");
+		expect(hc?.help).not.toContain("hardcover.app");
 		expect(hc?.secrets.token).toEqual({ set: true, hint: "wxyz" });
 		expect(JSON.stringify(list)).not.toContain(TOKEN);
 
@@ -216,6 +219,8 @@ describe("reading sync server functions", () => {
 		});
 		expect(blank).toMatchObject({ status: "rejected" });
 		expect(blank.message).toBe("Hardcover rejected the credentials.");
+		// "Hardcover rejected the API token" would only say it again.
+		expect("detail" in blank && blank.detail).toBeFalsy();
 		expect(seen.at(-1)).toBe(`Bearer ${TOKEN}`);
 		expect(JSON.stringify(blank)).not.toContain(TOKEN);
 
