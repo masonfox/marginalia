@@ -22,6 +22,8 @@
 - [x] 4.2 Implement provider config storage: plain fields as jsonb, secret fields as one encrypted blob using `settings/crypto`, and read models that return hints only. Verify integration tests show secrets never come back in plaintext and survive a round trip.
 - [x] 4.3 Implement matching: ISBN-13 normalization, identifier matching against `editions.identifiers`, ambiguous matches routed to unmatched, manual links taking precedence, and refreshing `progress_unmatched` for in-progress books only. Verify unit and integration tests for each spec scenario under "Matching books to provider books".
 
+- [ ] 4.4 Record sync details on the source link (`applied_reading`, `applied_at`, `moved_back_from`, design D5) so they survive a sync to unset, and make unlinking an automatic match leave a `rejected` link that sync skips and never re-matches (design D5a). Verify integration tests for the "Move back to unset shown" data and "Unlinked match stays unlinked".
+
 ## 5. Jobs and scheduling
 
 - [ ] 5.1 Add the `progress-sync` (`{ kind }`) and `progress-sync-book` (`{ editionId }`) job kinds with dedupe keys, plus a handler that runs list or lookup sync and records `last_sync_at`, `last_sync_matched` and `last_error`. Verify a job integration test with a fake provider.
@@ -35,7 +37,7 @@
 
 ## 7. Position control
 
-- [ ] 7.1 Show a synced position's source, raw reading and relative time, plus the "moved back from …" note, in the position control. Verify component tests for the spec scenarios under "Position source".
+- [ ] 7.1 Show a synced position's source, raw reading and relative time, plus the "moved back from …" note, in the position control, reading them from the source link when a sync cleared the position to unset. Verify component tests for the spec scenarios under "Position source".
 - [ ] 7.2 Add per-book "Sync" and "Exclude from sync / Include in sync" actions to the position control. Verify component tests and an integration test that an excluded book isn't changed.
 
 ## 8. Built-in providers: BookOrbit and Hardcover

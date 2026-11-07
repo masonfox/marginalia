@@ -22,7 +22,7 @@ A reader setting the position to a later unit, or to finished, SHALL take effect
 ## ADDED Requirements
 
 ### Requirement: Position source
-Each position SHALL record its source: set by hand, or applied by a named provider. A synced position SHALL also record the raw provider reading and the time it was applied. When the reader sets a synced book's position by hand, its source SHALL become manual until the next applied reading. The position control SHALL show a synced position's source, its raw reading, and how long ago it was applied, for example "synced from Hardcover · 42% · 2h ago". When the last sync moved the position earlier, the control SHALL say so and name the previous unit.
+Each position SHALL record its source: set by hand, or applied by a named provider. A synced position SHALL also record the raw provider reading and the time it was applied. When the reader sets a synced book's position by hand, its source SHALL become manual until the next applied reading. The position control SHALL show a synced position's source, its raw reading, and how long ago it was applied, for example "synced from Hardcover · 42% · 2h ago". When the last sync moved the position earlier, the control SHALL say so and name the previous unit. This SHALL hold even when the sync cleared the position to unset.
 
 #### Scenario: Synced position shown
 - **WHEN** Hardcover's reading of 42% set the position to Chapter 11 two hours ago
@@ -31,6 +31,10 @@ Each position SHALL record its source: set by hand, or applied by a named provid
 #### Scenario: Move back shown
 - **WHEN** a sync moved the position from Chapter 14 back to Chapter 2
 - **THEN** the position control says it moved back from Chapter 14
+
+#### Scenario: Move back to unset shown
+- **WHEN** a re-read reported at 3% moved the position from Chapter 14 back to unset
+- **THEN** the position control shows no position, says it was synced from the provider at 3%, and says it moved back from Chapter 14
 
 #### Scenario: Manual edit on a synced book
 - **WHEN** the reader sets a synced book's position by hand

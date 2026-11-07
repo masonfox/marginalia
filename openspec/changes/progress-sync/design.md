@@ -82,9 +82,12 @@ progress_links
   edition_id      uuid  FK editions ON DELETE CASCADE
   provider_kind   text  FK progress_providers ON DELETE CASCADE
   external_id     text
-  matched_by      'auto' | 'manual'
+  matched_by      'auto' | 'manual' | 'rejected'   -- rejected = reader unlinked an auto match
   last_reading    jsonb               -- last raw reading seen
   last_fingerprint text               -- hash of the normalized reading last APPLIED
+  applied_reading jsonb               -- raw reading last APPLIED
+  applied_at      timestamptz
+  moved_back_from text                -- previous unit label, when that apply moved the position back
   PK (edition_id, provider_kind); unique (provider_kind, external_id)
 
 progress_unmatched                   -- refreshed on each list-mode sync
@@ -112,6 +115,12 @@ else: position = mapReading(...); write it with source=provider; store fingerpri
 ```
 
 The position write and the fingerprint update happen in one transaction. A manual edit sets `source='manual'` and leaves `last_fingerprint` unchanged.
+
+The source link also records the applied reading, `applied_at` and `moved_back_from`. A reading that maps to unset deletes the `reading_positions` row (its check constraint has no set-but-unset state), so the position control reads the sync details from the source link when no position row exists. A later manual position write takes precedence over the link's details.
+
+### D5a. Unlinking remembers the reader's choice
+
+Unlinking an automatic match keeps the link row with `matched_by = 'rejected'`. Sync skips rejected links and never auto-links that edition and provider book again. If the provider book is still being read, it is listed as unmatched, where the reader can link it by hand (which replaces the rejected row). Unlinking a manual link deletes the row.
 
 ### D6. Mapping algorithm
 

@@ -61,7 +61,7 @@ The system SHALL link an edition to a provider's book automatically when they ma
 - **BookOrbit**: by the KOReader partial-MD5 digest of the edition's file.
 - **Hardcover**: by ISBN or Hardcover id.
 
-ISBNs SHALL be compared after normalizing to ISBN-13. A provider book that matches more than one edition SHALL NOT be linked automatically. Provider books the reader is currently reading that match no edition SHALL be listed in Settings, where the reader can link each one to an edition by hand. A manual link SHALL take precedence over automatic matching. Provider books that the reader is not reading and that match no edition SHALL be ignored.
+ISBNs SHALL be compared after normalizing to ISBN-13. A provider book that matches more than one edition SHALL NOT be linked automatically. Provider books the reader is currently reading that match no edition SHALL be listed in Settings, where the reader can link each one to an edition by hand. A manual link SHALL take precedence over automatic matching. When the reader unlinks an automatically matched book, the system SHALL NOT link that pair again automatically. Provider books that the reader is not reading and that match no edition SHALL be ignored.
 
 #### Scenario: Same file in BookOrbit and Marginalia
 - **WHEN** BookOrbit and Marginalia import the same EPUB file
@@ -78,6 +78,10 @@ ISBNs SHALL be compared after normalizing to ISBN-13. A provider book that match
 #### Scenario: Ambiguous match
 - **WHEN** a Hardcover book's ISBN matches two editions
 - **THEN** neither edition is linked automatically, and the book is listed as unmatched
+
+#### Scenario: Unlinked match stays unlinked
+- **WHEN** the reader unlinks an edition that was linked automatically to a Hardcover book
+- **THEN** later syncs do not link them again automatically, and if the reader is still reading that book it is listed as unmatched
 
 ### Requirement: One source per book
 When more than one enabled provider is linked to the same edition, the provider with the highest priority SHALL be that edition's only source of progress. Readings from other providers SHALL be ignored for that edition. The reader SHALL be able to reorder provider priority in Settings.
