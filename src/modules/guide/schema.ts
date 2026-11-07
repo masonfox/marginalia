@@ -19,6 +19,7 @@ import {
 import type { DerivedCitation, ObservationKind } from "#/modules/analysis";
 import { conversations } from "#/modules/conversation";
 import { editions } from "#/modules/library";
+import type { PositionSource, StoredReading } from "#/modules/progress";
 
 /**
  * A reader-authored position (design D2). The locator is the identity;
@@ -47,6 +48,14 @@ export const readingPositions = pgTable(
 		maxPosition: integer("max_position"),
 		/** Label of the reading unit the bound was chosen from; set exactly when the bound is. */
 		scopeLabel: text("scope_label"),
+		/** Who set the position: `manual`, or the kind of the provider that synced it. */
+		source: text("source").$type<PositionSource>().notNull().default("manual"),
+		/** The raw provider reading that produced the position; null when manual. */
+		sourceReading: jsonb("source_reading").$type<StoredReading>(),
+		/** When a provider last wrote the position. */
+		syncedAt: timestamp("synced_at", { withTimezone: true }),
+		/** The previous unit label, when the last sync moved the position back. */
+		movedBackFrom: text("moved_back_from"),
 		updatedAt: timestamp("updated_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),

@@ -134,6 +134,13 @@
       "when": 1793916387108,
       "tag": "0018_red_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794062607976,
+      "tag": "0019_progress_sync",
+      "breakpoints": true
     }
   ]
 }

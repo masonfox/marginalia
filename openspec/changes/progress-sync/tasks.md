@@ -5,8 +5,8 @@
 
 ## 2. Data model
 
-- [ ] 2.1 Add Drizzle schema for `progress_providers`, `progress_links` and `progress_unmatched`, plus the new columns on `editions` and `reading_positions` (design D4). Generate a migration, and verify `pnpm drizzle-kit` check passes and existing positions read back with `source = 'manual'`.
-- [ ] 2.2 Implement the KOReader partial MD5 digest. Verify a unit test against a fixture digest produced by KOReader's algorithm.
+- [x] 2.1 Add Drizzle schema for `progress_providers`, `progress_links` and `progress_unmatched`, plus the new columns on `editions` and `reading_positions` (design D4). Generate a migration, and verify `pnpm drizzle-kit` check passes and existing positions read back with `source = 'manual'`.
+- [x] 2.2 Implement the KOReader partial MD5 digest. Verify a unit test against a fixture digest produced by KOReader's algorithm.
 - [ ] 2.3 Compute `koreader_digest` during ingestion, and add a one-off backfill job for existing editions. Verify with an integration test that an ingested and a backfilled edition both carry the expected digest.
 
 ## 3. Core mapping and apply
@@ -18,7 +18,7 @@
 
 ## 4. Provider framework and credentials
 
-- [ ] 4.1 Define the `ProgressProvider` contract, `ConfigField`, `ProgressReading`, and the list/lookup matching types in `src/modules/progress`, plus a registry of built-in providers. Verify the types compile and the registry lists all kinds.
+- [x] 4.1 Define the `ProgressProvider` contract, `ConfigField`, `ProgressReading`, and the list/lookup matching types in `src/modules/progress`, plus a registry of built-in providers. Verify the types compile and the registry lists all kinds.
 - [ ] 4.2 Implement provider config storage: plain fields as jsonb, secret fields as one encrypted blob using `settings/crypto`, and read models that return hints only. Verify integration tests show secrets never come back in plaintext and survive a round trip.
 - [ ] 4.3 Implement matching: ISBN-13 normalization, identifier matching against `editions.identifiers`, ambiguous matches routed to unmatched, manual links taking precedence, and refreshing `progress_unmatched` for in-progress books only. Verify unit and integration tests for each spec scenario under "Matching books to provider books".
 

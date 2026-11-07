@@ -63,7 +63,7 @@ type ProviderBook = { externalId: string; isbns: string[]; ids: Record<string,st
 
 ### D3. KOReader digest stored on the edition
 
-KOReader's partial MD5 reads 1 KiB at offsets `1024 << 2i` for `i = -1..10` and takes the MD5 of the concatenation. It depends only on the bytes, so it is computed during ingestion and stored as `editions.koreader_digest`. A one-off backfill job computes it for existing editions from any available library file. An edition with no available file has no digest and can only be linked by hand.
+KOReader's partial MD5 reads 1 KiB at offsets `1024 << 2i` for `i = -1..10` and takes the MD5 of the concatenation. LuaJIT masks the negative shift for `i = -1` to `1024 << 30`, which overflows to 0, so the first sample is the file head at offset 0, not 256. It depends only on the bytes, so it is computed during ingestion and stored as `editions.koreader_digest`. A one-off backfill job computes it for existing editions from any available library file. An edition with no available file has no digest and can only be linked by hand.
 
 ### D4. Data model
 

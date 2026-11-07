@@ -4,6 +4,7 @@ export * from "./browse";
 export * from "./delete";
 export * from "./editions";
 export * from "./files";
+export * from "./koreader-digest";
 export { type ScanDeps, type ScanStats, scanLibraries } from "./scan";
 export * from "./schema";
 export {

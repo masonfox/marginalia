@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
 	bigint,
+	boolean,
 	check,
 	index,
 	integer,
@@ -108,6 +109,12 @@ export const editions = pgTable(
 		 */
 		structureGeneration: integer("structure_generation").notNull().default(0),
 		searchConfig: regconfig("search_config"),
+		/** KOReader's partial MD5 of the file's bytes, for progress sync lookups. */
+		koreaderDigest: text("koreader_digest"),
+		/** The reader excluded this book from progress sync. */
+		progressSyncExcluded: boolean("progress_sync_excluded")
+			.notNull()
+			.default(false),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),

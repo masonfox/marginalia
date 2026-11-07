@@ -5,5 +5,6 @@ export * from "#/modules/catalog";
 export * from "#/modules/conversation";
 export * from "#/modules/guide";
 export * from "#/modules/library";
+export * from "#/modules/progress";
 export * from "#/modules/settings";
 export * from "#/modules/usage";
