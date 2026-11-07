@@ -286,11 +286,15 @@ When an edition has reader notes, corrections, or confirmed subjects, the deleti
 - **THEN** the confirmation says the book's notes and guide edits will be deleted
 
 ### Requirement: Dashboard
-The page at the site root SHALL be titled "Dashboard" and SHALL show, in order, the Continue section and the Reading section. It SHALL NOT show the library list, its count, the library search, the status filter, or the upload and rescan actions; those are on the Library page. When the library holds no editions, the dashboard SHALL say that there are no books yet and SHALL link to the Library page to upload one. When the library holds editions but neither section has anything to show, the dashboard SHALL link to the Library page.
+The page at the site root SHALL be titled "Dashboard" and SHALL show, in order, the Continue section and the Reading section. It SHALL also show a compact library summary: the library's total number of books and the counts of books in the Reading and Finished states, each linking to the Library page, the status counts to the Library filtered to that status. It SHALL NOT show the library list, the library search, the status filter, or the upload and rescan actions; those are on the Library page. When the library holds no editions, the dashboard SHALL say that there are no books yet and SHALL link to the Library page to upload one. When the library holds editions but neither section has anything to show, the dashboard SHALL link to the Library page.
 
 #### Scenario: Dashboard with activity
 - **WHEN** the reader has recent conversations and is reading two books
-- **THEN** the dashboard shows the Continue section followed by the Reading section, and no search box, status filter, or upload action
+- **THEN** the dashboard shows the Continue section followed by the Reading section, and no library list, search box, status filter, or upload action
+
+#### Scenario: Library summary
+- **WHEN** the library holds ten books, two being read and three finished, and the reader opens the dashboard
+- **THEN** the dashboard shows a library summary of 10 books, 2 Reading, and 3 Finished; selecting the total opens the Library page, and selecting Reading opens the Library filtered to Reading
 
 #### Scenario: Empty library
 - **WHEN** a reader opens the dashboard and no books have been imported
