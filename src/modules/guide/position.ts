@@ -1,6 +1,7 @@
 import { and, eq, isNotNull, lte, sql } from "drizzle-orm";
 import { getReadingUnits, type Rebase } from "#/modules/catalog";
 import { editions } from "#/modules/library";
+import type { ProviderKind, StoredReading } from "#/modules/progress";
 import type { Database, Executor } from "#/server/db";
 import { readingPositions } from "./schema";
 
@@ -95,12 +96,21 @@ export async function setReadingPosition(
 						isNotNull(readingPositions.maxPosition),
 						lte(readingPositions.maxPosition, values.maxPosition),
 					);
+		// A hand-set position is manual until a sync applies a new reading; the
+		// link's last fingerprint is left alone (progress-sync design D5).
+		const manual = {
+			...values,
+			source: "manual" as const,
+			sourceReading: null,
+			syncedAt: null,
+			movedBackFrom: null,
+		};
 		const rows = await tx
 			.insert(readingPositions)
-			.values({ editionId, ...values })
+			.values({ editionId, ...manual })
 			.onConflictDoUpdate({
 				target: readingPositions.editionId,
-				set: { ...values, updatedAt: sql`now()` },
+				set: { ...manual, updatedAt: sql`now()` },
 				setWhere: options.moveBack ? undefined : forward,
 			})
 			.returning({
@@ -111,6 +121,75 @@ export async function setReadingPosition(
 		if (!row) return { set: false, reason: "move_back" } as const;
 		return { set: true, position: toPosition(row) } as const;
 	});
+}
+
+/** Label recorded as `moved_back_from` when a sync moves back from finished. */
+export const FINISHED_LABEL = "Finished";
+
+/** A position applied by progress sync, and the reading that produced it. */
+export interface SyncedPositionWrite {
+	/** The mapped position; null is unset. */
+	position: ReadingPosition | null;
+	source: ProviderKind;
+	sourceReading: StoredReading;
+}
+
+/**
+ * Writes a position applied by progress sync, with no move-back
+ * confirmation: the provider is the authority for synced books. Records the
+ * source, the raw reading and the time, and `moved_back_from` (the previous
+ * unit's label, or {@link FINISHED_LABEL}) when the new position is earlier.
+ * An unset position deletes the row, since a row always means set. The
+ * caller runs this in a transaction that holds the edition's share lock and
+ * mapped `position` from the current reading units.
+ */
+export async function writeSyncedPosition(
+	tx: Executor,
+	editionId: string,
+	write: SyncedPositionWrite,
+): Promise<{ movedBackFrom: string | null }> {
+	const { position } = write;
+	if (position === null) {
+		await clearReadingPosition(tx, editionId);
+		return { movedBackFrom: null };
+	}
+	const [previous] = await tx
+		.select({
+			maxPosition: readingPositions.maxPosition,
+			scopeLabel: readingPositions.scopeLabel,
+		})
+		.from(readingPositions)
+		.where(eq(readingPositions.editionId, editionId))
+		.for("update");
+	const movedBackFrom = previous ? movedBackLabel(previous, position) : null;
+	const values = {
+		maxPosition: position.kind === "unit" ? position.maxPosition : null,
+		scopeLabel: position.kind === "unit" ? position.scopeLabel : null,
+		source: write.source,
+		sourceReading: write.sourceReading,
+		syncedAt: sql`now()`,
+		movedBackFrom,
+	};
+	await tx
+		.insert(readingPositions)
+		.values({ editionId, ...values })
+		.onConflictDoUpdate({
+			target: readingPositions.editionId,
+			set: { ...values, updatedAt: sql`now()` },
+		});
+	return { movedBackFrom };
+}
+
+/** The previous position's label when `next` is earlier than it, else null. */
+function movedBackLabel(
+	previous: { maxPosition: number | null; scopeLabel: string | null },
+	next: ReadingPosition,
+): string | null {
+	if (previous.maxPosition === null)
+		return next.kind === "finished" ? null : FINISHED_LABEL;
+	if (next.kind === "unit" && next.maxPosition < previous.maxPosition)
+		return previous.scopeLabel;
+	return null;
 }
 
 /** Clears the edition's reading position back to unset. Returns whether one was set. */

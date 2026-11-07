@@ -63,12 +63,15 @@ export {
 } from "./notes";
 export {
 	clearReadingPosition,
+	FINISHED_LABEL,
 	getReadingPosition,
 	type PositionChoice,
 	type ReadingPosition,
 	rebaseReadingPositions,
 	type SetPositionResult,
+	type SyncedPositionWrite,
 	setReadingPosition,
+	writeSyncedPosition,
 } from "./position";
 export {
 	type CorrectionMark,

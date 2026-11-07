@@ -25,7 +25,16 @@ import {
 	type PositionChoice,
 	readingPositions,
 	setReadingPosition,
+	writeSyncedPosition,
 } from ".";
+
+async function positionRow(editionId: string) {
+	const [row] = await t.db
+		.select()
+		.from(readingPositions)
+		.where(eq(readingPositions.editionId, editionId));
+	return row;
+}
 
 let t: TestDb;
 let dataDir: string;
@@ -146,6 +155,52 @@ describe("reading position", () => {
 		expect(
 			await setReadingPosition(t.db, id, unit(2), { moveBack: true }),
 		).toMatchObject({ set: true, position: at(2) });
+	});
+
+	it("records a hand-set position as manual, clearing sync details", async () => {
+		const id = await book();
+		await writeSyncedPosition(t.db, id, {
+			position: at(2),
+			source: "hardcover",
+			sourceReading: { state: "reading", fraction: 0.9 },
+		});
+		await writeSyncedPosition(t.db, id, {
+			position: at(1),
+			source: "hardcover",
+			sourceReading: { state: "reading", fraction: 0.6 },
+		});
+		const synced = await positionRow(id);
+		expect(synced).toMatchObject({
+			source: "hardcover",
+			sourceReading: { state: "reading", fraction: 0.6 },
+			movedBackFrom: at(2).scopeLabel,
+		});
+		expect(synced?.syncedAt).toBeInstanceOf(Date);
+
+		// A forward hand edit makes it manual and drops the sync details.
+		expect(await setReadingPosition(t.db, id, unit(2))).toMatchObject({
+			set: true,
+		});
+		expect(await positionRow(id)).toMatchObject({
+			source: "manual",
+			sourceReading: null,
+			syncedAt: null,
+			movedBackFrom: null,
+		});
+	});
+
+	it("keeps the sync source when a hand edit is refused as a move back", async () => {
+		const id = await book();
+		await writeSyncedPosition(t.db, id, {
+			position: at(2),
+			source: "bookorbit",
+			sourceReading: { state: "reading", fraction: 0.9 },
+		});
+		expect(await setReadingPosition(t.db, id, unit(0))).toEqual({
+			set: false,
+			reason: "move_back",
+		});
+		expect(await positionRow(id)).toMatchObject({ source: "bookorbit" });
 	});
 
 	it("clears back to unset", async () => {

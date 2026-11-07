@@ -13,8 +13,8 @@
 
 - [x] 3.1 Implement the pure `mapReading` (design D6). Verify unit tests cover a mid-chapter fraction (rounds down), a fraction exactly at a unit end, a spine locator, pages, an early reading (unset), finished, not-started, and locator taking precedence over fraction.
 - [x] 3.2 Implement the reading fingerprint (design D5). Verify unit tests show `observedAt` doesn't change it and that a small fraction change does.
-- [ ] 3.3 Implement `applyReading(editionId, provider, reading)`: choose the source by priority, skip excluded editions, run the fingerprint check, then map and write the position (bypassing the move-back confirmation, recording source, reading, `synced_at` and `moved_back_from`) in one transaction. Verify integration tests for: re-read moves back, manual edit survives an unchanged reading, new reading replaces manual edit, excluded book unchanged, lower-priority provider ignored.
-- [ ] 3.4 Make manual position writes set `source = 'manual'` and clear `moved_back_from`. Verify the existing reading-position tests still pass, plus a new test for the source change.
+- [x] 3.3 Implement `applyReading(editionId, provider, reading)`: choose the source by priority, skip excluded editions, run the fingerprint check, then map and write the position (bypassing the move-back confirmation, recording source, reading, `synced_at` and `moved_back_from`) in one transaction. Verify integration tests for: re-read moves back, manual edit survives an unchanged reading, new reading replaces manual edit, excluded book unchanged, lower-priority provider ignored.
+- [x] 3.4 Make manual position writes set `source = 'manual'` and clear `moved_back_from`. Verify the existing reading-position tests still pass, plus a new test for the source change.
 
 ## 4. Provider framework and credentials
 
