@@ -9,6 +9,7 @@ Marginalia runs as one container next to one PostgreSQL database. Everything sta
 - [Using an existing PostgreSQL server](#using-an-existing-postgresql-server)
 - [Behind a reverse proxy (HTTPS)](#behind-a-reverse-proxy-https)
 - [Book Guide and reading position](#book-guide-and-reading-position)
+- [Reading sync](#reading-sync)
 - [Upgrading](#upgrading)
 - [Running a separate worker](#running-a-separate-worker)
 
@@ -265,6 +266,46 @@ Each reply's research trail starts with the guide it used, such as "Used chapter
 ### Database tables
 
 The Guide adds tables for reading positions, subjects and aliases, corrections, reader notes, and gloss exclusions, plus a column on conversation messages. The migrations that run at startup create them, as in any upgrade. In development, apply them with `pnpm db:migrate`.
+
+## Reading sync
+
+Reading sync sets a book's [reading position](#reading-position) from where you are in another reading app, so you don't have to update it by hand. Configure it under **Reading sync** in Settings. It is off until you enable a provider, and the rest of Marginalia works the same without it.
+
+- **One way.** Marginalia reads progress from the provider and never sends its own position back.
+- **The provider wins.** When the provider reports new progress, it replaces the position, including one you set by hand. A manual edit stays until the provider reports a change; the same progress sent again with a fresh timestamp does not count.
+- **One source per book.** With several providers enabled, each book follows the highest-priority provider it is linked to, set by the order in Settings. Readings from different providers are never combined.
+- **Per-book exclude.** **Exclude from sync** on a book's position control stops sync from touching that book. Its position then behaves like one with no provider.
+
+Each provider syncs on request (**Sync now**) or on a schedule: every hour, every 6 hours, or daily. Schedules are kept in the database, so a change takes effect without a restart, and each run happens once across all workers. A book's position control shows which provider set it and when.
+
+### Providers
+
+**BookOrbit.** Enter your BookOrbit server URL and the username and key of a **KOReader sync account**, which you create in BookOrbit under Settings > KOReader. This is not your BookOrbit login. The account needs the KOReader sync permission, with sync enabled. The key is the account's KOReader password or its MD5 hash. Marginalia talks to BookOrbit's KOReader sync API, which is served under `/api/v1/koreader`, so enter the server's base URL. That API can only answer for one book at a time, so a sync looks up only the books that are already linked, have a reading position, or were opened in the last 90 days.
+
+**Hardcover.** Paste a personal API token from your account settings on hardcover.app, under API (`hardcover.app/account/api`), with or without the `Bearer ` prefix. Marginalia only reads your library and reading progress. One sync fetches all your Hardcover books at once. Requests are spaced to stay under Hardcover's limit of 60 per minute. If Hardcover still answers that it is rate limiting, Marginalia waits as long as it asks and retries; if it keeps refusing, the sync pauses, says so in Settings, and runs again once Hardcover's wait (or a minute) has passed.
+
+**Goodreads is not supported.** It has no API, and its pages are behind a sign-in or a bot challenge. If you track your reading there, import your Goodreads library into Hardcover and sync from Hardcover.
+
+**Outbound connections.** While a provider is disabled, Marginalia makes no requests for it. When enabled, it connects only to the BookOrbit URL you configured and to `api.hardcover.app`. Testing a connection in Settings makes the same requests.
+
+**Secrets.** The BookOrbit key and the Hardcover token are write-only, like AI provider keys. They are encrypted in the database with a key derived from `MARGINALIA_SECRET_KEY`, so the same [backup advice](#several-providers-and-the-settings-page) applies: losing or changing that secret means entering them again.
+
+### Matching books
+
+A provider's books are linked to the editions in your library automatically, and only on an exact match. Anything ambiguous is left for you.
+
+- **BookOrbit** matches by the KOReader digest of the EPUB file, which depends only on its bytes. **Point BookOrbit at the same library folder as Marginalia** (`MARGINALIA_LIBRARY_PATHS`), so both see byte-identical files and every book matches without any setup. A copy that BookOrbit has rewritten, for example by embedding new metadata, has a different digest and won't match. Marginalia computes the digest when it imports a book. After upgrading, a one-off background job computes it for the books you already have, from any available library file. A book with no available file has no digest.
+- **Hardcover** matches by ISBN and by Hardcover id from the EPUB's metadata.
+
+Provider books that match nothing are listed under the provider in Settings, where you can link each one to a book by hand. Unlinking a book that was linked automatically is remembered: sync won't link that pair again, and the book shows up as unmatched in case you want to link it elsewhere.
+
+### What sync can change
+
+**Sync never moves the position past the last chapter you finished.** Providers report a percentage, a page, or a location inside a chapter. Marginalia rounds that down to the last chapter that ends before it. A reading in the middle of Chapter 12 sets the position to "Through Chapter 11", and a page count from a different edition only ever lands early. So the synced position can sit a chapter behind where you are. That is deliberate: being a chapter behind costs a little context, and being a chapter ahead would spoil it. A book marked finished in the provider becomes "Finished", and one marked not started clears the position.
+
+**Re-reads can move the position back.** Because the provider wins, starting a book over in your reading app moves the position back to match, without asking. The position control then shows **Moved back from Chapter 14** (or **Moved back from finished**), so the change is visible. Exclude the book from sync if you want to keep the old position.
+
+**The synced position is shared by everyone on the instance.** Like a position set by hand (see [Sharing an instance](#sharing-an-instance)), it is one position per book, not per reader. Sync connects one account per provider, so every reader of the instance gets that account's progress as their spoiler bound. In a household, connect the account of the person furthest behind, or exclude the books that others are reading at a different pace.
 
 ## Upgrading
 

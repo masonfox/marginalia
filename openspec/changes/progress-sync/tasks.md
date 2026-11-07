@@ -47,5 +47,5 @@
 
 ## 9. Docs and end-to-end
 
-- [ ] 9.1 Add a "Reading sync" section to `docs/deployment.md` covering providers, outbound hosts, the shared-position caveat, round-down behavior, and BookOrbit setup on the same library folder. Verify the docs test passes.
+- [x] 9.1 Add a "Reading sync" section to `docs/deployment.md` covering providers, outbound hosts, the shared-position caveat, round-down behavior, and BookOrbit setup on the same library folder. Verify the docs test passes.
 - [ ] 9.2 Add an e2e test that configures a fake provider through Settings, runs Sync now, and checks that the book page shows the rounded-down chapter with its source. Verify `pnpm test:e2e` passes.
