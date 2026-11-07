@@ -154,7 +154,7 @@ export function BookHero({ variant }: { variant: "full" | "compact" }) {
 							className={cn(
 								"font-serif leading-[1.02] font-semibold tracking-[-0.015em] break-words",
 								full
-									? "text-[34px] sm:text-[clamp(48px,5.6vw,80px)]"
+									? "text-[34px] sm:text-[clamp(48px,5.6vw,80px)] sm:leading-[0.95]"
 									: "text-[28px] sm:text-[40px]",
 							)}
 						>
@@ -164,7 +164,7 @@ export function BookHero({ variant }: { variant: "full" | "compact" }) {
 							<p
 								className={cn(
 									"text-muted-foreground",
-									full ? "mt-2 sm:text-lg" : "mt-1",
+									full ? "mt-1.5 sm:mt-1 sm:text-lg" : "mt-1",
 								)}
 							>
 								{edition.authors.join(", ")}
