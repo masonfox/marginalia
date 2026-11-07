@@ -1,74 +1,152 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/*
+ * Themes: data-theme="light|sepia|dark" on <html>, set before first paint by
+ * the inline script in __root.tsx (see src/lib/theme.ts). `dark:` and `sepia:`
+ * target their theme only; prefer the tokens below over theme variants.
+ */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant sepia (&:where([data-theme="sepia"], [data-theme="sepia"] *));
 
-:root {
-	--background: oklch(1 0 0);
-	--foreground: oklch(0.141 0.005 285.823);
-	--card: oklch(1 0 0);
-	--card-foreground: oklch(0.141 0.005 285.823);
-	--popover: oklch(1 0 0);
-	--popover-foreground: oklch(0.141 0.005 285.823);
-	--primary: oklch(0.21 0.006 285.885);
-	--primary-foreground: oklch(0.985 0 0);
-	--secondary: oklch(0.967 0.001 286.375);
-	--secondary-foreground: oklch(0.21 0.006 285.885);
-	--muted: oklch(0.967 0.001 286.375);
-	--muted-foreground: oklch(0.552 0.016 285.938);
-	--accent: oklch(0.967 0.001 286.375);
-	--accent-foreground: oklch(0.21 0.006 285.885);
-	--destructive: oklch(0.577 0.245 27.325);
-	--destructive-foreground: oklch(0.577 0.245 27.325);
-	--border: oklch(0.92 0.004 286.32);
-	--input: oklch(0.92 0.004 286.32);
-	--ring: oklch(0.871 0.006 286.286);
-	--highlight: oklch(0.95 0.09 95);
-	/* Library status badges: the text color; borders and fills are tints of it. */
-	--status-processing: oklch(0.5 0.13 240);
-	--status-failed: oklch(0.52 0.19 27);
-	--status-unavailable: oklch(0.53 0.12 65);
-	--status-not-started: oklch(0.5 0.02 286);
-	--status-reading: oklch(0.5 0.17 290);
-	--status-finished: oklch(0.5 0.13 155);
+/*
+ * Tokens (design.md §1). shadcn names are kept so components/ui picks them up.
+ * Note: shadcn's --accent is a hover surface; the amber accent is --amber.
+ * Contrast of every text token on --background and --card is checked by
+ * src/lib/theme-contrast.test.ts; keep it passing when changing values.
+ */
+:root,
+[data-theme="light"] {
+	color-scheme: light;
+	--background: #faf8f4;
+	--background-2: #f3efe8;
+	--foreground: #17120d;
+	--card: #ffffff;
+	--card-foreground: #17120d;
+	--popover: #ffffff;
+	--popover-foreground: #17120d;
+	--primary: #17120d;
+	--primary-foreground: #faf8f4;
+	--secondary: #f2eee7;
+	--secondary-foreground: #17120d;
+	--muted: #f2eee7;
+	--muted-foreground: #655c52;
+	--faint-foreground: #736a5f;
+	--accent: #f2eee7;
+	--accent-foreground: #17120d;
+	--amber: #e0923f;
+	/* Slightly darker than the mockup for nested amber-soft markers (AA). */
+	--amber-foreground: #98500f;
+	--amber-soft: rgba(224, 146, 63, 0.15);
+	--destructive: #a63a26;
+	--destructive-foreground: #a63a26;
+	--border: rgba(30, 22, 14, 0.09);
+	--input: rgba(30, 22, 14, 0.17);
+	--highlight: #fbe3bd;
+	--shadow-cover:
+		0 16px 32px -14px rgba(30, 20, 10, 0.38), 0 2px 4px rgba(30, 20, 10, 0.15);
+	/* Dialogs: the backdrop behind them and their shadow; menus and popovers. */
+	--scrim: rgba(30, 22, 14, 0.32);
+	--shadow-pop: 0 40px 90px -24px rgba(30, 20, 10, 0.35);
+	--shadow-popover: 0 24px 50px -18px rgba(30, 20, 10, 0.3);
+	/* Library status badges: the text and dot color. */
+	--status-processing: #2f5f91;
+	--status-failed: #a63a26;
+	--status-finished: #2f6b3c;
 	--radius: 0.625rem;
 }
 
-@media (prefers-color-scheme: dark) {
-	:root {
-		--background: oklch(0.141 0.005 285.823);
-		--foreground: oklch(0.985 0 0);
-		--card: oklch(0.141 0.005 285.823);
-		--card-foreground: oklch(0.985 0 0);
-		--popover: oklch(0.141 0.005 285.823);
-		--popover-foreground: oklch(0.985 0 0);
-		--primary: oklch(0.985 0 0);
-		--primary-foreground: oklch(0.21 0.006 285.885);
-		--secondary: oklch(0.274 0.006 286.033);
-		--secondary-foreground: oklch(0.985 0 0);
-		--muted: oklch(0.274 0.006 286.033);
-		--muted-foreground: oklch(0.705 0.015 286.067);
-		--accent: oklch(0.274 0.006 286.033);
-		--accent-foreground: oklch(0.985 0 0);
-		--destructive: oklch(0.396 0.141 25.723);
-		--destructive-foreground: oklch(0.637 0.237 25.331);
-		--border: oklch(0.274 0.006 286.033);
-		--input: oklch(0.274 0.006 286.033);
-		--ring: oklch(0.442 0.017 285.786);
-		--highlight: oklch(0.38 0.07 95);
-		--status-processing: oklch(0.8 0.11 235);
-		--status-failed: oklch(0.75 0.15 25);
-		--status-unavailable: oklch(0.82 0.13 80);
-		--status-not-started: oklch(0.75 0.015 286);
-		--status-reading: oklch(0.78 0.12 290);
-		--status-finished: oklch(0.8 0.13 155);
-	}
+[data-theme="sepia"] {
+	color-scheme: light;
+	--background: #f2e8d6;
+	--background-2: #ebdfc9;
+	--foreground: #2a1d12;
+	--card: #f8f1e4;
+	--card-foreground: #2a1d12;
+	--popover: #f8f1e4;
+	--popover-foreground: #2a1d12;
+	--primary: #2a1d12;
+	--primary-foreground: #f8f1e4;
+	--secondary: #ecdfc8;
+	--secondary-foreground: #2a1d12;
+	--muted: #ecdfc8;
+	--muted-foreground: #665341;
+	--faint-foreground: #725f4c;
+	--accent: #ecdfc8;
+	--accent-foreground: #2a1d12;
+	--amber: #c9822f;
+	/* Nested amber-soft markers need 4.5:1; preserve the amber fills. */
+	--amber-foreground: #844412;
+	--amber-soft: rgba(176, 108, 36, 0.15);
+	--destructive: #9c3a22;
+	--destructive-foreground: #9c3a22;
+	--border: rgba(74, 50, 26, 0.13);
+	--input: rgba(74, 50, 26, 0.24);
+	--highlight: rgba(214, 150, 62, 0.3);
+	--shadow-cover:
+		0 18px 36px -14px rgba(60, 35, 10, 0.55), 0 2px 5px rgba(60, 35, 10, 0.25);
+	--scrim: rgba(60, 40, 20, 0.38);
+	--shadow-pop: 0 40px 90px -24px rgba(60, 35, 10, 0.55);
+	--shadow-popover: 0 24px 50px -18px rgba(60, 35, 10, 0.45);
+	--status-processing: #355d86;
+	--status-failed: #9c3a22;
+	--status-finished: #3d6b3f;
+}
+
+[data-theme="dark"] {
+	color-scheme: dark;
+	--background: #0d0a08;
+	--background-2: #120e0b;
+	--foreground: #f5efe6;
+	--card: #18130f;
+	--card-foreground: #f5efe6;
+	--popover: #18130f;
+	--popover-foreground: #f5efe6;
+	--primary: #f0a556;
+	--primary-foreground: #1a0f05;
+	--secondary: #221c16;
+	--secondary-foreground: #f5efe6;
+	--muted: #221c16;
+	--muted-foreground: #b3a99c;
+	--faint-foreground: #8f8578;
+	--accent: #221c16;
+	--accent-foreground: #f5efe6;
+	--amber: #f0a556;
+	--amber-foreground: #f3b06a;
+	--amber-soft: rgba(240, 165, 86, 0.14);
+	--destructive: #ec9580;
+	--destructive-foreground: #ec9580;
+	--border: rgba(255, 236, 214, 0.09);
+	--input: rgba(255, 236, 214, 0.17);
+	--highlight: rgba(240, 165, 86, 0.2);
+	--shadow-cover:
+		0 18px 40px -12px rgba(0, 0, 0, 0.85), 0 2px 6px rgba(0, 0, 0, 0.5);
+	--scrim: rgba(8, 6, 4, 0.72);
+	--shadow-pop: 0 40px 100px -20px rgba(0, 0, 0, 0.9);
+	--shadow-popover: 0 24px 60px -16px rgba(0, 0, 0, 0.8);
+	--status-processing: #93b8de;
+	--status-failed: #ec9580;
+	--status-finished: #8cc49a;
+}
+
+/* Derived from each theme's own values, so a nested [data-theme] preview gets its own. */
+:root,
+[data-theme] {
+	--ring: color-mix(in srgb, var(--amber) 50%, transparent);
+	--status-reading: var(--amber-foreground);
+	--status-not-started: var(--faint-foreground);
+	/* Warnings (missing file, needs attention) share the amber text. */
+	--status-unavailable: var(--amber-foreground);
 }
 
 @theme inline {
-	--font-sans: ui-sans-serif, system-ui, sans-serif;
-	--font-serif: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+	--font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+	/* Display face: page and book titles, section headings. */
+	--font-serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
+	/* Reading face: the book's own words (reader, quotes, cited passages). */
+	--font-reading: "Newsreader", Georgia, serif;
 	--color-background: var(--background);
+	--color-background-2: var(--background-2);
 	--color-foreground: var(--foreground);
 	--color-card: var(--card);
 	--color-card-foreground: var(--card-foreground);
@@ -80,8 +158,12 @@
 	--color-secondary-foreground: var(--secondary-foreground);
 	--color-muted: var(--muted);
 	--color-muted-foreground: var(--muted-foreground);
+	--color-faint-foreground: var(--faint-foreground);
 	--color-accent: var(--accent);
 	--color-accent-foreground: var(--accent-foreground);
+	--color-amber: var(--amber);
+	--color-amber-foreground: var(--amber-foreground);
+	--color-amber-soft: var(--amber-soft);
 	--color-destructive: var(--destructive);
 	--color-destructive-foreground: var(--destructive-foreground);
 	--color-border: var(--border);
@@ -94,6 +176,12 @@
 	--color-status-not-started: var(--status-not-started);
 	--color-status-reading: var(--status-reading);
 	--color-status-finished: var(--status-finished);
+	/* Tailwind also emits these self-references in its theme layer; the unlayered
+	   theme rules above win, so the cycle never applies. */
+	--color-scrim: var(--scrim);
+	--shadow-cover: var(--shadow-cover);
+	--shadow-pop: var(--shadow-pop);
+	--shadow-popover: var(--shadow-popover);
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
@@ -102,9 +190,9 @@
 
 @layer base {
 	* {
-		@apply border-border outline-ring/50;
+		@apply border-border outline-ring;
 	}
 	body {
-		@apply bg-background text-foreground antialiased;
+		@apply bg-background font-sans text-[15px] leading-normal text-foreground antialiased;
 	}
 }

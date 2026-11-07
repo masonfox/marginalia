@@ -17,6 +17,7 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { resetThemeStoreForTests, THEME_STORAGE_KEY } from "#/lib/theme";
 import { HeaderMenu, HomeNav } from "./home-nav";
 
 declare global {
@@ -39,6 +40,19 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+	// The theme follows a light system preference unless a test stores one.
+	vi.stubGlobal(
+		"matchMedia",
+		vi.fn((query: string) => ({
+			media: query,
+			matches: false,
+			addEventListener: () => {},
+			removeEventListener: () => {},
+		})),
+	);
+	localStorage.clear();
+	resetThemeStoreForTests();
+	document.documentElement.removeAttribute("data-theme");
 	container = document.createElement("div");
 	document.body.append(container);
 	root = createRoot(container);
@@ -47,6 +61,7 @@ beforeEach(() => {
 afterEach(() => {
 	act(() => root.unmount());
 	document.body.replaceChildren();
+	vi.unstubAllGlobals();
 });
 
 /** Renders the header's navigation and menu on a router opened at `url`. */
@@ -93,6 +108,15 @@ const trigger = () => {
 const items = () => [
 	...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]'),
 ];
+const themeOptions = () => [
+	...document.querySelectorAll<HTMLElement>(
+		'[role="menu"] [role="menuitemradio"]',
+	),
+];
+const checked = () =>
+	names(
+		themeOptions().filter((el) => el.getAttribute("aria-checked") === "true"),
+	);
 const names = (els: Iterable<Element>) =>
 	[...els].map((el) => el.textContent?.trim());
 const current = (els: Iterable<Element>) =>
@@ -145,7 +169,7 @@ describe("HeaderMenu", () => {
 		expect(document.querySelector('[role="menu"]')).toBeNull();
 	});
 
-	it("lists the navigation entries, a separator, and Settings, with the inline navigation's entries", async () => {
+	it("lists the navigation entries, the theme options, and Settings, with the inline navigation's entries", async () => {
 		await renderAt("/");
 		await openMenu();
 		expect(trigger().getAttribute("aria-expanded")).toBe("true");
@@ -155,8 +179,47 @@ describe("HeaderMenu", () => {
 			"Settings",
 		]);
 		expect(
-			[...(menu?.children ?? [])].map((el) => el.getAttribute("role")),
-		).toEqual(["menuitem", "menuitem", "menuitem", "separator", "menuitem"]);
+			[...(menu?.children ?? [])].map(
+				(el) => el.getAttribute("role") ?? el.textContent,
+			),
+		).toEqual([
+			"menuitem",
+			"menuitem",
+			"menuitem",
+			"separator",
+			"Theme",
+			"group",
+			"separator",
+			"menuitem",
+		]);
+		expect(names(themeOptions())).toEqual(["Light", "Sepia", "Dark"]);
+	});
+
+	it("marks the theme on screen and names it in the theme group", async () => {
+		localStorage.setItem(THEME_STORAGE_KEY, "sepia");
+		await renderAt("/");
+		await openMenu();
+		expect(checked()).toEqual(["Sepia"]);
+		expect(
+			document
+				.querySelector('[role="menu"] [role="group"]')
+				?.getAttribute("aria-label"),
+		).toBe("Theme: Sepia");
+	});
+
+	it("changes the theme by keyboard and closes", async () => {
+		await renderAt("/");
+		await openMenu();
+		expect(checked()).toEqual(["Light"]);
+		const dark = themeOptions().find((el) => el.textContent === "Dark");
+		if (!dark) throw new Error("no Dark option");
+		dark.focus();
+		await keydown(dark, "Enter");
+		expect(document.documentElement.dataset.theme).toBe("dark");
+		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+		expect(document.querySelector('[role="menu"]')).toBeNull();
+		await openMenu();
+		expect(checked()).toEqual(["Dark"]);
 	});
 
 	it.each([

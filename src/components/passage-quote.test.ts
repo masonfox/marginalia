@@ -41,7 +41,9 @@ describe("PassageQuote", () => {
 		expect(html).toContain(
 			"Passage from the book · The Communist Manifesto · Bourgeois and Proletarians",
 		);
-		expect(html).toMatch(/<blockquote[^>]*font-serif[^>]*>The history of all/);
+		expect(html).toMatch(
+			/<blockquote[^>]*font-reading[^>]*>The history of all/,
+		);
 		expect(html).toContain(`href="${href}"`);
 	});
 

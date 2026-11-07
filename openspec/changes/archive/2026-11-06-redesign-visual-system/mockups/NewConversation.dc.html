@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New conversation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&amp;family=Instrument+Sans:wght@400;500;600;700&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.m{--serif:'Cormorant Garamond','EB Garamond',Georgia,serif;--sans:'Instrument Sans',ui-sans-serif,system-ui,sans-serif;--read:'Newsreader',Georgia,serif;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.m[data-theme="dark"]{--bg:#0d0a08;--bg2:#120e0b;--surface:#18130f;--surface2:#221c16;--line:rgba(255,236,214,.09);--line2:rgba(255,236,214,.17);--ink:#f5efe6;--muted:#b3a99c;--faint:#8f8578;--accent:#f0a556;--accent-text:#f3b06a;--accent-soft:rgba(240,165,86,.14);--primary:#f0a556;--primary-ink:#1a0f05;--ok:#8cc49a;--bad:#ec9580;--glow:rgba(240,165,86,.10);--pop:0 40px 100px -20px rgba(0,0,0,.9);--scrim:rgba(8,6,4,.72)}
+.m[data-theme="sepia"]{--bg:#f2e8d6;--bg2:#ebdfc9;--surface:#f8f1e4;--surface2:#ecdfc8;--line:rgba(74,50,26,.13);--line2:rgba(74,50,26,.24);--ink:#2a1d12;--muted:#665341;--faint:#725f4c;--accent:#c9822f;--accent-text:#8f4f12;--accent-soft:rgba(176,108,36,.15);--primary:#2a1d12;--primary-ink:#f8f1e4;--ok:#3d6b3f;--bad:#9c3a22;--glow:rgba(201,130,47,.16);--pop:0 40px 90px -24px rgba(60,35,10,.55);--scrim:rgba(60,40,20,.38)}
+.m[data-theme="light"]{--bg:#faf8f4;--bg2:#f3efe8;--surface:#ffffff;--surface2:#f2eee7;--line:rgba(30,22,14,.09);--line2:rgba(30,22,14,.17);--ink:#17120d;--muted:#655c52;--faint:#736a5f;--accent:#e0923f;--accent-text:#9a520f;--accent-soft:rgba(224,146,63,.15);--primary:#17120d;--primary-ink:#faf8f4;--ok:#2f6b3c;--bad:#a63a26;--glow:rgba(224,146,63,.12);--pop:0 40px 90px -24px rgba(30,20,10,.35);--scrim:rgba(30,22,14,.32)}
+.m *{box-sizing:border-box}
+.m a{color:inherit;text-decoration:none}
+.m button{font:inherit;color:inherit}
+.m h1,.m h2,.m h3,.m p,.m ul{margin:0}
+.disp{font-family:var(--serif);font-weight:600;letter-spacing:-.015em;line-height:1.02}
+.eyebrow{font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.muted{color:var(--muted)}.faint{color:var(--faint)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border-radius:10px;font:600 14px/1 var(--sans);border:1px solid transparent;cursor:pointer;white-space:nowrap}
+.btn svg{width:16px;height:16px;flex:none}
+.btn-p{background:var(--primary);color:var(--primary-ink)}
+.btn-g{background:transparent;color:var(--muted)}
+.btn-g:hover{background:var(--surface2);color:var(--ink)}
+.ibtn{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:10px;border:0;background:transparent;color:var(--muted);cursor:pointer;flex:none}
+.ibtn svg{width:18px;height:18px}
+.ibtn:hover{background:var(--surface2);color:var(--ink)}
+.chip{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:0 13px;border-radius:999px;font:500 13px/1 var(--sans);background:transparent;color:var(--muted);border:1px solid var(--line2);white-space:nowrap;cursor:pointer}
+.chip svg{width:14px;height:14px}
+.sel{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 10px 0 12px;border-radius:999px;font:600 11.5px/1 var(--sans);letter-spacing:.04em;background:var(--accent-soft);color:var(--accent-text);border:0;cursor:pointer;white-space:nowrap;max-width:100%}
+.sel svg{width:13px;height:13px;flex:none}
+.sel span{overflow:hidden;text-overflow:ellipsis}
+.cover{position:relative;aspect-ratio:2/3;border-radius:2px 5px 5px 2px;overflow:hidden;box-shadow:0 8px 18px -8px rgba(0,0,0,.6)}
+.cover::before{content:"";position:absolute;inset:0 auto 0 0;width:9%;background:linear-gradient(90deg,rgba(0,0,0,.28),transparent)}
+.slot{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:16px;align-items:center;padding:14px 10px 14px 14px;border-radius:14px;background:var(--bg2);border:1px solid var(--line)}
+.opt{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;padding:8px 12px;border-radius:10px;border:0;background:transparent;text-align:left;cursor:pointer}
+.opt:hover{background:var(--surface2)}
+.opt.on{background:var(--accent-soft)}
+textarea.ta{all:unset;display:block;width:100%;min-height:84px;font:400 17px/1.55 var(--sans);color:var(--ink);white-space:pre-wrap}
+textarea.ta::placeholder{color:var(--faint)}
+.ghost{position:absolute;border-radius:3px 7px 7px 3px}
+@media (max-width:760px){.sm-hide{display:none !important}}
+</style>
+</helmet>
+<div class="m" data-theme="{{theme}}" style="min-height: 1050px; position: relative; overflow: hidden">
+  <div aria-hidden="true" style="position: absolute; inset: 0">
+    <div style="height: 69px; border-bottom: 1px solid var(--line)"></div>
+    <div style="position: absolute; left: 8%; top: 160px; width: 200px; height: 300px; background: #1f4a43" class="ghost"></div>
+    <div style="position: absolute; left: calc(8% + 260px); top: 190px; width: 46%; height: 64px; border-radius: 12px; background: var(--surface2)"></div>
+    <div style="position: absolute; left: calc(8% + 260px); top: 280px; width: 30%; height: 24px; border-radius: 12px; background: var(--surface2)"></div>
+    <div style="position: absolute; left: 8%; right: 8%; top: 560px; height: 1px; background: var(--line)"></div>
+    <div style="position: absolute; left: 8%; width: 52%; top: 600px; height: 90px; border-radius: 12px; background: var(--surface)"></div>
+    <div style="position: absolute; left: 8%; width: 52%; top: 710px; height: 90px; border-radius: 12px; background: var(--surface)"></div>
+    <div style="position: absolute; inset: 0; background: var(--scrim); backdrop-filter: blur(6px)"></div>
+  </div>
+
+  <div style="position: relative; display: flex; justify-content: center; padding: 72px 16px 48px">
+    <div role="dialog" aria-modal="true" aria-labelledby="nc-title" style="width: 100%; max-width: 680px; background: var(--surface); border: 1px solid var(--line2); border-radius: 22px; box-shadow: var(--pop); overflow: visible">
+      <div style="padding: 28px 28px 0; display: flex; align-items: flex-start; gap: 16px">
+        <div style="flex: 1">
+          <h2 id="nc-title" class="disp" style="font-size: 38px">New conversation</h2>
+          <p class="muted" style="margin-top: 8px; font-size: 14.5px">Choose up to three books. Each one is read only as far as you say.</p>
+        </div>
+        <div style="display: flex; gap: 4px; align-items: center">
+          <div style="display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--line)" role="group" aria-label="Theme">
+            <button onClick="{{setL}}" aria-pressed="{{pL}}" aria-label="Light theme" style="{{sL}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg></button>
+            <button onClick="{{setS}}" aria-pressed="{{pS}}" aria-label="Sepia theme" style="{{sS}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5h6a3.5 3.5 0 0 1 3.5 3.5v12a3 3 0 0 0-3-3H2.5zM21.5 4.5h-6A3.5 3.5 0 0 0 12 8v12a3 3 0 0 1 3-3h6.5z"></path></svg></button>
+            <button onClick="{{setD}}" aria-pressed="{{pD}}" aria-label="Dark theme" style="{{sD}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg></button>
+          </div>
+          <a class="ibtn" href="Dashboard.dc.html" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></a>
+        </div>
+      </div>
+
+      <div style="padding: 24px 28px 0; display: grid; gap: 10px">
+        <div style="position: relative">
+          <div class="slot">
+            <div class="cover" style="background: #1d3a5f"></div>
+            <div style="min-width: 0">
+              <p style="font: 600 15.5px/1.3 var(--sans)">Infinite Jest</p>
+              <div style="margin-top: 8px"><button class="sel" aria-haspopup="listbox" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"></path></svg><span>THROUGH WINTER B.S. 1960 — TUCSON AZ</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+            </div>
+            <button class="ibtn" aria-label="Remove Infinite Jest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+          </div>
+          <div role="listbox" aria-label="How far it may read" style="position: absolute; z-index: 2; left: 74px; top: calc(100% - 6px); width: min(420px, calc(100% - 80px)); background: var(--surface); border: 1px solid var(--line2); border-radius: 14px; box-shadow: var(--pop); padding: 6px">
+            <button class="opt on" role="option" aria-selected="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>
+              <span><span style="display: block; font: 600 14px var(--sans)">My position</span><span class="faint" style="font-size: 12.5px">Through WINTER B.S. 1960 — TUCSON AZ · 13 of 22</span></span>
+            </button>
+            <button class="opt" role="option" aria-selected="false">
+              <span style="width: 16px"></span>
+              <span><span style="display: block; font: 600 14px var(--sans)">An earlier point…</span><span class="faint" style="font-size: 12.5px">Narrow it to a section you’ve read</span></span>
+            </button>
+            <button class="opt" role="option" aria-selected="false">
+              <span style="width: 16px"></span>
+              <span><span style="display: block; font: 600 14px var(--sans)">The whole book</span><span style="font-size: 12.5px; color: var(--bad)">Includes everything past your position</span></span>
+            </button>
+          </div>
+        </div>
+        <div class="slot">
+          <div class="cover" style="background: #1f4a43"></div>
+          <div style="min-width: 0">
+            <p style="font: 600 15.5px/1.3 var(--sans)">Tress of the Emerald Sea</p>
+            <div style="margin-top: 8px"><button class="sel" aria-haspopup="listbox" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"></path></svg><span>THROUGH PART FIVE › 36. THE EXPLORER</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+          </div>
+          <button class="ibtn" aria-label="Remove Tress of the Emerald Sea"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+        </div>
+        <button style="display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; border-radius: 14px; border: 1.5px dashed var(--line2); background: transparent; color: var(--muted); font: 500 14px var(--sans); cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add a third book</button>
+      </div>
+
+      <div style="margin: 20px 28px 0; padding: 18px 20px; border-radius: 14px; border: 1px solid var(--line2); background: var(--bg)">
+        <label for="q" class="eyebrow" style="display: block; margin-bottom: 8px">Your question</label>
+        <textarea id="q" class="ta" placeholder="Ask about a scene, a character, or a theory…">Hal and Tress are both misread by the people around them. Do the books treat that the same way?</textarea>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 20px 28px 24px; margin-top: 20px; border-top: 1px solid var(--line)">
+        <button class="chip"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--ok)"></span>Claude Haiku 5.5<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+        <span class="faint sm-hide" style="font-size: 12.5px">Anthropic · your default</span>
+        <span style="flex: 1"></span>
+        <a class="btn btn-g" href="Dashboard.dc.html">Cancel</a>
+        <a class="btn btn-p" href="Conversation.dc.html">Start conversation<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","sepia","light"],"default":"dark"},"$preview":{"width":1440,"height":1050}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const t = (this.state && this.state.theme) || this.props.theme || 'dark';
+    const set = (v) => () => this.setState({ theme: v });
+    const base = 'display: grid; place-items: center; width: 30px; height: 30px; border-radius: 999px; border: 0; cursor: pointer; ';
+    const on = base + 'background: var(--surface); color: var(--accent-text); box-shadow: 0 1px 3px rgba(0,0,0,.18)';
+    const off = base + 'background: transparent; color: var(--faint)';
+    return {
+      theme: t,
+      sL: t === 'light' ? on : off, sS: t === 'sepia' ? on : off, sD: t === 'dark' ? on : off,
+      pL: t === 'light' ? 'true' : 'false', pS: t === 'sepia' ? 'true' : 'false', pD: t === 'dark' ? 'true' : 'false',
+      setL: set('light'), setS: set('sepia'), setD: set('dark')
+    };
+  }
+}
+</script>
+</body>
+</html>

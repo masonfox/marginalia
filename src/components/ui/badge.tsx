@@ -3,20 +3,30 @@ import { cn } from "cn";
 import { Slot } from "radix-ui";
 import type * as React from "react";
 
+/**
+ * Statuses are a colored dot and a word, with no filled pill (the mockups'
+ * .badge); give `status` its color with a text class such as
+ * `text-status-reading`. `secondary` and `outline` are quiet label chips
+ * (the mockups' .chip) for tags that are not statuses.
+ */
 const badgeVariants = cva(
-	"inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3",
+	"inline-flex w-fit shrink-0 items-center gap-1.5 overflow-hidden whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none [&>svg]:pointer-events-none [&>svg]:size-3",
 	{
 		variants: {
 			variant: {
-				default: "bg-primary text-primary-foreground [a&]:hover:bg-primary/90",
-				secondary:
-					"bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
+				status:
+					"text-[11.5px] leading-none font-semibold tracking-[0.02em] before:block before:size-[7px] before:shrink-0 before:rounded-full before:bg-current",
+				default:
+					"text-[11.5px] leading-none font-semibold tracking-[0.02em] text-foreground before:block before:size-[7px] before:shrink-0 before:rounded-full before:bg-current",
 				destructive:
-					"bg-destructive text-white focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/90",
+					"text-[11.5px] leading-none font-semibold tracking-[0.02em] text-destructive-foreground before:block before:size-[7px] before:shrink-0 before:rounded-full before:bg-current",
+				secondary:
+					"min-h-6 rounded-full border border-border bg-secondary px-2.5 text-xs font-medium text-muted-foreground [a&]:hover:text-foreground",
 				outline:
-					"border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
-				ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
-				link: "text-primary underline-offset-4 [a&]:hover:underline",
+					"min-h-6 rounded-full border border-input px-2.5 text-xs font-medium text-muted-foreground [a&]:hover:bg-secondary [a&]:hover:text-foreground",
+				ghost:
+					"text-xs font-medium text-muted-foreground [a&]:hover:text-foreground",
+				link: "text-xs font-medium text-amber-foreground underline-offset-4 [a&]:hover:underline",
 			},
 		},
 		defaultVariants: {

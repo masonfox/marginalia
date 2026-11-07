@@ -50,7 +50,7 @@ export function Composer({
 	return (
 		<>
 			<form
-				className="rounded-2xl border bg-card p-2 shadow-md focus-within:border-ring/60"
+				className="overflow-hidden rounded-2xl border border-input bg-card p-3 shadow-pop focus-within:border-ring/60 sm:p-4"
 				onSubmit={(e) => {
 					e.preventDefault();
 					if (busy || blockedReason) return;
@@ -125,7 +125,7 @@ export function Composer({
 						aria-label="Message"
 						placeholder="Say what you think…"
 						containerClassName="min-w-0 flex-1"
-						className="px-2 py-1.5 text-base sm:text-sm"
+						className="px-2 py-2 text-base leading-relaxed"
 					/>
 					<SendButton busy={busy} reason={blockedReason} onStop={onStop} />
 				</div>
@@ -149,7 +149,7 @@ export function Composer({
 function ComposerHint() {
 	return (
 		<p
-			className="mt-1.5 text-center text-xs text-muted-foreground pointer-coarse:hidden"
+			className="mt-2 text-center text-[11px] text-faint-foreground pointer-coarse:hidden"
 			data-testid="composer-hint"
 		>
 			<kbd className="font-sans">Enter</kbd> to send ·{" "}

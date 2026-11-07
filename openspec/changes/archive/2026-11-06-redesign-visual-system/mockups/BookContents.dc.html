@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Moby-Dick · Contents</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&amp;family=Instrument+Sans:wght@400;500;600;700&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.m{--serif:'Cormorant Garamond','EB Garamond',Georgia,serif;--sans:'Instrument Sans',ui-sans-serif,system-ui,sans-serif;--read:'Newsreader',Georgia,serif;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.m[data-theme="dark"]{--bg:#0d0a08;--bg2:#120e0b;--surface:#18130f;--surface2:#221c16;--line:rgba(255,236,214,.09);--line2:rgba(255,236,214,.17);--ink:#f5efe6;--muted:#b3a99c;--faint:#8f8578;--accent:#f0a556;--accent-text:#f3b06a;--accent-soft:rgba(240,165,86,.14);--primary:#f0a556;--primary-ink:#1a0f05;--hl:rgba(240,165,86,.2);--ok:#8cc49a;--info:#93b8de;--bad:#ec9580;--cshadow:0 18px 40px -12px rgba(0,0,0,.85),0 2px 6px rgba(0,0,0,.5);--glow:rgba(240,165,86,.10);--tint:rgba(120,114,104,.32)}
+.m[data-theme="sepia"]{--bg:#f2e8d6;--bg2:#ebdfc9;--surface:#f8f1e4;--surface2:#ecdfc8;--line:rgba(74,50,26,.13);--line2:rgba(74,50,26,.24);--ink:#2a1d12;--muted:#665341;--faint:#725f4c;--accent:#c9822f;--accent-text:#8f4f12;--accent-soft:rgba(176,108,36,.15);--primary:#2a1d12;--primary-ink:#f8f1e4;--hl:rgba(214,150,62,.3);--ok:#3d6b3f;--info:#355d86;--bad:#9c3a22;--cshadow:0 18px 36px -14px rgba(60,35,10,.55),0 2px 5px rgba(60,35,10,.25);--glow:rgba(201,130,47,.16);--tint:rgba(77,74,68,.16)}
+.m[data-theme="light"]{--bg:#faf8f4;--bg2:#f3efe8;--surface:#ffffff;--surface2:#f2eee7;--line:rgba(30,22,14,.09);--line2:rgba(30,22,14,.17);--ink:#17120d;--muted:#655c52;--faint:#736a5f;--accent:#e0923f;--accent-text:#9a520f;--accent-soft:rgba(224,146,63,.15);--primary:#17120d;--primary-ink:#faf8f4;--hl:#fbe3bd;--ok:#2f6b3c;--info:#2f5f91;--bad:#a63a26;--cshadow:0 16px 32px -14px rgba(30,20,10,.38),0 2px 4px rgba(30,20,10,.15);--glow:rgba(224,146,63,.12);--tint:rgba(77,74,68,.12)}
+.m *{box-sizing:border-box}
+.m a{color:inherit;text-decoration:none}
+.m button{font:inherit;color:inherit}
+.m h1,.m h2,.m h3,.m h4,.m p{margin:0}
+.disp{font-family:var(--serif);font-weight:600;letter-spacing:-.015em;line-height:1.02}
+.eyebrow{font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.muted{color:var(--muted)}.faint{color:var(--faint)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 16px;border-radius:10px;font:600 14px/1 var(--sans);border:1px solid transparent;cursor:pointer;white-space:nowrap}
+.btn svg{width:16px;height:16px;flex:none}
+.btn-p{background:var(--primary);color:var(--primary-ink)}
+.btn-o{background:transparent;color:var(--ink);border-color:var(--line2)}
+.btn-g{background:transparent;color:var(--muted)}
+.btn-g:hover,.btn-o:hover{background:var(--surface2);color:var(--ink)}
+.ibtn{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:10px;border:0;background:transparent;color:var(--muted);cursor:pointer;flex:none}
+.ibtn svg{width:18px;height:18px}
+.ibtn:hover{background:var(--surface2);color:var(--ink)}
+.scope{display:inline-flex;align-items:center;gap:7px;min-height:28px;padding:0 11px;border-radius:999px;font:600 11.5px/1 var(--sans);letter-spacing:.04em;background:var(--accent-soft);color:var(--accent-text);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.scope svg{width:13px;height:13px;flex:none}
+.nav{display:flex;gap:2px}
+.nl{font:500 14px/1 var(--sans);color:var(--muted);padding:11px 12px;border-radius:8px}
+.nl:hover{color:var(--ink)}
+.nl.on{color:var(--ink);background:var(--surface2)}
+.seg{display:inline-flex;padding:3px;gap:2px;border-radius:999px;background:var(--surface2);border:1px solid var(--line)}
+.sb{display:grid;place-items:center;width:34px;height:34px;border-radius:999px;border:0;background:transparent;color:var(--faint);cursor:pointer}
+.sb svg{width:16px;height:16px}
+.sb.on{background:var(--surface);color:var(--accent-text);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.input{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 14px;border-radius:12px;background:var(--surface);border:1px solid var(--line2);color:var(--faint);font:400 14px/1.4 var(--sans)}
+.input svg{width:16px;height:16px;flex:none}
+.input input{all:unset;flex:1;min-width:0;color:var(--ink)}
+.input input::placeholder{color:var(--faint)}
+.bar{height:4px;border-radius:99px;background:var(--line2);overflow:hidden}
+.bar span{display:block;height:100%;background:var(--accent);border-radius:99px}
+.cover{position:relative;aspect-ratio:2/3;border-radius:3px 7px 7px 3px;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:13% 11% 11% 14%;box-shadow:var(--cshadow);container-type:inline-size}
+.cover::before{content:"";position:absolute;inset:0 auto 0 0;width:7%;background:linear-gradient(90deg,rgba(0,0,0,.28),rgba(255,255,255,.10) 70%,transparent)}
+.cover::after{content:"";position:absolute;inset:0;background:linear-gradient(160deg,rgba(255,255,255,.10),transparent 40%,rgba(0,0,0,.12))}
+.ct{font-family:var(--serif);font-weight:600;line-height:.95;letter-spacing:-.01em;font-size:17cqw}
+.ca{font:600 6.5cqw/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;opacity:.85}
+.tab{font:500 14.5px/1 var(--sans);color:var(--muted);padding:16px 2px 15px;border-bottom:2px solid transparent;white-space:nowrap}
+.tab:hover{color:var(--ink)}
+.tab.on{color:var(--ink);border-color:var(--accent);font-weight:600}
+.notice{display:flex;justify-content:center;align-items:center;gap:10px;padding:9px 16px;font:500 12.5px/1.3 var(--sans);color:var(--muted);background:var(--bg2);border-top:1px solid var(--line);text-align:center}
+.notice a{color:var(--accent-text);font-weight:600}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+.toc{display:grid;grid-template-columns:28px 44px minmax(0,1fr) auto;gap:14px;align-items:center;min-height:56px;padding:0 12px;border-top:1px solid var(--line)}
+.toc:hover{background:var(--surface)}
+.toc .tn{font:500 22px/1 var(--serif);color:var(--faint);text-align:right;font-variant-numeric:oldstyle-nums}
+.toc .tt{font:500 16px/1.3 var(--sans)}
+.toc.later .tt{color:var(--faint)}
+.toc.here{background:var(--accent-soft);border-radius:10px;border-top-color:transparent}
+.toc.here + .toc{border-top-color:transparent}
+.toc.here .tt{font-weight:600}
+.toc.here .tn{color:var(--accent-text)}
+.ck{width:20px;height:20px;border-radius:50%;display:grid;place-items:center}
+@media (max-width:760px){.sm-hide{display:none !important}.pad{padding-left:16px !important;padding-right:16px !important}.toc{grid-template-columns:22px 32px minmax(0,1fr)}.tmeta{display:none}}
+</style>
+</helmet>
+<div class="m" data-theme="{{theme}}" style="min-height: 1350px">
+<header style="border-bottom: 1px solid var(--line)">
+  <div class="pad" style="max-width: 1240px; margin: 0 auto; padding: 14px 32px; display: flex; align-items: center; gap: 28px">
+    <a href="Dashboard.dc.html" style="display: flex; align-items: center; gap: 10px" aria-label="Marginalia home">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="2.5" width="17" height="19" rx="2.5"></rect><path d="M8.5 2.5v19"></path><path d="M11.5 8h5.5M11.5 12h5.5M11.5 16h3.5"></path><path d="M5.6 9.5h.8M5.6 13.5h.8"></path></svg>
+      <span class="disp" style="font-size: 27px">Marginalia</span>
+    </a>
+    <nav class="nav sm-hide" aria-label="Primary">
+      <a class="nl" href="Dashboard.dc.html">Dashboard</a>
+      <a class="nl on" href="Library.dc.html">Library</a>
+      <a class="nl" href="Conversations.dc.html">Conversations</a>
+    </nav>
+    <div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+      <div class="seg" role="group" aria-label="Theme">
+        <button class="{{sbL}}" onClick="{{setL}}" aria-pressed="{{pL}}" aria-label="Light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg></button>
+        <button class="{{sbS}}" onClick="{{setS}}" aria-pressed="{{pS}}" aria-label="Sepia theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5h6a3.5 3.5 0 0 1 3.5 3.5v12a3 3 0 0 0-3-3H2.5zM21.5 4.5h-6A3.5 3.5 0 0 0 12 8v12a3 3 0 0 1 3-3h6.5z"></path></svg></button>
+        <button class="{{sbD}}" onClick="{{setD}}" aria-pressed="{{pD}}" aria-label="Dark theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg></button>
+      </div>
+      <a class="btn btn-p" href="NewConversation.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg><span class="sm-hide">New conversation</span></a>
+      <a class="ibtn sm-hide" href="Settings.dc.html" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h9M18 6h2M4 12h3M11 12h9M4 18h11M19 18h1"></path><circle cx="15.5" cy="6" r="2"></circle><circle cx="9" cy="12" r="2"></circle><circle cx="17" cy="18" r="2"></circle></svg></a>
+    </div>
+  </div>
+  <div class="notice" role="status"><span class="dot"></span><span>No password set: anyone who can reach this instance can use it.</span><a href="Settings.dc.html">Set one</a></div>
+</header>
+
+<section style="position: relative; overflow: hidden; border-bottom: 1px solid var(--line)" aria-labelledby="book-title">
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(50% 100% at 10% 30%, var(--tint), transparent 72%), radial-gradient(40% 80% at 95% 0%, var(--glow), transparent 70%)"></div>
+  <div class="pad" style="position: relative; max-width: 1240px; margin: 0 auto; padding: 48px 32px 0">
+    <div style="display: flex; flex-wrap: wrap; gap: 48px; align-items: flex-end">
+      <div style="flex: 0 0 196px"><div class="cover" style="background: #4d4a44; color: #efe9dc"><div class="ct">Moby-Dick</div><div class="ca">Herman Melville</div></div></div>
+      <div style="flex: 999 1 420px; min-width: 0; padding-bottom: 6px">
+        <a href="Library.dc.html" class="faint" style="font: 500 13px var(--sans)">← Library</a>
+        <h1 id="book-title" class="disp" style="font-size: clamp(48px, 5.6vw, 80px); margin-top: 14px">Moby-Dick</h1>
+        <p class="muted" style="font-size: 18px; margin-top: 8px">Herman Melville · <span style="font-style: italic; font-family: var(--serif); font-size: 19px">or, The Whale</span></p>
+        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 24px">
+          <span class="scope"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"></path></svg>RE-READING · THROUGH 9. THE SERMON</span>
+          <div style="display: flex; align-items: center; gap: 10px; font-size: 13px" class="muted"><div class="bar" style="width: 160px"><span style="width: 8%"></span></div>11 of 138 sections</div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; padding-bottom: 8px">
+        <a class="btn btn-o" href="Reader.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5h6a3.5 3.5 0 0 1 3.5 3.5v12a3 3 0 0 0-3-3H2.5zM21.5 4.5h-6A3.5 3.5 0 0 0 12 8v12a3 3 0 0 1 3-3h6.5z"></path></svg>Keep reading</a>
+      </div>
+    </div>
+    <nav style="display: flex; gap: 32px; margin-top: 40px; overflow-x: auto" aria-label="Book sections">
+      <a class="tab" href="BookDiscuss.dc.html">Discuss</a>
+      <a class="tab" href="BookGuide.dc.html">Guide</a>
+      <a class="tab on" href="BookContents.dc.html" aria-current="page">Contents</a>
+      <a class="tab" href="BookAbout.dc.html">About</a>
+    </nav>
+  </div>
+</section>
+
+<main class="pad" style="max-width: 900px; margin: 0 auto; padding: 36px 32px 96px">
+  <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center">
+    <label class="input" style="flex: 1 1 320px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><input placeholder="Search the text of Moby-Dick" aria-label="Search the text of Moby-Dick"></label>
+    <p class="faint" style="font-size: 13px">Searches only what you’ve read unless you choose otherwise.</p>
+  </div>
+
+  <ol style="list-style: none; margin: 28px 0 0; padding: 0; border-bottom: 1px solid var(--line)">
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="16">
+      <li class="{{r.cls}}">
+        <span class="ck" style="{{r.ckStyle}}" aria-hidden="true"><sc-if value="{{r.read}}" hint-placeholder-val="{{ true }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></sc-if></span>
+        <span class="tn">{{r.n}}</span>
+        <a href="Reader.dc.html" class="tt">{{r.title}}<sc-if value="{{r.here}}" hint-placeholder-val="{{ false }}"> <span class="scope" style="min-height: 22px; font-size: 10.5px; margin-left: 10px; vertical-align: 2px">YOUR POSITION</span></sc-if></a>
+        <span class="tmeta faint" style="font-size: 12.5px">{{r.meta}}</span>
+      </li>
+    </sc-for>
+  </ol>
+  <div style="display: flex; justify-content: center; margin-top: 24px">
+    <button class="btn btn-g">Show all 138 sections</button>
+  </div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","sepia","light"],"default":"dark"},"$preview":{"width":1440,"height":1350}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const t = (this.state && this.state.theme) || this.props.theme || 'dark';
+    const set = (v) => () => this.setState({ theme: v });
+    const names = [['', 'Etymology', 4], ['', 'Extracts', 81], ['1', 'Loomings', 23], ['2', 'The Carpet-Bag', 18], ['3', 'The Spouter-Inn', 61], ['4', 'The Counterpane', 12], ['5', 'Breakfast', 9], ['6', 'The Street', 10], ['7', 'The Chapel', 12], ['8', 'The Pulpit', 9], ['9', 'The Sermon', 42], ['10', 'A Bosom Friend', 14], ['11', 'Nightgown', 8], ['12', 'Biographical', 9], ['13', 'Wheelbarrow', 17], ['14', 'Nantucket', 6], ['15', 'Chowder', 11], ['16', 'The Ship', 58]];
+    const hereIdx = 10;
+    const rows = names.map((r, i) => {
+      const read = i <= hereIdx;
+      const here = i === hereIdx;
+      return {
+        n: r[0], title: r[1], read: read, here: here,
+        meta: r[2] + ' passages',
+        cls: 'toc' + (here ? ' here' : '') + (read ? '' : ' later'),
+        ckStyle: read ? 'background: var(--accent-soft); color: var(--accent-text)' : 'border: 1.5px solid var(--line2)'
+      };
+    });
+    return {
+      theme: t,
+      sbL: 'sb' + (t === 'light' ? ' on' : ''), sbS: 'sb' + (t === 'sepia' ? ' on' : ''), sbD: 'sb' + (t === 'dark' ? ' on' : ''),
+      pL: t === 'light' ? 'true' : 'false', pS: t === 'sepia' ? 'true' : 'false', pD: t === 'dark' ? 'true' : 'false',
+      setL: set('light'), setS: set('sepia'), setD: set('dark'),
+      rows: rows
+    };
+  }
+}
+</script>
+</body>
+</html>

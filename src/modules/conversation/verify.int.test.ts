@@ -62,6 +62,7 @@ beforeAll(async () => {
 			ordinal: 0,
 			maxPosition: null,
 			scopeLabel: null,
+			hasCover: false,
 		},
 	];
 });
@@ -160,6 +161,7 @@ describe("verifyCitations", () => {
 					ordinal: 1,
 					maxPosition: null,
 					scopeLabel: null,
+					hasCover: false,
 				},
 			];
 		});

@@ -16,6 +16,7 @@ import {
 	positionBound,
 } from "#/components/guide";
 import { CorrectionReviewPanel } from "#/components/guide-corrections";
+import { ScopePill } from "#/components/pieces";
 import { PreprocessCard } from "#/components/preprocess-card";
 import {
 	type Choice,
@@ -153,9 +154,15 @@ function GuideLayout() {
 	return (
 		<GuideFrame title={edition.title}>
 			<div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-				<span className="font-medium" data-testid="guide-bound">
-					{bound ? scopeText(bound.label) : "Choose how far you have read"}
-				</span>
+				{bound ? (
+					<ScopePill data-testid="guide-bound">
+						{scopeText(bound.label)}
+					</ScopePill>
+				) : (
+					<span className="font-medium" data-testid="guide-bound">
+						Choose how far you have read
+					</span>
+				)}
 				{(bound !== null || !preprocessed) && (
 					<Button
 						type="button"
@@ -175,7 +182,7 @@ function GuideLayout() {
 			</div>
 			{peeking && mine && (
 				<div
-					className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+					className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-amber/40 bg-amber-soft px-3 py-2 text-sm"
 					data-testid="guide-peek"
 				>
 					<Eye className="size-4 shrink-0" aria-hidden />
@@ -198,7 +205,10 @@ function GuideLayout() {
 					{notice}
 				</p>
 			)}
-			<nav className="mt-6 flex gap-1 border-b text-sm" aria-label="Guide">
+			<nav
+				className="mt-6 inline-flex max-w-full gap-1 rounded-full border bg-secondary p-1 text-sm"
+				aria-label="Guide"
+			>
 				{(
 					[
 						["/books/$editionId/guide/chapters", "Chapters"],
@@ -212,7 +222,7 @@ function GuideLayout() {
 						params={{ editionId: edition.id }}
 						// Current from the router's aria-current, not activeProps: see
 						// TAB in book-page.tsx.
-						className="-mb-px border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground aria-[current=page]:border-primary aria-[current=page]:font-medium aria-[current=page]:text-foreground"
+						className="inline-flex min-h-10 items-center rounded-full px-4 py-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[current=page]:bg-card aria-[current=page]:font-semibold aria-[current=page]:text-foreground aria-[current=page]:shadow-sm pointer-coarse:min-h-11"
 					>
 						{label}
 					</Link>
@@ -298,7 +308,7 @@ function GuideFrame({
 	children: React.ReactNode;
 }) {
 	return (
-		<div className="max-w-3xl">
+		<div className="min-w-0 max-w-5xl">
 			<p className="text-sm text-muted-foreground">
 				What has been derived about <em>{title}</em>, limited to how far you
 				have read.
@@ -329,7 +339,7 @@ function FirstChoice({
 	const chosen = choice === null ? null : toBound(choice, units);
 	return (
 		<section
-			className="max-w-xl space-y-3 rounded-md border p-4"
+			className="max-w-xl space-y-3 rounded-2xl border bg-card p-6"
 			aria-labelledby="guide-first-choice"
 			data-testid="guide-first-choice"
 		>

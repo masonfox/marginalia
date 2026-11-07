@@ -352,6 +352,7 @@ describe("WidenScope", () => {
 					ordinal: 0,
 					maxPosition: 9,
 					scopeLabel: "Chapter 1",
+					hasCover: false,
 				},
 			}),
 		);

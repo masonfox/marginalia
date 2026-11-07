@@ -80,7 +80,7 @@ test("the book header shows a long reading-position label in full on desktop, ta
 			await page.reload();
 			await page.waitForLoadState("networkidle");
 			await expect(value).toHaveText(LONG);
-			await expect(page.getByTestId("reading-progress")).toHaveText("2 of 3");
+			await expect(page.getByTestId("reading-progress")).toHaveText("2/3");
 			const clip = await value.evaluate((el) => ({
 				scroll: el.scrollWidth,
 				client: el.clientWidth,

@@ -285,7 +285,7 @@ function MergeForm({
 					/>
 				</label>
 				<p
-					className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs"
+					className="flex gap-2 rounded-md border border-amber/40 bg-amber-soft p-3 text-xs"
 					data-testid="merge-spoiler-warning"
 				>
 					<TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -350,7 +350,7 @@ export function ProposalList() {
 	return (
 		<section
 			aria-label="Suggested merges"
-			className="mt-4 rounded-md border bg-muted/30 p-3"
+			className="mt-4 rounded-2xl border bg-card p-5"
 			data-testid="guide-proposals"
 		>
 			<h2 className="text-sm font-medium">Possibly the same</h2>
@@ -445,7 +445,7 @@ export function SubjectEditor({
 	return (
 		<section
 			aria-label="Edit subject"
-			className="mt-4 space-y-3 rounded-md border p-3 text-sm"
+			className="mt-4 space-y-3 rounded-2xl border bg-card p-5 text-sm"
 			data-testid="subject-editor"
 		>
 			<div className="flex flex-wrap items-end gap-3">

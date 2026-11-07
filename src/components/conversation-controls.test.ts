@@ -157,7 +157,7 @@ describe("ConversationModelControl clearing", () => {
 		});
 		expect(dialog()).toBeNull();
 		const change = [...container.querySelectorAll("button")].find((b) =>
-			b.textContent?.includes("Change model"),
+			b.getAttribute("aria-label")?.startsWith("Change model"),
 		);
 		expect(change?.disabled).toBe(true);
 	});
