@@ -23,9 +23,11 @@ import {
 	saveProviderCredentialsFn,
 } from "#/fns/settings";
 import {
+	setSystemLightTheme,
 	setThemeChoice,
 	THEMES,
 	useResolvedTheme,
+	useSystemLightTheme,
 	useThemeChoice,
 } from "#/lib/theme";
 import type { AiDefault } from "#/modules/settings";
@@ -399,6 +401,7 @@ function PreprocessDefaultCard({
 /** Theme previews use the same theme tokens as every screen. */
 export function Appearance() {
 	const choice = useThemeChoice();
+	const lightTheme = useSystemLightTheme();
 	const resolved = useResolvedTheme();
 	return (
 		<section
@@ -449,10 +452,40 @@ export function Appearance() {
 							event.target.checked ? "system" : (resolved ?? "light"),
 						)
 					}
-					className="size-4 accent-primary"
+					className="system-theme-checkbox"
 				/>
 				Match my system
 			</label>
+			{choice === "system" && (
+				<fieldset
+					className="mt-2 space-y-1 text-sm"
+					aria-describedby="system-light-help"
+				>
+					<legend className="font-medium">Light appearance</legend>
+					<div className="flex gap-6">
+						{(["light", "sepia"] as const).map((theme) => (
+							<label
+								key={theme}
+								className="flex min-h-11 cursor-pointer items-center gap-2"
+							>
+								<input
+									type="radio"
+									name="system-light-theme"
+									value={theme}
+									checked={lightTheme === theme}
+									onChange={() => setSystemLightTheme(theme)}
+									className="size-4 accent-amber focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+								/>
+								{THEME_LABELS[theme]}
+							</label>
+						))}
+					</div>
+					<p id="system-light-help" className="text-muted-foreground">
+						Choose Light or Sepia for light mode. Dark follows your system in
+						dark mode.
+					</p>
+				</fieldset>
+			)}
 		</section>
 	);
 }

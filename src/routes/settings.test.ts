@@ -3,7 +3,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, type ComponentType, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetThemeStoreForTests, THEME_STORAGE_KEY } from "#/lib/theme";
+import {
+	resetThemeStoreForTests,
+	SYSTEM_LIGHT_THEME_STORAGE_KEY,
+	THEME_STORAGE_KEY,
+} from "#/lib/theme";
 import type { AiStatus } from "#/modules/settings";
 import type { AiSelection } from "#/server/config";
 import { Route } from "./settings";
@@ -46,12 +50,24 @@ vi.mock("@tanstack/react-start", async (importOriginal) => ({
 const haiku: AiSelection = { provider: "anthropic", model: "claude-haiku" };
 const gpt: AiSelection = { provider: "openai", model: "gpt-small" };
 
+let prefersDark = false;
+const themeListeners = new Set<() => void>();
 let status: AiStatus;
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
 let client: QueryClient;
 
 beforeEach(() => {
+	prefersDark = false;
+	document.documentElement.removeAttribute("data-theme");
+	vi.stubGlobal("matchMedia", () => ({
+		get matches() {
+			return prefersDark;
+		},
+		addEventListener: (_: string, fn: () => void) => themeListeners.add(fn),
+		removeEventListener: (_: string, fn: () => void) =>
+			themeListeners.delete(fn),
+	}));
 	localStorage.clear();
 	resetThemeStoreForTests();
 	for (const m of Object.values(mocks)) m.mockReset();
@@ -77,6 +93,7 @@ beforeEach(() => {
 afterEach(() => {
 	act(() => root.unmount());
 	container.remove();
+	vi.unstubAllGlobals();
 });
 
 async function mount() {
@@ -317,5 +334,56 @@ describe("Appearance", () => {
 		await click(system);
 		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe(current);
 		expect(system.checked).toBe(false);
+	});
+});
+
+describe("system light appearance", () => {
+	it.each([
+		false,
+		true,
+	])("remembers pairing and freezes resolved theme (dark OS: %s)", async (dark) => {
+		prefersDark = dark;
+		await mount();
+		const system = card("Appearance").querySelector<HTMLInputElement>(
+			'input[type="checkbox"]',
+		);
+		const preference = () =>
+			container.querySelector<HTMLInputElement>(
+				'input[name="system-light-theme"][value="sepia"]',
+			);
+		const sepiaPreference = preference();
+		if (!system || !sepiaPreference) throw Error("Missing system controls");
+		await click(sepiaPreference);
+		expect(system.checked).toBe(true);
+		expect(localStorage.getItem(SYSTEM_LIGHT_THEME_STORAGE_KEY)).toBe("sepia");
+		expect(document.documentElement.dataset.theme).toBe(
+			dark ? "dark" : "sepia",
+		);
+		await click(system);
+		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe(
+			dark ? "dark" : "sepia",
+		);
+		expect(preference()).toBeNull();
+		act(() => {
+			prefersDark = !dark;
+			for (const fn of themeListeners) fn();
+		});
+		expect(document.documentElement.dataset.theme).toBe(
+			dark ? "dark" : "sepia",
+		);
+		await click(system);
+		expect(preference()?.checked).toBe(true);
+		expect(document.documentElement.dataset.theme).toBe(
+			dark ? "sepia" : "dark",
+		);
+		const manual = container.querySelector<HTMLInputElement>(
+			'input[name="display-theme"][value="light"]',
+		);
+		if (!manual) throw Error("Missing manual Light control");
+		await click(manual);
+		expect(system.checked).toBe(false);
+		expect(localStorage.getItem(SYSTEM_LIGHT_THEME_STORAGE_KEY)).toBe("sepia");
+		await click(system);
+		expect(preference()?.checked).toBe(true);
 	});
 });
