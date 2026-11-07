@@ -256,7 +256,7 @@ The action SHALL be reachable and operable by pointer, touch, and keyboard, SHAL
 - **THEN** the reference action offers only "Copy link"
 
 ### Requirement: Reading position and Guide on book detail
-For a ready edition, the book page header SHALL show the reading position on every tab: a unit label, "Finished", or "Not set". With it the header SHALL show progress: when a unit is set, which unit it is out of how many and a bar for the share of the book's passages through it; when finished, a full bar; when unset, no bar. The header SHALL offer a control to set, advance, move back, or clear the position, following the reading-position rules, and the header SHALL update as soon as the position changes anywhere on the page. The Guide SHALL be offered as a tab. Editions that are not ready SHALL offer neither.
+For a ready edition, the book page header SHALL show the reading position on every tab: a unit label, "Finished", or "Not set". On the Discuss and Contents tabs the header SHALL be shown in full and SHALL show progress with the position: when a unit is set, which unit it is out of how many and a bar for the share of the book's passages through it; when finished, a full bar; when unset, no bar. On the Guide and About tabs the header SHALL be compact, so the tab's content leads, and SHALL show the position and its control without progress. The header SHALL offer a control to set, advance, move back, or clear the position, following the reading-position rules, and the header SHALL update as soon as the position changes anywhere on the page. The Guide SHALL be offered as a tab. Editions that are not ready SHALL offer neither.
 
 #### Scenario: Set position from the book page
 - **WHEN** a reader opens a ready book with no position and sets it to Chapter 3 from the header
@@ -269,6 +269,10 @@ For a ready edition, the book page header SHALL show the reading position on eve
 #### Scenario: Position visible on every tab
 - **WHEN** a reader moves from Discuss to Contents
 - **THEN** the header still shows the reading position and its progress
+
+#### Scenario: Compact header on the Guide
+- **WHEN** a reader whose position is Chapter 3 moves from Discuss to Guide
+- **THEN** the compact header still shows the position as Chapter 3 with its control, without the unit count or bar, and the progress returns when the reader goes back to Discuss or Contents
 
 #### Scenario: Open the Guide
 - **WHEN** a reader selects the Guide tab on a ready book
