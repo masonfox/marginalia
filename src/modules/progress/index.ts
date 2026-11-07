@@ -35,5 +35,33 @@ export {
 	unlink,
 } from "./matching";
 export { getProvider, listProviders, PROGRESS_PROVIDERS } from "./registry";
+export {
+	applySyncSchedule,
+	reconcileSyncSchedules,
+	SYNC_CRON,
+	saveProviderSettings,
+	syncCron,
+} from "./schedule";
 export * from "./schema";
+export {
+	clearPositionByHand,
+	getSyncStatus,
+	type SyncStatus,
+} from "./status";
+export {
+	type BookProviderResult,
+	type BookSyncResult,
+	enqueueBookSync,
+	enqueueProviderSync,
+	isProviderKind,
+	LOOKUP_RECENT_DAYS,
+	lookupCandidates,
+	type ProviderSyncResult,
+	runBookSyncJob,
+	runProviderSyncJob,
+	type SyncDeps,
+	syncBook,
+	syncFailureMessage,
+	syncProvider,
+} from "./sync";
 export * from "./types";

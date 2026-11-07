@@ -62,6 +62,24 @@ export const jobKinds = {
 		// Fixed at 1 to bound spend.
 		concurrency: () => 1,
 	},
+	/**
+	 * One progress provider's sync. The key makes it at most one pending or
+	 * running per provider; the handler checks `kind` against the registry.
+	 */
+	"progress-sync": {
+		payload: z.object({ kind: z.string().min(1) }).strict(),
+		key: (p: { kind: string }) => p.kind,
+		retryLimit: 1,
+		// One per kind comes from the key; different providers may overlap.
+		concurrency: () => 2,
+	},
+	/** Every linked provider's reading for one book. */
+	"progress-sync-book": {
+		payload: z.object({ editionId: z.uuid() }).strict(),
+		key: (p: { editionId: string }) => p.editionId,
+		retryLimit: 1,
+		concurrency: () => 2,
+	},
 	"access.purge-sessions": {
 		payload: z.object({}),
 		key: () => "sessions",
@@ -92,6 +110,33 @@ export class NonRetryableError extends Error {
 		this.name = "NonRetryableError";
 	}
 }
+
+/**
+ * Throw from a handler to stop now and run the same job again after
+ * `delayMs`, such as when a provider rate-limits. The job completes instead
+ * of failing, so no retry is spent, and the follow-up keeps the job's key.
+ */
+export class DeferJobError extends Error {
+	readonly delayMs: number;
+
+	constructor(delayMs: number, message = "Job deferred.") {
+		super(message);
+		this.name = "DeferJobError";
+		this.delayMs = delayMs;
+	}
+}
+
+/**
+ * Sets (`cron`) or removes (null) the recurring job of this kind under
+ * `key`. Each firing enqueues `payload` with the kind's dedupe key. It only
+ * writes the database, so a process that runs no workers can call it.
+ */
+export type ScheduleJob = <K extends JobKind>(
+	kind: K,
+	key: string,
+	cron: string | null,
+	payload?: JobPayload<K>,
+) => Promise<void>;
 
 export interface JobContext {
 	id: string;

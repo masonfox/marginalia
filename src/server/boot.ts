@@ -1,5 +1,6 @@
 import { LoginRateLimiter, setupPassword } from "#/modules/access";
 import { createAi } from "#/modules/ai";
+import { reconcileSyncSchedules } from "#/modules/progress";
 import { loadCredentials } from "#/modules/settings";
 import {
 	type Config,
@@ -86,10 +87,15 @@ async function start(): Promise<AppContext> {
 		pendingJob: jobs.pendingJob,
 		pendingJobDetail: jobs.pendingJobDetail,
 		cancelJob: jobs.cancelJob,
+		scheduleJob: jobs.scheduleJob,
 		access,
 	};
 	setAppContext(ctx);
 	markReady();
+	// Provider sync schedules live in pg-boss; settings saves change them too.
+	await reconcileSyncSchedules(db, jobs.scheduleJob).catch((err) =>
+		log.error({ err }, "could not apply progress sync schedules"),
+	);
 	await onStarted(ctx, log);
 
 	installShutdown(log, async () => {

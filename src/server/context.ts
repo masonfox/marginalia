@@ -7,6 +7,7 @@ import type {
 	Enqueue,
 	PendingJob,
 	PendingJobDetail,
+	ScheduleJob,
 } from "./jobs/kinds";
 import type { Logger } from "./logger";
 
@@ -23,6 +24,7 @@ export interface AppContext {
 	pendingJob: PendingJob;
 	pendingJobDetail: PendingJobDetail;
 	cancelJob: CancelJob;
+	scheduleJob: ScheduleJob;
 	access: AccessDeps;
 }
 

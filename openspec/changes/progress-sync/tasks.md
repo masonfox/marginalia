@@ -26,9 +26,9 @@
 
 ## 5. Jobs and scheduling
 
-- [ ] 5.1 Add the `progress-sync` (`{ kind }`) and `progress-sync-book` (`{ editionId }`) job kinds with dedupe keys, plus a handler that runs list or lookup sync and records `last_sync_at`, `last_sync_matched` and `last_error`. Verify a job integration test with a fake provider.
-- [ ] 5.2 Pick candidate editions for lookup-mode providers (linked, positioned, or opened in the last 90 days). Verify with a unit test of the selection query.
-- [ ] 5.3 Apply schedules when settings are saved, using `boss.schedule` and `unschedule` keyed by kind. Verify an integration test shows a schedule change takes effect without a restart and that disabling unschedules.
+- [x] 5.1 Add the `progress-sync` (`{ kind }`) and `progress-sync-book` (`{ editionId }`) job kinds with dedupe keys, plus a handler that runs list or lookup sync and records `last_sync_at`, `last_sync_matched` and `last_error`. Verify a job integration test with a fake provider.
+- [x] 5.2 Pick candidate editions for lookup-mode providers (linked, positioned, or opened in the last 90 days). Verify with a unit test of the selection query.
+- [x] 5.3 Apply schedules when settings are saved, using `boss.schedule` and `unschedule` keyed by kind. Verify an integration test shows a schedule change takes effect without a restart and that disabling unschedules.
 
 ## 6. Settings UI and server functions
 

@@ -3,6 +3,7 @@ import { maskSecrets, redactSecrets } from "#/modules/ai";
 import type { Logger } from "../logger";
 import {
 	type CancelJob,
+	DeferJobError,
 	type Enqueue,
 	type JobConfig,
 	type JobHandler,
@@ -13,6 +14,7 @@ import {
 	NonRetryableError,
 	type PendingJob,
 	type PendingJobDetail,
+	type ScheduleJob,
 } from "./kinds";
 
 export interface RetryPolicy {
@@ -176,6 +178,23 @@ export class JobRuntime {
 			log.debug("job completed");
 			return { id: job.id, status: "completed" as const };
 		} catch (err) {
+			if (err instanceof DeferJobError) {
+				// Complete first: the queue's exclusive policy refuses a second
+				// pending job with this key while this one is active. Completing
+				// an already-completed job below is a no-op.
+				const delayMs = Math.max(0, err.delayMs);
+				await this.boss.complete(kind, job.id, { deferredMs: delayMs });
+				const def = jobKinds[kind];
+				const data = job.data ?? {};
+				await this.boss.send(kind, data as object, {
+					singletonKey: (def.key as (p: unknown) => string)(
+						def.payload.parse(data),
+					),
+					startAfter: new Date(Date.now() + delayMs),
+				});
+				log.info({ delayMs, reason: maskSecrets(err.message) }, "job deferred");
+				return { id: job.id, status: "completed" as const };
+			}
 			const message = redactSecrets(
 				err instanceof Error ? err.message : String(err),
 			);
@@ -194,6 +213,19 @@ export class JobRuntime {
 		const parsed = def.payload.parse(payload);
 		const key = (def.key as (p: unknown) => string)(parsed);
 		return this.boss.send(kind, parsed, { singletonKey: key });
+	};
+
+	scheduleJob: ScheduleJob = async (kind, key, cron, payload) => {
+		if (!cron) {
+			await this.boss.unschedule(kind, key);
+			return;
+		}
+		const def = jobKinds[kind];
+		const parsed = def.payload.parse(payload ?? {});
+		await this.boss.schedule(kind, cron, parsed as object, {
+			key,
+			singletonKey: (def.key as (p: unknown) => string)(parsed),
+		});
 	};
 
 	/**

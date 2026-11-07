@@ -18,6 +18,7 @@ import {
 } from "#/modules/conversation";
 import { reanchor, rebaseReadingPositions } from "#/modules/guide";
 import { backfillKoreaderDigests, scanLibraries } from "#/modules/library";
+import { runBookSyncJob, runProviderSyncJob } from "#/modules/progress";
 import { getAiDefaults } from "#/modules/settings";
 import type { Executor } from "#/server/db";
 import { appContext } from "../context";
@@ -130,6 +131,21 @@ export function jobHandlers(): JobHandlers {
 				},
 				editionId,
 				{ id: ctx.id, signal: ctx.signal },
+			);
+		},
+		"progress-sync": async ({ kind }, ctx) => {
+			const { db, config, log } = appContext();
+			const result = await runProviderSyncJob(
+				{ db, secret: config.secretKey, signal: ctx.signal },
+				kind,
+			);
+			log.info({ kind, ...result }, "progress sync finished");
+		},
+		"progress-sync-book": async ({ editionId }, ctx) => {
+			const { db, config } = appContext();
+			await runBookSyncJob(
+				{ db, secret: config.secretKey, signal: ctx.signal },
+				editionId,
 			);
 		},
 		"access.purge-sessions": async () => {

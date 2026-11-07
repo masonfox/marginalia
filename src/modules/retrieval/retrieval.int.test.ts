@@ -262,6 +262,7 @@ describe("search", () => {
 			pendingJob: async () => null,
 			pendingJobDetail: async () => null,
 			cancelJob: async () => [],
+			scheduleJob: async () => {},
 			ai: {} as never,
 			access: {} as never,
 		});
