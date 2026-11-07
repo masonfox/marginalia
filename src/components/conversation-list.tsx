@@ -1,20 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
-import { Ellipsis, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { coverColors } from "#/components/book-cover";
-import {
-	DeleteConversation,
-	RenameConversationDialog,
-} from "#/components/conversation-controls";
+import { ConversationActions } from "#/components/conversation-controls";
 import { ScopePill } from "#/components/pieces";
-import { Button } from "#/components/ui/button";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu";
 import { useNamingMetadata } from "#/hooks/use-naming-metadata";
 import {
 	conversationBooksLabel,
@@ -86,8 +75,6 @@ export function ConversationRow(props: ConversationRowProps) {
 			void queryClient.invalidateQueries({ queryKey: ["conversations"] });
 		}
 	}, [c.deleted, router, queryClient]);
-	const [renaming, setRenaming] = useState(false);
-	const [deleting, setDeleting] = useState(false);
 	const updated = new Date(c.updatedAt);
 	const metaColumn = props.bookLabel === "books" && props.metaColumn;
 	const books =
@@ -179,45 +166,11 @@ export function ConversationRow(props: ConversationRowProps) {
 					{relativeTime(updated)}
 				</time>
 			)}
-			<DropdownMenu modal={false}>
-				<DropdownMenuTrigger asChild>
-					<Button
-						type="button"
-						size="icon"
-						variant="ghost"
-						className="mt-0.5 shrink-0 pointer-coarse:size-11"
-						aria-label={`Actions for “${c.title}”`}
-					>
-						<Ellipsis aria-hidden />
-					</Button>
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end">
-					<DropdownMenuItem onSelect={() => setRenaming(true)}>
-						<Pencil aria-hidden /> Rename
-					</DropdownMenuItem>
-					<DropdownMenuItem
-						variant="destructive"
-						onSelect={() => setDeleting(true)}
-					>
-						<Trash2 aria-hidden /> Delete
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
-			<RenameConversationDialog
+			<ConversationActions
 				conversationId={c.id}
 				title={c.title}
-				open={renaming}
-				onOpenChange={setRenaming}
-			/>
-			<DeleteConversation
-				conversationId={c.id}
-				title={c.title}
-				open={deleting}
-				onOpenChange={setDeleting}
-				onDeleted={async () => {
-					await router.invalidate();
-					setDeleting(false);
-				}}
+				className="mt-0.5 shrink-0 pointer-coarse:size-11"
+				onDeleted={() => router.invalidate()}
 			/>
 		</li>
 	);

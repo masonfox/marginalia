@@ -2,7 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { cn } from "cn";
-import { BookOpenCheck, ChevronDown, TriangleAlert } from "lucide-react";
+import {
+	BookOpenCheck,
+	ChevronDown,
+	ShieldCheck,
+	TriangleAlert,
+} from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { ModelChoice } from "#/components/model-picker";
 import { Button } from "#/components/ui/button";
@@ -320,11 +325,38 @@ function quotedList(items: string[]): string {
 export function ScopeNotice({
 	labels,
 	titles,
+	plain = false,
 }: {
 	labels: (string | null)[];
 	titles?: string[];
+	/** A quiet line without the box, for the conversation header. */
+	plain?: boolean;
 }) {
 	if (labels.length === 0) return null;
+	const notice = (
+		testId: string,
+		Icon: typeof TriangleAlert,
+		children: ReactNode,
+	) => (
+		<p
+			className={cn(
+				"flex items-start gap-2 text-sm",
+				plain
+					? "text-muted-foreground"
+					: "rounded-md border bg-muted/40 px-3 py-2 text-foreground",
+			)}
+			data-testid={testId}
+		>
+			<Icon
+				className={cn(
+					"mt-0.5 size-4 shrink-0",
+					plain && "text-amber-foreground",
+				)}
+				aria-hidden
+			/>
+			<span>{children}</span>
+		</p>
+	);
 	if (titles?.length === labels.length) {
 		const whole = titles.filter((_, i) => labels[i] === null);
 		const bounded = titles.flatMap((title, i) => {
@@ -332,49 +364,33 @@ export function ScopeNotice({
 			return label == null ? [] : [`“${title}” only through “${label}”`];
 		});
 		if (whole.length > 0 && bounded.length > 0) {
-			return (
-				<p
-					className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-foreground"
-					data-testid="spoiler-notice"
-				>
-					<TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-					<span>
-						The assistant may reveal any part of {quotedList(whole)}. It can
-						read {bounded.join(", ")}, and is told not to discuss later events
-						there, but it may still know{" "}
-						{bounded.length > 1 ? "those books" : "that book"} from its
-						training.
-					</span>
-				</p>
+			return notice(
+				"spoiler-notice",
+				TriangleAlert,
+				<>
+					The assistant may reveal any part of {quotedList(whole)}. It can read{" "}
+					{bounded.join(", ")}, and is told not to discuss later events there,
+					but it may still know{" "}
+					{bounded.length > 1 ? "those books" : "that book"} from its training.
+				</>,
 			);
 		}
 	}
 	if (labels.some((l) => l === null)) {
-		return (
-			<p
-				className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-foreground"
-				data-testid="spoiler-notice"
-			>
-				<TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-				<span>
-					The assistant has access to the whole book, so it may reveal later
-					events.
-				</span>
-			</p>
+		return notice(
+			"spoiler-notice",
+			TriangleAlert,
+			"The assistant has access to the whole book, so it may reveal later events.",
 		);
 	}
 	const through = labels.map((l) => `“${l}”`).join(", ");
-	return (
-		<p
-			className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-foreground"
-			data-testid="scope-note"
-		>
-			<BookOpenCheck className="mt-0.5 size-4 shrink-0" aria-hidden />
-			<span>
-				The assistant can read only through {through} and is told not to discuss
-				later events, but it may still know the book from its training.
-			</span>
-		</p>
+	return notice(
+		"scope-note",
+		plain ? ShieldCheck : BookOpenCheck,
+		<>
+			The assistant can read only through {through} and is told not to discuss
+			later events, but it may still know the book from its training.
+		</>,
 	);
 }
 
@@ -602,10 +618,15 @@ export function WidenScope({
 	conversationId,
 	book,
 	disabled,
+	variant = "ghost",
+	className,
 }: {
 	conversationId: string;
 	book: ConversationBook;
 	disabled: boolean;
+	/** The trigger button's look; the header shows it as an outlined pill. */
+	variant?: "ghost" | "outline";
+	className?: string;
 }) {
 	const router = useRouter();
 	const widen = useServerFn(widenScopeFn);
@@ -647,7 +668,8 @@ export function WidenScope({
 				<Button
 					type="button"
 					size="sm"
-					variant="ghost"
+					variant={variant}
+					className={className}
 					disabled={disabled}
 					aria-label={`Widen scope of “${book.title}”`}
 				>

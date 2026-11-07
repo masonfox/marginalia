@@ -248,6 +248,7 @@ test("reply finishes first, then title and usage refresh without a new message a
 	await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue(
 		"A typed draft",
 	);
+	await page.getByTestId("usage-total").click();
 	await expect(page.getByTestId("naming-usage")).toContainText("Title naming");
 	expect(titleCalls).toBe(1);
 	expect(errors).toEqual([]);
@@ -272,7 +273,8 @@ test("title finishes first while the reply is streaming, then reply usage update
 });
 test("manual rename wins a late title result", async ({ page }) => {
 	await open(page);
-	await page.getByRole("button", { name: /^Rename/ }).click();
+	await page.getByRole("button", { name: /^Actions for/ }).click();
+	await page.getByRole("menuitem", { name: "Rename" }).click();
 	await page
 		.getByRole("textbox", { name: "Conversation title" })
 		.fill("My River Notes");

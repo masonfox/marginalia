@@ -49,6 +49,8 @@ export interface ConversationBook {
 	maxPosition: number | null;
 	/** The reading unit the reader has read through; null exactly when `maxPosition` is. */
 	scopeLabel: string | null;
+	/** Whether the edition has a cover image at `/api/covers/{editionId}`. */
+	hasCover: boolean;
 }
 
 /** How far the reader has read in a book: a reading unit, by its end position, or the whole book. */
@@ -355,6 +357,7 @@ export async function getConversationBooks(
 			ordinal: conversationEditions.ordinal,
 			maxPosition: conversationEditions.maxPosition,
 			scopeLabel: conversationEditions.scopeLabel,
+			hasCover: sql<boolean>`${editions.coverPath} is not null`,
 		})
 		.from(conversationEditions)
 		.innerJoin(editions, eq(editions.id, conversationEditions.editionId))

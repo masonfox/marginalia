@@ -84,6 +84,7 @@ const bookIn = (
 	ordinal: 0,
 	maxPosition: bound?.endPosition ?? null,
 	scopeLabel: bound?.label ?? null,
+	hasCover: false,
 });
 
 describe("merged book maps", () => {

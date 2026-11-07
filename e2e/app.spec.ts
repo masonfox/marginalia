@@ -2586,7 +2586,10 @@ test.describe("composer", () => {
 			await expect
 				.poll(() => storedDraft(page, id))
 				.toContain("Unsent thought");
-			await page.getByRole("button", { name: `Delete “${title}”` }).click();
+			await page
+				.getByRole("button", { name: `Actions for “${title}”` })
+				.click();
+			await page.getByRole("menuitem", { name: "Delete" }).click();
 			await page.getByRole("button", { name: "Delete", exact: true }).click();
 			await expect(page).toHaveURL(/\/books\/[0-9a-f-]{36}$/);
 			expect(await storedDraft(page, id)).toBeNull();
@@ -3029,8 +3032,10 @@ test.describe("phone layout", () => {
 					await heading.evaluate((el) => el.scrollWidth > el.clientWidth),
 				).toBe(true);
 				const books = page.getByTestId("conversation-books");
+				// The book chips stay on one row, however many books there are.
+				const chip = books.getByRole("link").first();
 				expect((await books.boundingBox())?.height).toBeLessThan(
-					(await lineHeightOf(books)) * 1.5,
+					((await chip.boundingBox())?.height ?? 0) * 1.5,
 				);
 				expect((await header.boundingBox())?.height).toBeLessThanOrEqual(
 					800 / 4,

@@ -11,6 +11,7 @@ import { cn } from "cn";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { z } from "zod";
+import { coverColors } from "#/components/book-cover";
 import {
 	AiSetupNotice,
 	AssistantText,
@@ -29,11 +30,10 @@ import {
 	useComposer,
 } from "#/components/composer/use-composer";
 import {
+	ConversationActions,
 	ConversationModelControl,
-	DeleteConversation,
 	PositionOfferProvider,
 	PositionUpdateOffer,
-	RenameConversation,
 	useConversationModel,
 } from "#/components/conversation-controls";
 import { replyModelLabel, selectionLabel } from "#/components/model-picker";
@@ -47,6 +47,13 @@ import {
 import { ResearchTrail, type TrailContext } from "#/components/research-trail";
 import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
 import { Button } from "#/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "#/components/ui/dialog";
 import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
 import {
 	beginNamingTracking,
@@ -71,6 +78,7 @@ import { groupParts, guideSteps, type Step } from "#/lib/research-trail";
 import { exactUsage, replyUsageLine, totalUsageLine } from "#/lib/usage-format";
 import type {
 	CitationRecord,
+	ConversationBook,
 	ConversationWithUsage,
 } from "#/modules/conversation";
 
@@ -451,7 +459,7 @@ function ConversationPage() {
 					}}
 					onCancel={() => setNoteExcerpt(null)}
 				/>
-				<header className="border-b pb-4 max-sm:pb-3" data-testid="chat-header">
+				<header className="border-b pb-6 max-sm:pb-3" data-testid="chat-header">
 					{/* With no books left, the header's navigation is the way out. */}
 					{/* Several books: the conversations page, where it is listed with every other. */}
 					{conversation.books.length > 1 ? (
@@ -476,40 +484,50 @@ function ConversationPage() {
 							</p>
 						)
 					)}
-					{/* Below sm: the title and the books take one line each. */}
-					<h1
-						className="mt-3 font-serif text-[clamp(36px,4vw,52px)] leading-[1.06] font-semibold tracking-[-0.015em] max-sm:mt-2 max-sm:truncate"
-						title={conversation.title}
-					>
-						{conversation.title}
-					</h1>
-					<p className="mt-1 text-sm text-muted-foreground">
-						<span
-							className="max-sm:block max-sm:truncate"
+					<div className="mt-3 flex items-start gap-3 max-sm:mt-2">
+						{/* Below sm: the title and the books take one line each. */}
+						<h1
+							className="min-w-0 flex-1 font-serif text-[clamp(36px,4vw,52px)] leading-[1.06] font-semibold tracking-[-0.015em] max-sm:truncate"
+							title={conversation.title}
+						>
+							{conversation.title}
+						</h1>
+						<ConversationActions
+							conversationId={conversationId}
+							title={conversation.title}
+							className="mt-1 -mr-2 sm:mt-2"
+							onDeleted={() => {
+								composer.clear();
+								const book = conversation.books[0];
+								return book
+									? router.navigate({
+											to: "/books/$editionId",
+											params: { editionId: book.editionId },
+										})
+									: router.navigate({ to: "/" });
+							}}
+						/>
+					</div>
+					<div className="mt-5 flex flex-wrap items-center gap-2 max-sm:mt-3">
+						<div
+							className="flex min-w-0 items-center gap-2 max-sm:flex-1 max-sm:overflow-hidden sm:flex-wrap"
 							data-testid="conversation-books"
 						>
-							{conversation.books.length === 0
-								? "No book"
-								: conversation.books.map((b, i) => (
-										<span key={b.editionId}>
-											{i > 0 && ", "}
-											<Link
-												to="/books/$editionId"
-												params={{ editionId: b.editionId }}
-												className="hover:underline"
-											>
-												{b.title}
-											</Link>
-										</span>
-									))}
-						</span>
+							{conversation.books.length === 0 ? (
+								<span className="text-sm text-muted-foreground">No book</span>
+							) : (
+								conversation.books.map((b) => (
+									<BookChip key={b.editionId} book={b} />
+								))
+							)}
+						</div>
 						{(conversation.books.length > 0 ||
 							effect.status !== "disabled") && (
 							<Button
 								type="button"
 								variant="ghost"
 								size="sm"
-								className="-ml-2 text-foreground sm:hidden pointer-coarse:h-11"
+								className="shrink-0 text-foreground sm:hidden pointer-coarse:h-11"
 								aria-expanded={controlsOpen}
 								aria-controls={`${controlsId}-model ${controlsId}-scope`}
 								onClick={() => setControlsOpen((open) => !open)}
@@ -524,9 +542,40 @@ function ConversationPage() {
 								/>
 							</Button>
 						)}
-						<span
+						{conversation.books.length > 0 && (
+							<ul
+								id={`${controlsId}-scope`}
+								className={cn(
+									"flex flex-wrap items-center gap-2 max-sm:w-full",
+									collapsed,
+								)}
+							>
+								{conversation.books.map((b) => (
+									<li key={b.editionId} className="flex items-center gap-2">
+										<ScopePill
+											data-testid="scope-chip"
+											className="min-h-9 px-4 pointer-coarse:min-h-11"
+										>
+											{conversation.books.length > 1 && `${b.title}: `}
+											{scopeText(b.scopeLabel)}
+										</ScopePill>
+										<WidenScope
+											conversationId={conversationId}
+											book={b}
+											disabled={busy}
+											variant="outline"
+											className="h-9 rounded-full px-4 font-medium pointer-coarse:h-11"
+										/>
+									</li>
+								))}
+							</ul>
+						)}
+						<div
 							id={`${controlsId}-model`}
-							className={cn("max-sm:block", collapsed)}
+							className={cn(
+								"flex min-w-0 items-center gap-3 max-sm:w-full sm:ml-auto",
+								collapsed,
+							)}
 						>
 							<ConversationModelControl
 								conversationId={conversationId}
@@ -537,56 +586,20 @@ function ConversationPage() {
 								open={modelPickerOpen}
 								onOpenChange={setModelPickerOpen}
 							/>
-							<UsageTotal total={conversation.usageTotal} />
-							<NamingUsageDetails usage={conversation.namingUsage} />
-						</span>
-					</p>
-					<div id={`${controlsId}-scope`} className={collapsed}>
-						{conversation.books.length > 0 && (
-							<ul className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-								{conversation.books.map((b) => (
-									<li key={b.editionId} className="flex items-center gap-1">
-										<ScopePill data-testid="scope-chip">
-											{conversation.books.length > 1 && `${b.title}: `}
-											{scopeText(b.scopeLabel)}
-										</ScopePill>
-										<WidenScope
-											conversationId={conversationId}
-											book={b}
-											disabled={busy}
-										/>
-									</li>
-								))}
-							</ul>
-						)}
-						<div className="mt-3">
-							<ScopeNotice
-								labels={conversation.books.map((b) => b.scopeLabel)}
-								titles={conversation.books.map((b) => b.title)}
+							<UsageSummary
+								total={conversation.usageTotal}
+								naming={conversation.namingUsage}
 							/>
 						</div>
 					</div>
-					<PositionUpdateOffer />
-					<div className="mt-2 flex flex-wrap items-center gap-1">
-						<RenameConversation
-							conversationId={conversationId}
-							title={conversation.title}
-						/>
-						<DeleteConversation
-							conversationId={conversationId}
-							title={conversation.title}
-							onDeleted={() => {
-								composer.clear();
-								const book = conversation.books[0];
-								return book
-									? router.navigate({
-											to: "/books/$editionId",
-											params: { editionId: book.editionId },
-										})
-									: router.navigate({ to: "/" });
-							}}
+					<div className={cn("mt-4", collapsed)}>
+						<ScopeNotice
+							plain
+							labels={conversation.books.map((b) => b.scopeLabel)}
+							titles={conversation.books.map((b) => b.title)}
 						/>
 					</div>
+					<PositionUpdateOffer />
 				</header>
 
 				<ol className="min-w-0 flex-1 space-y-8 py-8" aria-live="polite">
@@ -905,60 +918,113 @@ function AssistantMessage({
 	);
 }
 
-/** The running total in the header. Costs are estimates; replies without usage are counted out loud. */
-function UsageTotal({ total }: { total: ConversationWithUsage["usageTotal"] }) {
+/** A book of the conversation as a pill: its cover (or cloth color) and title, linking to the book. */
+function BookChip({ book }: { book: ConversationBook }) {
+	return (
+		<Link
+			to="/books/$editionId"
+			params={{ editionId: book.editionId }}
+			className="inline-flex h-9 max-w-full min-w-0 shrink items-center gap-2 rounded-full border border-input py-1 pr-4 pl-1.5 text-sm font-medium text-foreground transition-colors outline-none hover:bg-secondary focus-visible:ring-[3px] focus-visible:ring-ring pointer-coarse:h-11"
+		>
+			<span
+				aria-hidden
+				className="block h-[26px] w-[18px] shrink-0 overflow-hidden rounded-[2px_3px_3px_2px] shadow-cover"
+				style={book.hasCover ? undefined : coverColors(book.title)}
+			>
+				{book.hasCover && (
+					<img
+						src={`/api/covers/${book.editionId}`}
+						alt=""
+						className="size-full object-cover"
+					/>
+				)}
+			</span>
+			<span className="truncate">{book.title}</span>
+		</Link>
+	);
+}
+
+/**
+ * The running total in the header, opening the exact figures and title
+ * naming's usage. Costs are estimates; replies without usage are counted
+ * out loud.
+ */
+function UsageSummary({
+	total,
+	naming,
+}: {
+	total: ConversationWithUsage["usageTotal"];
+	naming: ConversationWithUsage["namingUsage"];
+}) {
+	const [open, setOpen] = useState(false);
 	const hasUsage = total.inputTokens !== null || total.outputTokens !== null;
-	if (!hasUsage && total.missing === 0) return null;
+	const hasNaming = Boolean(naming && (naming.rows.length || naming.missing));
+	if (!hasUsage && total.missing === 0 && !hasNaming) return null;
 	const missing =
 		total.missing > 0
 			? `${total.missing} ${total.missing === 1 ? "reply has" : "replies have"} no recorded usage`
 			: null;
+	const line =
+		[hasUsage && totalUsageLine(total), missing].filter(Boolean).join(" · ") ||
+		"Usage";
 	return (
-		<span
-			className="tabular-nums"
-			title={hasUsage ? exactUsage(total) : undefined}
-			data-testid="usage-total"
-		>
-			{hasUsage && <> · {totalUsageLine(total)}</>}
-			{missing && <> · {missing}</>}
-		</span>
-	);
-}
-
-function NamingUsageDetails({
-	usage,
-}: {
-	usage: ConversationWithUsage["namingUsage"];
-}) {
-	if (!usage || (!usage.rows.length && !usage.missing)) return null;
-	return (
-		<details className="inline text-xs" data-testid="naming-usage">
-			<summary className="inline cursor-pointer">
-				{" "}
-				? Title naming
-				{usage.incomplete
-					? " (incomplete)"
-					: usage.unknown
-						? " (unknown usage)"
-						: ""}
-			</summary>
-			<div>
-				{usage.rows.map((row) => (
-					<p key={row.model}>
-						{row.model}: {row.inputTokens ?? "unknown"} input tokens,{" "}
-						{row.outputTokens ?? "unknown"} output tokens
-						{!row.complete && " ? incomplete"}
-					</p>
-				))}
-				{usage.missing && (
-					<p>Title naming was interrupted; usage and cost are unknown.</p>
-				)}
-				{usage.unknown && !usage.missing && (
-					<p>
-						Some naming token counts are unknown; total cost is unavailable.
-					</p>
-				)}
-			</div>
-		</details>
+		<>
+			<button
+				type="button"
+				className="min-w-0 cursor-pointer truncate rounded-sm text-[13px] text-faint-foreground tabular-nums outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring pointer-coarse:min-h-11"
+				title={hasUsage ? exactUsage(total) : undefined}
+				onClick={() => setOpen(true)}
+				data-testid="usage-total"
+			>
+				{line}
+			</button>
+			<Dialog open={open} onOpenChange={setOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Usage</DialogTitle>
+						<DialogDescription>
+							Token counts as the providers reported them. Costs are estimates.
+						</DialogDescription>
+					</DialogHeader>
+					{hasUsage && (
+						<p className="text-sm whitespace-pre-line tabular-nums">
+							{exactUsage(total)}
+						</p>
+					)}
+					{missing && <p className="text-sm">{missing}.</p>}
+					{naming && hasNaming && (
+						<section
+							className="space-y-1 text-sm tabular-nums"
+							data-testid="naming-usage"
+						>
+							<h3 className="font-semibold">
+								Title naming
+								{naming.incomplete
+									? " (incomplete)"
+									: naming.unknown
+										? " (unknown usage)"
+										: ""}
+							</h3>
+							{naming.rows.map((row) => (
+								<p key={row.model}>
+									{row.model}: {row.inputTokens ?? "unknown"} input tokens,{" "}
+									{row.outputTokens ?? "unknown"} output tokens
+									{!row.complete && " · incomplete"}
+								</p>
+							))}
+							{naming.missing && (
+								<p>Title naming was interrupted; usage and cost are unknown.</p>
+							)}
+							{naming.unknown && !naming.missing && (
+								<p>
+									Some naming token counts are unknown; total cost is
+									unavailable.
+								</p>
+							)}
+						</section>
+					)}
+				</DialogContent>
+			</Dialog>
+		</>
 	);
 }
