@@ -1,0 +1,155 @@
+{
+	"data": {
+		"me": [
+			{
+				"user_books": [
+					{
+						"id": 1001,
+						"status_id": 1,
+						"updated_at": "2026-10-01T12:00:00+00:00",
+						"book": {
+							"id": 3001,
+							"title": "The Left Hand of Darkness",
+							"pages": 304,
+							"contributions": [
+								{
+									"contribution": null,
+									"author": { "name": "Ursula K. Le Guin" }
+								}
+							]
+						},
+						"edition": {
+							"id": 9001,
+							"isbn_10": "0441478123",
+							"isbn_13": "9780441478125",
+							"pages": 304
+						},
+						"user_book_reads": []
+					},
+					{
+						"id": 1002,
+						"status_id": 2,
+						"updated_at": "2026-11-06T21:15:00+00:00",
+						"book": {
+							"id": 3002,
+							"title": "A Wizard of Earthsea",
+							"pages": 183,
+							"contributions": [
+								{
+									"contribution": null,
+									"author": { "name": "Ursula K. Le Guin" }
+								},
+								{
+									"contribution": "Illustrator",
+									"author": { "name": "Ruth Robbins" }
+								}
+							]
+						},
+						"edition": {
+							"id": 9002,
+							"isbn_10": null,
+							"isbn_13": "9780547773742",
+							"pages": 264
+						},
+						"user_book_reads": [
+							{
+								"id": 7002,
+								"progress": 42.5,
+								"progress_pages": 85,
+								"edition": {
+									"id": 9003,
+									"isbn_10": "0553383043",
+									"isbn_13": "9780553383041",
+									"pages": 200
+								}
+							}
+						]
+					},
+					{
+						"id": 1003,
+						"status_id": 3,
+						"updated_at": "2026-09-12T08:30:00+00:00",
+						"book": {
+							"id": 3003,
+							"title": "The Dispossessed",
+							"pages": 387,
+							"contributions": []
+						},
+						"edition": {
+							"id": 9004,
+							"isbn_10": null,
+							"isbn_13": "9780061054884",
+							"pages": 387
+						},
+						"user_book_reads": [
+							{
+								"id": 7003,
+								"progress": 100,
+								"progress_pages": 387,
+								"edition": null
+							}
+						]
+					},
+					{
+						"id": 1004,
+						"status_id": 5,
+						"updated_at": "2026-08-01T10:00:00+00:00",
+						"book": {
+							"id": 3004,
+							"title": "Always Coming Home",
+							"pages": 525,
+							"contributions": []
+						},
+						"edition": null,
+						"user_book_reads": [
+							{
+								"id": 7004,
+								"progress": 12,
+								"progress_pages": 63,
+								"edition": null
+							}
+						]
+					},
+					{
+						"id": 1005,
+						"status_id": 6,
+						"updated_at": "2026-07-01T10:00:00+00:00",
+						"book": {
+							"id": 3005,
+							"title": "Ignored Book",
+							"pages": 100,
+							"contributions": []
+						},
+						"edition": null,
+						"user_book_reads": []
+					},
+					{
+						"id": 1006,
+						"status_id": 4,
+						"updated_at": "2026-10-20T10:00:00+00:00",
+						"book": {
+							"id": 3006,
+							"title": "Tehanu",
+							"pages": 252,
+							"contributions": []
+						},
+						"edition": {
+							"id": 9006,
+							"isbn_10": null,
+							"isbn_13": "9780689315954",
+							"pages": 252
+						},
+						"user_book_reads": [
+							{
+								"id": 7006,
+								"progress": 25,
+								"progress_pages": 63,
+								"edition": null
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+}

@@ -1,0 +1,35 @@
+{
+	"data": {
+		"me": [
+			{
+				"user_books": [
+					{
+						"id": 2001,
+						"status_id": 2,
+						"updated_at": "2026-11-05T19:00:00+00:00",
+						"book": {
+							"id": 4001,
+							"title": "The Lathe of Heaven",
+							"pages": 184,
+							"contributions": []
+						},
+						"edition": {
+							"id": 9101,
+							"isbn_10": null,
+							"isbn_13": "9781416556961",
+							"pages": 192
+						},
+						"user_book_reads": [
+							{
+								"id": 7101,
+								"progress": null,
+								"progress_pages": 48,
+								"edition": null
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+}

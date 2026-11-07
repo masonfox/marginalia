@@ -1,0 +1,41 @@
+{
+	"data": {
+		"me": [
+			{
+				"user_books": [
+					{
+						"id": 3101,
+						"status_id": 3,
+						"updated_at": "2026-01-01T00:00:00+00:00",
+						"book": {
+							"id": 5001,
+							"title": "Page One A",
+							"pages": 100,
+							"contributions": []
+						},
+						"edition": {
+							"id": 9201,
+							"isbn_10": null,
+							"isbn_13": "9780000000019",
+							"pages": 100
+						},
+						"user_book_reads": []
+					},
+					{
+						"id": 3102,
+						"status_id": 1,
+						"updated_at": "2026-01-02T00:00:00+00:00",
+						"book": {
+							"id": 5002,
+							"title": "Page One B",
+							"pages": 100,
+							"contributions": []
+						},
+						"edition": null,
+						"user_book_reads": []
+					}
+				]
+			}
+		]
+	}
+}
