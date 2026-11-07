@@ -33,6 +33,7 @@ import {
 	tempDataDir,
 } from "../../../test/library";
 import {
+	backfillKoreaderDigests,
 	deleteEdition,
 	editions,
 	excludedEditions,
@@ -42,6 +43,7 @@ import {
 	handleUploadRequest,
 	hashFile,
 	isEditionAvailable,
+	koreaderDigestOfBuffer,
 	libraryFiles,
 	listEditions,
 	reparseOutdated,
@@ -716,5 +718,86 @@ describe("library actions", () => {
 		expect(jobs.map((j) => j.data)).toEqual([
 			{ editionId: outdated.edition.id },
 		]);
+	});
+});
+
+describe("KOReader digest", () => {
+	freshDb();
+	let dataDir: string;
+
+	beforeAll(async () => {
+		dataDir = await tempDataDir();
+	});
+
+	it("is stored on an edition created by upload", async () => {
+		const bytes = await fixtures.epub3();
+		const { enqueue } = recordingEnqueue();
+		const res = await handleUploadRequest(uploadRequest(bytes), {
+			db: t.db,
+			dataDir,
+			maxUploadMb: 1,
+			enqueue,
+			log: silentLog,
+		});
+		const { editionId } = await res.json();
+		expect((await getEdition(t.db, editionId))?.koreaderDigest).toBe(
+			koreaderDigestOfBuffer(bytes),
+		);
+	});
+
+	it("is stored on an edition created by a filesystem scan", async () => {
+		const root = await tempDataDir();
+		const bytes = await fixtures.epub2();
+		await writeFile(path.join(root, "scanned.epub"), bytes);
+		const { enqueue } = recordingEnqueue();
+		await scanLibraries({
+			db: t.db,
+			libraryPaths: [root],
+			enqueue,
+			log: silentLog,
+		});
+		expect((await getEditionBySha(t.db, sha256Of(bytes)))?.koreaderDigest).toBe(
+			koreaderDigestOfBuffer(bytes),
+		);
+	});
+
+	it("is backfilled for existing editions with an available file, once", async () => {
+		// The helper registers an edition the way ingestion did before digests.
+		const bytes = Buffer.concat([
+			await fixtures.epub3(),
+			Buffer.from("backfill"),
+		]);
+		const { edition } = await addUploadedBook(t.db, dataDir, bytes);
+		expect(edition.koreaderDigest).toBeNull();
+		// An edition whose only file is missing has nothing to read.
+		const orphan = await addUploadedBook(
+			t.db,
+			dataDir,
+			Buffer.from("orphaned bytes"),
+		);
+		await t.db
+			.update(libraryFiles)
+			.set({ status: "missing" })
+			.where(eq(libraryFiles.sha256, orphan.sha256));
+
+		const deps = { db: t.db, dataDir, log: silentLog };
+		expect(await backfillKoreaderDigests(deps)).toEqual({
+			filled: 1,
+			unavailable: 1,
+			failed: 0,
+		});
+		expect((await getEdition(t.db, edition.id))?.koreaderDigest).toBe(
+			koreaderDigestOfBuffer(bytes),
+		);
+		expect(
+			(await getEdition(t.db, orphan.edition.id))?.koreaderDigest,
+		).toBeNull();
+
+		// A rerun leaves filled editions alone.
+		expect(await backfillKoreaderDigests(deps)).toEqual({
+			filled: 0,
+			unavailable: 1,
+			failed: 0,
+		});
 	});
 });

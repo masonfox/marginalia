@@ -2,6 +2,7 @@
 export * from "./actions";
 export * from "./browse";
 export * from "./delete";
+export * from "./digest-backfill";
 export * from "./editions";
 export * from "./files";
 export * from "./koreader-digest";

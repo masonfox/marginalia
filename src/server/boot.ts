@@ -100,8 +100,12 @@ async function start(): Promise<AppContext> {
 }
 
 async function onStarted(ctx: AppContext, log: Logger) {
-	if (runsWorker(ctx.config))
+	if (runsWorker(ctx.config)) {
 		await ctx.enqueue("conversation.dispatch-titles", {});
+		// Fills KOReader digests for editions ingested before they were computed.
+		// Deduplicated by its singleton key; a run with nothing to fill is one query.
+		await ctx.enqueue("library.backfill-koreader-digest", {});
+	}
 	if (ctx.config.libraryPaths.length > 0 && runsWorker(ctx.config)) {
 		await ctx.enqueue("library.scan", {});
 		log.info(

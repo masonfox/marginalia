@@ -20,6 +20,7 @@ import {
 	uploadedBookPath,
 	uploadRelPath,
 } from "./files";
+import { koreaderDigest } from "./koreader-digest";
 import { excludedEditions } from "./schema";
 
 export interface UploadDeps {
@@ -207,6 +208,8 @@ async function commitUpload(
 	file: ReceivedFile,
 ): Promise<UploadResult> {
 	const { db } = deps;
+	// Read before the temp file is moved or discarded.
+	const digest = await koreaderDigest(tempPath);
 	const target = uploadedBookPath(deps.dataDir, file.sha256);
 	await mkdir(booksDir(deps.dataDir), { recursive: true });
 	const exists = await stat(target).then(
@@ -234,7 +237,12 @@ async function commitUpload(
 		.where(eq(excludedEditions.sha256, file.sha256));
 	const title =
 		path.basename(file.fileName).replace(/\.epub$/i, "") || "Untitled";
-	const { edition, created } = await ensureEdition(db, file.sha256, title);
+	const { edition, created } = await ensureEdition(
+		db,
+		file.sha256,
+		title,
+		digest,
+	);
 	if (edition.status === "processing") {
 		await deps.enqueue("library.ingest", { sha256: file.sha256 });
 	}

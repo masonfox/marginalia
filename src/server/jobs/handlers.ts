@@ -17,7 +17,7 @@ import {
 	runTitle,
 } from "#/modules/conversation";
 import { reanchor, rebaseReadingPositions } from "#/modules/guide";
-import { scanLibraries } from "#/modules/library";
+import { backfillKoreaderDigests, scanLibraries } from "#/modules/library";
 import { getAiDefaults } from "#/modules/settings";
 import type { Executor } from "#/server/db";
 import { appContext } from "../context";
@@ -96,6 +96,13 @@ export function jobHandlers(): JobHandlers {
 		},
 		"library.ingest": async ({ sha256 }, ctx) => {
 			await ingestEdition(ingestDeps(), sha256, ctx);
+		},
+		"library.backfill-koreader-digest": async (_payload, ctx) => {
+			const { db, config, log } = appContext();
+			await backfillKoreaderDigests(
+				{ db, dataDir: config.dataDir, log },
+				ctx.signal,
+			);
 		},
 		"catalog.reparse": async ({ editionId }, ctx) => {
 			await reparseEdition(ingestDeps(), editionId, ctx);

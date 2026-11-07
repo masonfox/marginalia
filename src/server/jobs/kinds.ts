@@ -34,6 +34,13 @@ export const jobKinds = {
 		retryLimit: 4,
 		concurrency: (c: JobConfig) => c.ingestConcurrency,
 	},
+	/** One-off: fills editions.koreader_digest for editions ingested before it existed. */
+	"library.backfill-koreader-digest": {
+		payload: z.object({}).strict(),
+		key: () => "koreader-digest",
+		retryLimit: 2,
+		concurrency: () => 1,
+	},
 	"catalog.reparse": {
 		payload: z.object({ editionId: z.uuid() }),
 		key: (p: { editionId: string }) => p.editionId,

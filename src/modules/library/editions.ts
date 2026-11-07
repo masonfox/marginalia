@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Executor } from "#/server/db";
 import { type EditionStatus, editions, libraryFiles } from "./schema";
 
@@ -10,14 +10,24 @@ const SHORT_ID_LENGTHS = [12, 16, 20, 32, 64];
 /**
  * Returns the edition for these bytes, creating it (status `processing`) if
  * needed. `provisionalTitle` is shown until ingestion reads the real title.
+ * `koreaderDigest`, given when the caller has the file at hand, is stored on
+ * a new edition and fills in an existing edition that has none.
  */
 export async function ensureEdition(
 	db: Executor,
 	sha256: string,
 	provisionalTitle: string,
+	koreaderDigest?: string,
 ): Promise<{ edition: Edition; created: boolean }> {
+	const found = async (edition: Edition) => {
+		if (koreaderDigest && edition.koreaderDigest === null) {
+			await setKoreaderDigest(db, edition.id, koreaderDigest);
+			return { edition: { ...edition, koreaderDigest }, created: false };
+		}
+		return { edition, created: false };
+	};
 	const existing = await getEditionBySha(db, sha256);
-	if (existing) return { edition: existing, created: false };
+	if (existing) return found(existing);
 	for (const length of SHORT_ID_LENGTHS) {
 		const [row] = await db
 			.insert(editions)
@@ -25,15 +35,28 @@ export async function ensureEdition(
 				sha256,
 				shortId: sha256.slice(0, length),
 				title: provisionalTitle,
+				koreaderDigest: koreaderDigest ?? null,
 			})
 			.onConflictDoNothing()
 			.returning();
 		if (row) return { edition: row, created: true };
 		// Either another process inserted the same sha256, or the short id collided.
 		const raced = await getEditionBySha(db, sha256);
-		if (raced) return { edition: raced, created: false };
+		if (raced) return found(raced);
 	}
 	throw new Error(`Could not allocate a short id for ${sha256}`);
+}
+
+/** Stores the edition's KOReader digest unless it already has one. */
+export async function setKoreaderDigest(
+	db: Executor,
+	id: string,
+	koreaderDigest: string,
+) {
+	await db
+		.update(editions)
+		.set({ koreaderDigest })
+		.where(and(eq(editions.id, id), isNull(editions.koreaderDigest)));
 }
 
 export async function getEditionBySha(db: Executor, sha256: string) {

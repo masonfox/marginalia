@@ -7,7 +7,7 @@
 
 - [x] 2.1 Add Drizzle schema for `progress_providers`, `progress_links` and `progress_unmatched`, plus the new columns on `editions` and `reading_positions` (design D4). Generate a migration, and verify `pnpm drizzle-kit` check passes and existing positions read back with `source = 'manual'`.
 - [x] 2.2 Implement the KOReader partial MD5 digest. Verify a unit test against a fixture digest produced by KOReader's algorithm.
-- [ ] 2.3 Compute `koreader_digest` during ingestion, and add a one-off backfill job for existing editions. Verify with an integration test that an ingested and a backfilled edition both carry the expected digest.
+- [x] 2.3 Compute `koreader_digest` during ingestion, and add a one-off backfill job for existing editions. Verify with an integration test that an ingested and a backfilled edition both carry the expected digest.
 
 ## 3. Core mapping and apply
 

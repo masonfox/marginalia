@@ -7,6 +7,7 @@ import type { Enqueue } from "#/server/jobs/kinds";
 import type { Logger } from "#/server/logger";
 import { ensureEdition } from "./editions";
 import { ensureSource, hashFile, recordFile } from "./files";
+import { koreaderDigest } from "./koreader-digest";
 import { excludedEditions, libraryFiles } from "./schema";
 
 export interface ScanDeps {
@@ -119,7 +120,12 @@ async function scanRoot(
 			continue;
 		}
 		const title = path.basename(relPath).replace(/\.epub$/i, "");
-		const { edition } = await ensureEdition(db, sha256, title);
+		const { edition } = await ensureEdition(
+			db,
+			sha256,
+			title,
+			await koreaderDigest(file.realPath),
+		);
 		if (edition.status === "processing") {
 			if (await deps.enqueue("library.ingest", { sha256 })) stats.enqueued++;
 		}
