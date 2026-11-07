@@ -56,7 +56,7 @@ const get =
 			key: string,
 		) => Promise<ProgressReading | null>
 	>();
-const fakes: Record<ProviderKind, ProgressProvider> = {
+const fakes: Partial<Record<ProviderKind, ProgressProvider>> = {
 	hardcover: {
 		...getProvider("hardcover"),
 		matching: { mode: "list", list },
@@ -69,6 +69,11 @@ const fakes: Record<ProviderKind, ProgressProvider> = {
 			get,
 		},
 	},
+};
+const fakeProvider = (kind: ProviderKind): ProgressProvider => {
+	const provider = fakes[kind];
+	if (!provider) throw new Error(`no fake for ${kind}`);
+	return provider;
 };
 
 beforeAll(async () => {
@@ -149,7 +154,7 @@ async function start() {
 	const deps = (signal: AbortSignal) => ({
 		db: t.db,
 		secret,
-		provider: (kind: ProviderKind) => fakes[kind],
+		provider: fakeProvider,
 		signal,
 	});
 	const runtime = await JobRuntime.start({
@@ -256,7 +261,7 @@ describe("progress-sync job", () => {
 			values: { url: "http://bookorbit.test", username: "reader" },
 		});
 		await runProviderSyncJob(
-			{ db: t.db, secret, provider: (k) => fakes[k] },
+			{ db: t.db, secret, provider: fakeProvider },
 			"bookorbit",
 		);
 		expect(get).not.toHaveBeenCalled();
@@ -352,7 +357,7 @@ describe("progress-sync job", () => {
 			key === "d-known" ? { state: "reading", fraction: 0 } : null,
 		);
 		await runProviderSyncJob(
-			{ db: t.db, secret, provider: (k) => fakes[k] },
+			{ db: t.db, secret, provider: fakeProvider },
 			"bookorbit",
 		);
 		const asked = get.mock.calls.map(([, key]) => key);
@@ -515,7 +520,7 @@ describe("lookupCandidates", () => {
 		).toEqual([[rejectedUsed, null, "d-rej-used"]]);
 
 		get.mockResolvedValue({ state: "finished" });
-		const deps = { db: t.db, secret, provider: (k: ProviderKind) => fakes[k] };
+		const deps = { db: t.db, secret, provider: fakeProvider };
 		await runProviderSyncJob(deps, "bookorbit");
 		await runBookSyncJob(deps, rejectedUsed);
 		expect(get).not.toHaveBeenCalled();

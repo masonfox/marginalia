@@ -2,8 +2,32 @@
 // parse; mapping a reading to a reading unit belongs to the core.
 import type { Edition } from "#/modules/library";
 
-export const PROVIDER_KINDS = ["bookorbit", "hardcover"] as const;
-export type ProviderKind = (typeof PROVIDER_KINDS)[number];
+const BUILT_IN_KINDS = ["bookorbit", "hardcover"] as const;
+
+/** The test-only provider kind, registered only for end-to-end runs. */
+export const E2E_FAKE_KIND = "e2e-fake";
+
+export type ProviderKind =
+	| (typeof BUILT_IN_KINDS)[number]
+	| typeof E2E_FAKE_KIND;
+
+/**
+ * Whether the fake progress provider is registered: only when the instance
+ * runs with MARGINALIA_E2E_FAKE_PROGRESS=1, which only end-to-end test runs
+ * set. Never on by default.
+ */
+export function e2eFakeProgressEnabled(): boolean {
+	return (
+		typeof process !== "undefined" &&
+		process.env?.MARGINALIA_E2E_FAKE_PROGRESS === "1"
+	);
+}
+
+/** The registered provider kinds, in their default priority order. */
+export const PROVIDER_KINDS: readonly [ProviderKind, ...ProviderKind[]] =
+	e2eFakeProgressEnabled()
+		? [...BUILT_IN_KINDS, E2E_FAKE_KIND]
+		: BUILT_IN_KINDS;
 
 /** Who set a reading position: the reader, or the provider that synced it. */
 export type PositionSource = "manual" | ProviderKind;
