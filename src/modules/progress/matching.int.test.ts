@@ -403,3 +403,98 @@ describe("deleting an edition", () => {
 		expect(await unmatchedIds()).toEqual(["hc-1"]);
 	});
 });
+
+describe("unlinking (design D5a)", () => {
+	it("keeps an unlinked auto match unlinked in list mode, listing it while read", async () => {
+		const id = await edition("One", [
+			{ scheme: "ISBN", value: "9780306406157" },
+		]);
+		const hc = book("hc-1", { isbns: ["9780306406157"] });
+		await matchProviderBooks(t.db, "hardcover", [hc]);
+		expect(await unlink(t.db, id, "hardcover")).toBe(true);
+		expect(await links()).toEqual([
+			{
+				editionId: id,
+				kind: "hardcover",
+				externalId: "hc-1",
+				matchedBy: "rejected",
+			},
+		]);
+
+		expect(await matchProviderBooks(t.db, "hardcover", [hc])).toEqual([]);
+		expect((await links()).map((l) => l.matchedBy)).toEqual(["rejected"]);
+		expect(await unmatchedIds()).toEqual(["hc-1"]);
+
+		// Another book matching the edition is not auto-linked to it either.
+		const other = book("hc-2", { isbns: ["0306406152"] });
+		expect(
+			await matchProviderBooks(t.db, "hardcover", [
+				{ ...hc, reading: { state: "finished" } },
+				other,
+			]),
+		).toEqual([]);
+		expect(await unmatchedIds()).toEqual(["hc-2"]);
+		// Unlinking again finds no live link.
+		expect(await unlink(t.db, id, "hardcover")).toBe(false);
+	});
+
+	it("keeps an unlinked auto match unlinked in lookup mode", async () => {
+		const a = await edition("A");
+		const b = await edition("B");
+		expect(await linkByKey(t.db, a, "bookorbit", "digest-a")).toBe(true);
+		expect(await unlink(t.db, a, "bookorbit")).toBe(true);
+		expect(await linkByKey(t.db, a, "bookorbit", "digest-a")).toBe(false);
+		// The rejected key is not moved to another edition, nor the edition to another key.
+		expect(await linkByKey(t.db, b, "bookorbit", "digest-a")).toBe(false);
+		expect(await linkByKey(t.db, a, "bookorbit", "digest-z")).toBe(false);
+		expect(await links()).toEqual([
+			{
+				editionId: a,
+				kind: "bookorbit",
+				externalId: "digest-a",
+				matchedBy: "rejected",
+			},
+		]);
+	});
+
+	it("links by hand after a rejection, replacing the rejected row", async () => {
+		const id = await edition("One", [
+			{ scheme: "ISBN", value: "9780306406157" },
+		]);
+		const other = await edition("Other");
+		const hc = book("hc-1", { isbns: ["9780306406157"] });
+		await matchProviderBooks(t.db, "hardcover", [hc]);
+		await unlink(t.db, id, "hardcover");
+		await matchProviderBooks(t.db, "hardcover", [hc]);
+		expect(await unmatchedIds()).toEqual(["hc-1"]);
+
+		await manualLink(t.db, "hardcover", "hc-1", id);
+		expect(await links()).toEqual([
+			{
+				editionId: id,
+				kind: "hardcover",
+				externalId: "hc-1",
+				matchedBy: "manual",
+			},
+		]);
+		expect(await unmatchedIds()).toEqual([]);
+		expect(await matchProviderBooks(t.db, "hardcover", [hc])).toEqual([
+			{ editionId: id, book: hc, matchedBy: "manual" },
+		]);
+
+		// Rejected again, then linked by hand to a different edition.
+		await unlink(t.db, id, "hardcover");
+		expect(await links()).toEqual([]);
+		await linkByKey(t.db, id, "bookorbit", "digest");
+		await unlink(t.db, id, "bookorbit");
+		await manualLink(t.db, "bookorbit", "digest", other);
+		expect(await links()).toEqual([
+			{
+				editionId: other,
+				kind: "bookorbit",
+				externalId: "digest",
+				matchedBy: "manual",
+			},
+		]);
+	});
+});

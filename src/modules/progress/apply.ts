@@ -1,6 +1,6 @@
 // Applying a provider reading to an edition's reading position (design D5):
 // one source per book, provider wins on change, per-book opt-out.
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { type ReadingPosition, writeSyncedPosition } from "#/modules/guide";
 import { editions } from "#/modules/library";
 import type { Database } from "#/server/db";
@@ -24,7 +24,10 @@ export type ApplyResult =
 	| { status: "not-source"; source: ProviderKind | null }
 	/** The edition is not ready, so it has no reading units to map onto. */
 	| { status: "no-structure" }
-	/** The edition does not exist or is not linked to this provider. */
+	/**
+	 * The edition does not exist, is not linked to this provider, or the
+	 * reader rejected the link (design D5a); the reading is not kept.
+	 */
 	| { status: "not-linked" };
 
 /** A reading in its jsonb form, with `observedAt` as ISO 8601. */
@@ -40,7 +43,9 @@ export function toStoredReading(reading: ProgressReading): StoredReading {
  * edition's source (the enabled linked provider with the lowest priority),
  * and the reading's fingerprint differs from the last one applied. Then it
  * is mapped onto the current reading units and written with no move-back
- * confirmation, and the fingerprint is stored with it.
+ * confirmation. The fingerprint, the reading, the time and `moved_back_from`
+ * are stored on the link with it, so they survive a reading that maps to
+ * unset (which deletes the position row).
  */
 export async function applyReading(
 	db: Database,
@@ -61,7 +66,10 @@ export async function applyReading(
 		if (!edition) return { status: "not-linked" };
 		// Serializes applies of the same link.
 		const [link] = await tx
-			.select({ lastFingerprint: progressLinks.lastFingerprint })
+			.select({
+				lastFingerprint: progressLinks.lastFingerprint,
+				matchedBy: progressLinks.matchedBy,
+			})
 			.from(progressLinks)
 			.where(
 				and(
@@ -70,7 +78,7 @@ export async function applyReading(
 				),
 			)
 			.for("update");
-		if (!link) return { status: "not-linked" };
+		if (!link || link.matchedBy === "rejected") return { status: "not-linked" };
 
 		const stored = toStoredReading(reading);
 		const linkWhere = and(
@@ -94,6 +102,7 @@ export async function applyReading(
 				and(
 					eq(progressLinks.editionId, editionId),
 					eq(progressProviders.enabled, true),
+					ne(progressLinks.matchedBy, "rejected"),
 				),
 			)
 			.orderBy(asc(progressProviders.priority))
@@ -114,7 +123,12 @@ export async function applyReading(
 		});
 		await tx
 			.update(progressLinks)
-			.set({ lastFingerprint: fingerprint })
+			.set({
+				lastFingerprint: fingerprint,
+				appliedReading: stored,
+				appliedAt: sql`now()`,
+				movedBackFrom,
+			})
 			.where(linkWhere);
 		return { status: "applied", position, movedBackFrom };
 	});

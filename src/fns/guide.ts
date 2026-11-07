@@ -2,7 +2,6 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { OBSERVATION_KINDS } from "#/modules/analysis";
 import {
-	clearReadingPosition,
 	countReaderContent,
 	createNote,
 	deleteNote,
@@ -36,6 +35,7 @@ import {
 	splitSubject,
 	updateNote,
 } from "#/modules/guide";
+import { clearPositionByHand } from "#/modules/progress";
 import { appContext } from "#/server/context";
 
 // Only server functions are exported here: anything else would pull server code into the client bundle.
@@ -69,11 +69,11 @@ export const setReadingPositionFn = createServerFn({ method: "POST" })
 		}),
 	);
 
-/** Clears the book's reading position back to unset. */
+/** Clears the book's reading position back to unset, forgetting the last sync's details. */
 export const clearReadingPositionFn = createServerFn({ method: "POST" })
 	.validator(z.object({ editionId: z.uuid() }))
 	.handler(async ({ data }) => ({
-		cleared: await clearReadingPosition(appContext().db, data.editionId),
+		cleared: await clearPositionByHand(appContext().db, data.editionId),
 	}));
 
 /** The book, its reading position and whether it has guide data, or null when it does not exist. */

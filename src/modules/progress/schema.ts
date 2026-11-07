@@ -68,7 +68,11 @@ export const progressProviders = pgTable(
 	],
 );
 
-/** An edition linked to a provider's book. */
+/**
+ * An edition linked to a provider's book. A `rejected` row records that the
+ * reader unlinked an automatic match (design D5a): it is never a source, and
+ * that pair is never linked automatically again.
+ */
 export const progressLinks = pgTable(
 	"progress_links",
 	{
@@ -85,6 +89,12 @@ export const progressLinks = pgTable(
 		lastReading: jsonb("last_reading").$type<StoredReading>(),
 		/** Hash of the normalized reading last applied (design D5). */
 		lastFingerprint: text("last_fingerprint"),
+		/** The raw reading last applied to the position (design D5). */
+		appliedReading: jsonb("applied_reading").$type<StoredReading>(),
+		/** When that reading was applied; null once a manual clear supersedes it. */
+		appliedAt: timestamp("applied_at", { withTimezone: true }),
+		/** The previous unit label, when that apply moved the position back. */
+		movedBackFrom: text("moved_back_from"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),
@@ -94,7 +104,7 @@ export const progressLinks = pgTable(
 		unique("progress_links_external_uq").on(t.providerKind, t.externalId),
 		check(
 			"progress_links_matched_by_ck",
-			sql`${t.matchedBy} in ('auto', 'manual')`,
+			sql`${t.matchedBy} in ('auto', 'manual', 'rejected')`,
 		),
 	],
 );

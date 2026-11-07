@@ -139,7 +139,9 @@ export interface SyncedPositionWrite {
  * confirmation: the provider is the authority for synced books. Records the
  * source, the raw reading and the time, and `moved_back_from` (the previous
  * unit's label, or {@link FINISHED_LABEL}) when the new position is earlier.
- * An unset position deletes the row, since a row always means set. The
+ * An unset position deletes the row, since a row always means set, and
+ * reports the deleted position as `movedBackFrom`; the caller keeps that on
+ * the progress link, since no row is left to hold it. The
  * caller runs this in a transaction that holds the edition's share lock and
  * mapped `position` from the current reading units.
  */
@@ -150,8 +152,14 @@ export async function writeSyncedPosition(
 ): Promise<{ movedBackFrom: string | null }> {
 	const { position } = write;
 	if (position === null) {
-		await clearReadingPosition(tx, editionId);
-		return { movedBackFrom: null };
+		// Unset is earlier than any set position, so clearing one moves back.
+		const [cleared] = await tx
+			.delete(readingPositions)
+			.where(eq(readingPositions.editionId, editionId))
+			.returning({ scopeLabel: readingPositions.scopeLabel });
+		return {
+			movedBackFrom: cleared ? (cleared.scopeLabel ?? FINISHED_LABEL) : null,
+		};
 	}
 	const [previous] = await tx
 		.select({

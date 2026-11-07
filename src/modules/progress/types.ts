@@ -11,7 +11,8 @@ export type PositionSource = "manual" | ProviderKind;
 export const SYNC_SCHEDULES = ["manual", "1h", "6h", "24h"] as const;
 export type SyncSchedule = (typeof SYNC_SCHEDULES)[number];
 
-export const LINK_MATCHED_BY = ["auto", "manual"] as const;
+/** `rejected`: the reader unlinked an automatic match (design D5a). */
+export const LINK_MATCHED_BY = ["auto", "manual", "rejected"] as const;
 export type LinkMatchedBy = (typeof LINK_MATCHED_BY)[number];
 
 /** One field of a provider's generated config form. */

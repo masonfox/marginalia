@@ -22,7 +22,7 @@
 - [x] 4.2 Implement provider config storage: plain fields as jsonb, secret fields as one encrypted blob using `settings/crypto`, and read models that return hints only. Verify integration tests show secrets never come back in plaintext and survive a round trip.
 - [x] 4.3 Implement matching: ISBN-13 normalization, identifier matching against `editions.identifiers`, ambiguous matches routed to unmatched, manual links taking precedence, and refreshing `progress_unmatched` for in-progress books only. Verify unit and integration tests for each spec scenario under "Matching books to provider books".
 
-- [ ] 4.4 Record sync details on the source link (`applied_reading`, `applied_at`, `moved_back_from`, design D5) so they survive a sync to unset, and make unlinking an automatic match leave a `rejected` link that sync skips and never re-matches (design D5a). Verify integration tests for the "Move back to unset shown" data and "Unlinked match stays unlinked".
+- [x] 4.4 Record sync details on the source link (`applied_reading`, `applied_at`, `moved_back_from`, design D5) so they survive a sync to unset, and make unlinking an automatic match leave a `rejected` link that sync skips and never re-matches (design D5a). Verify integration tests for the "Move back to unset shown" data and "Unlinked match stays unlinked".
 
 ## 5. Jobs and scheduling
 

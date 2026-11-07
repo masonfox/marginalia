@@ -1,6 +1,7 @@
 // Linking editions to provider books (spec "Matching books to provider
 // books"). Automatic links need an unambiguous match; manual links always
-// win and are never replaced by automatic matching.
+// win and are never replaced by automatic matching, and an unlinked
+// automatic match stays rejected (design D5a).
 import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { identifierRows } from "#/lib/edition-facts";
 import { editions } from "#/modules/library";
@@ -14,7 +15,7 @@ import type { LinkMatchedBy, ProviderBook, ProviderKind } from "./types";
 export interface LinkedBook {
 	editionId: string;
 	book: ProviderBook;
-	matchedBy: LinkMatchedBy;
+	matchedBy: Exclude<LinkMatchedBy, "rejected">;
 }
 
 /** Labels (from `identifierRows`) too generic to identify a book. */
@@ -80,7 +81,7 @@ function lookup(index: Map<string, Set<string>>, keys: string[]): Set<string> {
  * Editions a provider book matches. ISBNs name a specific edition, so they
  * are tried first; provider ids (often work-level, such as a Hardcover book
  * id) are tried only when no ISBN matched. Editions in `taken` (manually
- * linked to some other book) are left out.
+ * linked, or holding a rejected link) are left out.
  */
 function candidatesFor(
 	book: ProviderBook,
@@ -102,7 +103,9 @@ function candidatesFor(
  * Matches a list-mode provider's books against the library. Keeps manual
  * links, links unambiguous matches automatically, drops automatic links that
  * no longer match, and replaces the provider's unmatched list with the books
- * being read that have no edition (no match, or more than one). Returns every
+ * being read that have no edition (no match, more than one, or a rejected
+ * link). A rejected link blocks automatic linking of both its edition and
+ * its book, since the row holds both for this provider. Returns every
  * linked book for the caller to apply; readings are not applied here.
  */
 export async function matchProviderBooks(
@@ -121,8 +124,8 @@ export async function matchProviderBooks(
 		]);
 		const linkByExternal = new Map(links.map((l) => [l.externalId, l]));
 		const linkByEdition = new Map(links.map((l) => [l.editionId, l]));
-		const manualEditions = new Set(
-			links.filter((l) => l.matchedBy === "manual").map((l) => l.editionId),
+		const takenEditions = new Set(
+			links.filter((l) => l.matchedBy !== "auto").map((l) => l.editionId),
 		);
 
 		const linked: LinkedBook[] = [];
@@ -138,7 +141,11 @@ export async function matchProviderBooks(
 				});
 				continue;
 			}
-			const found = candidatesFor(book, index, manualEditions);
+			if (existing?.matchedBy === "rejected") {
+				unmatched.push(book);
+				continue;
+			}
+			const found = candidatesFor(book, index, takenEditions);
 			const [only] = found;
 			if (found.length === 1 && only) {
 				proposed.set(only, [...(proposed.get(only) ?? []), book]);
@@ -216,8 +223,9 @@ export async function matchProviderBooks(
 
 /**
  * Links an edition to a lookup-mode provider's book by key (such as a
- * KOReader digest) unless a manual link says otherwise. Returns whether the
- * edition ends up linked to `externalId`.
+ * KOReader digest) unless a manual or rejected link of that edition or that
+ * key says otherwise. Returns whether the edition ends up linked to
+ * `externalId`.
  */
 export async function linkByKey(
 	db: Database,
@@ -239,8 +247,8 @@ export async function linkByKey(
 				),
 			);
 		const mine = links.find((l) => l.editionId === editionId);
-		if (mine?.externalId === externalId) return true;
-		if (links.some((l) => l.matchedBy === "manual")) return false;
+		if (mine?.externalId === externalId) return mine.matchedBy !== "rejected";
+		if (links.some((l) => l.matchedBy !== "auto")) return false;
 		if (links.length > 0) {
 			await tx.delete(progressLinks).where(
 				and(
@@ -261,7 +269,8 @@ export async function linkByKey(
 
 /**
  * Links a provider book to an edition by hand, replacing any other link of
- * that edition or that book for this provider, and removes the book from the
+ * that edition or that book for this provider (rejected ones included), and
+ * removes the book from the
  * unmatched list.
  */
 export async function manualLink(
@@ -311,20 +320,29 @@ export async function manualLink(
 	});
 }
 
-/** Removes an edition's link to a provider. Returns whether one existed. */
+/**
+ * Unlinks an edition from a provider (design D5a). An automatic link becomes
+ * `rejected`, keeping its book id so sync never links the pair again; a
+ * manual link is deleted. Returns whether a live link existed.
+ */
 export async function unlink(
 	db: Executor,
 	editionId: string,
 	kind: ProviderKind,
 ): Promise<boolean> {
+	const where = and(
+		eq(progressLinks.editionId, editionId),
+		eq(progressLinks.providerKind, kind),
+	);
+	const rejected = await db
+		.update(progressLinks)
+		.set({ matchedBy: "rejected" })
+		.where(and(where, eq(progressLinks.matchedBy, "auto")))
+		.returning({ editionId: progressLinks.editionId });
+	if (rejected.length > 0) return true;
 	const removed = await db
 		.delete(progressLinks)
-		.where(
-			and(
-				eq(progressLinks.editionId, editionId),
-				eq(progressLinks.providerKind, kind),
-			),
-		)
+		.where(and(where, eq(progressLinks.matchedBy, "manual")))
 		.returning({ editionId: progressLinks.editionId });
 	return removed.length > 0;
 }

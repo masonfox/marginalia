@@ -13,6 +13,8 @@ import { fixtures } from "../../../test/fixtures";
 import { ingestBook, tempDataDir } from "../../../test/library";
 import {
 	applyReading,
+	clearPositionByHand,
+	getSyncStatus,
 	loadMappingInput,
 	type MappingInput,
 	type ProgressReading,
@@ -20,6 +22,7 @@ import {
 	progressLinks,
 	progressProviders,
 	readingFingerprint,
+	unlink,
 } from ".";
 
 let t: TestDb;
@@ -279,5 +282,127 @@ describe("applyReading", () => {
 			status: "not-linked",
 		});
 		expect(await getReadingPosition(t.db, id)).toBeNull();
+	});
+});
+
+describe("sync details on the link", () => {
+	it("records the applied reading on the source link", async () => {
+		const id = await book();
+		await link(id, "hardcover");
+		await applyReading(t.db, id, "hardcover", inside(2));
+		const l = await linkRow(id, "hardcover");
+		expect(l).toMatchObject({
+			appliedReading: inside(2),
+			movedBackFrom: null,
+		});
+		expect(l?.appliedAt).toEqual((await row(id))?.syncedAt);
+		expect(await getSyncStatus(t.db, id)).toEqual({
+			source: "hardcover",
+			reading: inside(2),
+			appliedAt: l?.appliedAt,
+			movedBackFrom: null,
+			excluded: false,
+			links: [{ kind: "hardcover", matchedBy: "auto", enabled: true }],
+		});
+	});
+
+	it("shows a move back to unset, until a manual edit", async () => {
+		const id = await book();
+		await link(id, "hardcover");
+		await applyReading(t.db, id, "hardcover", inside(2));
+		// A re-read short of the first unit end clears the position.
+		const early = inside(0);
+		expect(await applyReading(t.db, id, "hardcover", early)).toEqual({
+			status: "applied",
+			position: null,
+			movedBackFrom: at(1).scopeLabel,
+		});
+		expect(await row(id)).toBeUndefined();
+		const status = await getSyncStatus(t.db, id);
+		expect(status).toMatchObject({
+			source: "hardcover",
+			reading: early,
+			movedBackFrom: at(1).scopeLabel,
+		});
+		expect(status?.appliedAt).toBeInstanceOf(Date);
+
+		// A hand-set position takes precedence.
+		await setReadingPosition(t.db, id, {
+			kind: "unit",
+			endPosition: at(0).maxPosition as number,
+		});
+		expect(await getSyncStatus(t.db, id)).toMatchObject({
+			source: "manual",
+			reading: null,
+			appliedAt: null,
+			movedBackFrom: null,
+		});
+		// Clearing it by hand leaves nothing synced to show.
+		expect(await clearPositionByHand(t.db, id)).toBe(true);
+		expect(await getSyncStatus(t.db, id)).toMatchObject({
+			source: null,
+			reading: null,
+			movedBackFrom: null,
+		});
+		// The fingerprint stays, so the same reading does not undo the clear.
+		expect(await applyReading(t.db, id, "hardcover", early)).toEqual({
+			status: "unchanged",
+		});
+	});
+
+	it("records a move back from finished to unset", async () => {
+		const id = await book();
+		await link(id, "hardcover");
+		await applyReading(t.db, id, "hardcover", { state: "finished" });
+		await applyReading(t.db, id, "hardcover", { state: "not-started" });
+		expect(await linkRow(id, "hardcover")).toMatchObject({
+			movedBackFrom: FINISHED_LABEL,
+		});
+	});
+
+	it("forgets a sync to unset when the reader clears by hand", async () => {
+		const id = await book();
+		await link(id, "hardcover");
+		await applyReading(t.db, id, "hardcover", inside(2));
+		await applyReading(t.db, id, "hardcover", inside(0));
+		expect(await clearPositionByHand(t.db, id)).toBe(false);
+		expect((await getSyncStatus(t.db, id))?.source).toBeNull();
+	});
+
+	it("ignores readings for a rejected link, and it is never the source", async () => {
+		const id = await book();
+		await link(id, "bookorbit");
+		await link(id, "hardcover");
+		await applyReading(t.db, id, "bookorbit", inside(2));
+		await unlink(t.db, id, "bookorbit");
+		expect(await applyReading(t.db, id, "bookorbit", inside(1))).toEqual({
+			status: "not-linked",
+		});
+		expect((await linkRow(id, "bookorbit"))?.lastReading).toEqual(inside(2));
+		expect(await applyReading(t.db, id, "hardcover", inside(1))).toMatchObject({
+			status: "applied",
+			position: at(0),
+		});
+		const status = await getSyncStatus(t.db, id);
+		expect(status).toMatchObject({
+			source: "hardcover",
+			links: [{ kind: "hardcover", matchedBy: "auto", enabled: true }],
+		});
+	});
+
+	it("reports exclusion, and null for a missing edition", async () => {
+		const id = await book();
+		await t.db
+			.update(editions)
+			.set({ progressSyncExcluded: true })
+			.where(eq(editions.id, id));
+		expect(await getSyncStatus(t.db, id)).toMatchObject({
+			source: null,
+			excluded: true,
+			links: [],
+		});
+		expect(
+			await getSyncStatus(t.db, "00000000-0000-0000-0000-000000000000"),
+		).toBeNull();
 	});
 });
