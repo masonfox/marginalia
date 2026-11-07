@@ -9,6 +9,7 @@ export {
 	removeProviderCredentials,
 	saveProviderCredentials,
 } from "./credentials";
+export { credentialCrypto, type EncryptedKey } from "./crypto";
 export {
 	type AiDefault,
 	type AiDefaults,

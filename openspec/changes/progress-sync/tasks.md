@@ -11,15 +11,15 @@
 
 ## 3. Core mapping and apply
 
-- [ ] 3.1 Implement the pure `mapReading` (design D6). Verify unit tests cover a mid-chapter fraction (rounds down), a fraction exactly at a unit end, a spine locator, pages, an early reading (unset), finished, not-started, and locator taking precedence over fraction.
-- [ ] 3.2 Implement the reading fingerprint (design D5). Verify unit tests show `observedAt` doesn't change it and that a small fraction change does.
+- [x] 3.1 Implement the pure `mapReading` (design D6). Verify unit tests cover a mid-chapter fraction (rounds down), a fraction exactly at a unit end, a spine locator, pages, an early reading (unset), finished, not-started, and locator taking precedence over fraction.
+- [x] 3.2 Implement the reading fingerprint (design D5). Verify unit tests show `observedAt` doesn't change it and that a small fraction change does.
 - [ ] 3.3 Implement `applyReading(editionId, provider, reading)`: choose the source by priority, skip excluded editions, run the fingerprint check, then map and write the position (bypassing the move-back confirmation, recording source, reading, `synced_at` and `moved_back_from`) in one transaction. Verify integration tests for: re-read moves back, manual edit survives an unchanged reading, new reading replaces manual edit, excluded book unchanged, lower-priority provider ignored.
 - [ ] 3.4 Make manual position writes set `source = 'manual'` and clear `moved_back_from`. Verify the existing reading-position tests still pass, plus a new test for the source change.
 
 ## 4. Provider framework and credentials
 
 - [x] 4.1 Define the `ProgressProvider` contract, `ConfigField`, `ProgressReading`, and the list/lookup matching types in `src/modules/progress`, plus a registry of built-in providers. Verify the types compile and the registry lists all kinds.
-- [ ] 4.2 Implement provider config storage: plain fields as jsonb, secret fields as one encrypted blob using `settings/crypto`, and read models that return hints only. Verify integration tests show secrets never come back in plaintext and survive a round trip.
+- [x] 4.2 Implement provider config storage: plain fields as jsonb, secret fields as one encrypted blob using `settings/crypto`, and read models that return hints only. Verify integration tests show secrets never come back in plaintext and survive a round trip.
 - [ ] 4.3 Implement matching: ISBN-13 normalization, identifier matching against `editions.identifiers`, ambiguous matches routed to unmatched, manual links taking precedence, and refreshing `progress_unmatched` for in-progress books only. Verify unit and integration tests for each spec scenario under "Matching books to provider books".
 
 ## 5. Jobs and scheduling

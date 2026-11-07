@@ -5,7 +5,6 @@ import {
 	hkdfSync,
 	randomBytes,
 } from "node:crypto";
-import type { AiProviderName } from "#/server/config";
 
 export interface EncryptedKey {
 	apiKeyCiphertext: Buffer;
@@ -14,6 +13,11 @@ export interface EncryptedKey {
 	secretKeyId: string;
 }
 
+/**
+ * AES-256-GCM under a key derived from `MARGINALIA_SECRET_KEY`. The context
+ * (an AI provider name, or `progress:<kind>`) is bound as AAD, so a blob only
+ * decrypts for the row it was written for.
+ */
 export function credentialCrypto(secret: string) {
 	const key = Buffer.from(
 		hkdfSync(
@@ -31,7 +35,7 @@ export function credentialCrypto(secret: string) {
 		.toString("hex");
 	return {
 		secretKeyId,
-		encrypt(provider: AiProviderName, value: string): EncryptedKey {
+		encrypt(provider: string, value: string): EncryptedKey {
 			const apiKeyIv = randomBytes(12);
 			const cipher = createCipheriv("aes-256-gcm", key, apiKeyIv);
 			cipher.setAAD(Buffer.from(provider));
@@ -46,7 +50,7 @@ export function credentialCrypto(secret: string) {
 				secretKeyId,
 			};
 		},
-		decrypt(provider: AiProviderName, encrypted: EncryptedKey): string | null {
+		decrypt(provider: string, encrypted: EncryptedKey): string | null {
 			if (encrypted.secretKeyId !== secretKeyId) return null;
 			try {
 				const decipher = createDecipheriv(
