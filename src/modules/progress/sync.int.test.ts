@@ -487,4 +487,38 @@ describe("lookupCandidates", () => {
 			(await lookupCandidates(t.db, "hardcover", now)).map((c) => c.edition.id),
 		).not.toContain(linkedNoDigest);
 	});
+
+	it("treats a rejected link as no link, and never asks about the rejected pair", async () => {
+		await t.pool.query("delete from editions");
+		await configure("bookorbit", true);
+		const now = new Date();
+		const rejectedOnly = await edition({ koreaderDigest: "d-rej-only" });
+		const rejectedUsed = await edition({ koreaderDigest: "d-rej-used" });
+		await t.db.insert(readingPositions).values({ editionId: rejectedUsed });
+		await t.db.insert(progressLinks).values([
+			{
+				editionId: rejectedOnly,
+				providerKind: "bookorbit",
+				externalId: "d-rej-only",
+				matchedBy: "rejected",
+			},
+			{
+				editionId: rejectedUsed,
+				providerKind: "bookorbit",
+				externalId: "d-rej-used",
+				matchedBy: "rejected",
+			},
+		]);
+		const picked = await lookupCandidates(t.db, "bookorbit", now);
+		expect(
+			picked.map((c) => [c.edition.id, c.externalId, c.rejectedId]),
+		).toEqual([[rejectedUsed, null, "d-rej-used"]]);
+
+		get.mockResolvedValue({ state: "finished" });
+		const deps = { db: t.db, secret, provider: (k: ProviderKind) => fakes[k] };
+		await runProviderSyncJob(deps, "bookorbit");
+		await runBookSyncJob(deps, rejectedUsed);
+		expect(get).not.toHaveBeenCalled();
+		expect(await position(rejectedUsed)).toMatchObject({ source: "manual" });
+	});
 });

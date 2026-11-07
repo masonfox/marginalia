@@ -1,6 +1,18 @@
 // Reading progress sync: the provider contract, built-in providers, and
 // their stored configuration, links and unmatched books.
 
+export {
+	type ConnectionTestResult,
+	linkBookByHand,
+	listProviderSettings,
+	listUnmatched,
+	type ProviderSettingsView,
+	type ReorderResult,
+	setProviderOrder,
+	testProviderConnection,
+	testResultMessage,
+	type UnmatchedBook,
+} from "./admin";
 export { type ApplyResult, applyReading, toStoredReading } from "./apply";
 export {
 	getProviderConfig,

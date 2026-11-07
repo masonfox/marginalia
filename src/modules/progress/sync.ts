@@ -1,7 +1,7 @@
 // Running progress syncs (design D7): one provider's whole sync, or one
 // book's readings from every provider linked to it. A provider that is
 // disabled or not fully configured makes no network requests.
-import { and, asc, eq, exists, gt, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, exists, gt, isNotNull, ne, or, sql } from "drizzle-orm";
 import { maskSecrets } from "#/modules/ai";
 import { conversationEditions, conversations } from "#/modules/conversation";
 import { readerNotes, readingPositions } from "#/modules/guide";
@@ -84,13 +84,17 @@ export function isProviderKind(kind: string): kind is ProviderKind {
  * digest and a reading position or recent use. Nothing records opening a
  * book, so recent use is a conversation about it or a reader note on it
  * updated in the last `LOOKUP_RECENT_DAYS` days. Linked editions come with
- * their link's external id, which is their lookup key.
+ * their link's external id, which is their lookup key. A rejected link
+ * (design D5a) is not a link: its edition is a candidate only by the other
+ * rules, and `rejectedId` names the book the caller must never ask about.
  */
 export async function lookupCandidates(
 	db: Executor,
 	kind: ProviderKind,
 	now: Date = new Date(),
-): Promise<{ edition: Edition; externalId: string | null }[]> {
+): Promise<
+	{ edition: Edition; externalId: string | null; rejectedId: string | null }[]
+> {
 	const since = new Date(now.getTime() - LOOKUP_RECENT_DAYS * 86_400_000);
 	const recent = or(
 		exists(
@@ -126,8 +130,16 @@ export async function lookupCandidates(
 				),
 		),
 	);
+	const live = and(
+		isNotNull(progressLinks.externalId),
+		ne(progressLinks.matchedBy, "rejected"),
+	);
 	const rows = await db
-		.select({ edition: editions, externalId: progressLinks.externalId })
+		.select({
+			edition: editions,
+			externalId: progressLinks.externalId,
+			matchedBy: progressLinks.matchedBy,
+		})
 		.from(editions)
 		.leftJoin(
 			progressLinks,
@@ -140,14 +152,15 @@ export async function lookupCandidates(
 			and(
 				eq(editions.status, "ready"),
 				eq(editions.progressSyncExcluded, false),
-				or(
-					isNotNull(progressLinks.externalId),
-					and(isNotNull(editions.koreaderDigest), recent),
-				),
+				or(live, and(isNotNull(editions.koreaderDigest), recent)),
 			),
 		)
 		.orderBy(asc(editions.createdAt), asc(editions.id));
-	return rows;
+	return rows.map(({ edition, externalId, matchedBy }) =>
+		matchedBy === "rejected"
+			? { edition, externalId: null, rejectedId: externalId }
+			: { edition, externalId, rejectedId: null },
+	);
 }
 
 /** A short failure message a reader can act on; never contains secrets. */
@@ -253,10 +266,11 @@ export async function syncProvider(
 				if (result.status === "applied") applied++;
 			}
 		} else {
-			for (const { edition, externalId } of await lookupCandidates(db, kind)) {
+			const candidates = await lookupCandidates(db, kind);
+			for (const { edition, externalId, rejectedId } of candidates) {
 				deps.signal?.throwIfAborted();
 				const key = externalId ?? (await matching.keyFor(edition));
-				if (!key) continue;
+				if (!key || key === rejectedId) continue;
 				const reading = await matching.get(cfg, key);
 				if (!reading) continue;
 				if (!externalId && !(await linkByKey(db, edition.id, kind, key)))
@@ -322,7 +336,11 @@ export async function syncBook(
 		if (!isProviderKind(kind)) continue;
 		deps.signal?.throwIfAborted();
 		const provider = (deps.provider ?? getProvider)(kind);
-		const link = links.find((l) => l.providerKind === kind);
+		const found = links.find((l) => l.providerKind === kind);
+		// A rejected link is not a link, and its book is never asked about.
+		const rejectedId =
+			found?.matchedBy === "rejected" ? found.externalId : null;
+		const link = rejectedId === null ? found : undefined;
 		if (provider.matching.mode === "list" && !link) continue;
 		const ready = await readyConfig(deps, kind);
 		if (ready.status === "skipped") {
@@ -338,7 +356,7 @@ export async function syncBook(
 					books.find((b) => b.externalId === link?.externalId)?.reading ?? null;
 			} else {
 				const key = link?.externalId ?? (await matching.keyFor(edition));
-				if (!key) continue;
+				if (!key || key === rejectedId) continue;
 				reading = await matching.get(ready.config, key);
 				if (reading && !link && !(await linkByKey(db, editionId, kind, key)))
 					reading = null;

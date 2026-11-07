@@ -9,10 +9,26 @@ import {
 	selectionLabel,
 } from "#/components/model-picker";
 import { ProviderCredentials } from "#/components/provider-credentials";
+import {
+	ReadingSync,
+	type ReadingSyncActions,
+} from "#/components/reading-sync";
 import { THEME_LABELS } from "#/components/theme-switch";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn } from "#/fns/conversations";
 import { getShellInfo } from "#/fns/library";
+import {
+	linkUnmatchedBookFn,
+	listSyncProvidersFn,
+	listUnmatchedBooksFn,
+	reorderSyncProvidersFn,
+	saveSyncProviderFn,
+	searchEditionsFn,
+	setSyncProviderEnabledFn,
+	setSyncScheduleFn,
+	syncProviderNowFn,
+	testSyncProviderFn,
+} from "#/fns/progress-settings";
 import {
 	clearChatDefaultFn,
 	clearPreprocessDefaultFn,
@@ -40,11 +56,23 @@ const credentialsQuery = queryOptions({
 	queryKey: ["provider-credentials"],
 	queryFn: () => listProviderCredentialsFn(),
 });
+const syncProvidersQuery = queryOptions({
+	queryKey: ["sync-providers"],
+	queryFn: () => listSyncProvidersFn(),
+});
+
+const unmatchedQuery = queryOptions({
+	queryKey: ["sync-unmatched"],
+	queryFn: () => listUnmatchedBooksFn(),
+});
+
 export const Route = createFileRoute("/settings")({
 	loader: async ({ context }) => {
 		await Promise.all([
 			context.queryClient.ensureQueryData(statusQuery),
 			context.queryClient.ensureQueryData(credentialsQuery),
+			context.queryClient.ensureQueryData(syncProvidersQuery),
+			context.queryClient.ensureQueryData(unmatchedQuery),
 		]);
 	},
 	head: () => ({ meta: [{ title: "Settings · Marginalia" }] }),
@@ -79,6 +107,7 @@ function SettingsPage() {
 						["appearance", "Appearance"],
 						["providers", "Providers"],
 						["models", "Default models"],
+						["reading-sync", "Reading sync"],
 						["library", "Library"],
 						["access", "Access"],
 					].map(([id, label]) => (
@@ -159,10 +188,78 @@ function SettingsPage() {
 							</>
 						)}
 					</div>
+					<ReadingSyncSettings />
 					<InstanceSettings />
 				</div>
 			</div>
 		</main>
+	);
+}
+
+/** How long to keep refreshing sync status after "Sync now". */
+const SYNC_POLL_MS = 60_000;
+
+function ReadingSyncSettings() {
+	const queryClient = useQueryClient();
+	const [pollUntil, setPollUntil] = useState(0);
+	const poll = () => (Date.now() < pollUntil ? 3_000 : false);
+	const { data: providers } = useQuery({
+		...syncProvidersQuery,
+		refetchInterval: poll,
+	});
+	const { data: unmatched } = useQuery({
+		...unmatchedQuery,
+		refetchInterval: poll,
+	});
+	const save = useServerFn(saveSyncProviderFn),
+		setEnabled = useServerFn(setSyncProviderEnabledFn),
+		setSchedule = useServerFn(setSyncScheduleFn),
+		reorder = useServerFn(reorderSyncProvidersFn),
+		test = useServerFn(testSyncProviderFn),
+		syncNow = useServerFn(syncProviderNowFn),
+		link = useServerFn(linkUnmatchedBookFn),
+		search = useServerFn(searchEditionsFn);
+	const reload = () =>
+		Promise.all([
+			queryClient.invalidateQueries({ queryKey: syncProvidersQuery.queryKey }),
+			queryClient.invalidateQueries({ queryKey: unmatchedQuery.queryKey }),
+		]);
+	const after = async <T,>(result: T): Promise<T> => {
+		await reload();
+		return result;
+	};
+	const [actions] = useState<ReadingSyncActions>(() => ({
+		save: async (kind, values) => after(await save({ data: { kind, values } })),
+		setEnabled: async (kind, enabled) =>
+			after(await setEnabled({ data: { kind, enabled } })),
+		setSchedule: async (kind, schedule) =>
+			after(await setSchedule({ data: { kind, schedule } })),
+		reorder: async (order) => after(await reorder({ data: { order } })),
+		test: (kind, values) => test({ data: { kind, values } }),
+		syncNow: async (kind) => {
+			const result = await syncNow({ data: { kind } });
+			if (result.status !== "disabled") setPollUntil(Date.now() + SYNC_POLL_MS);
+			return after(result);
+		},
+		link: async (kind, externalId, editionId) =>
+			after(await link({ data: { kind, externalId, editionId } })),
+		searchEditions: (q) => search({ data: { q } }),
+	}));
+	return (
+		<section
+			id="reading-sync"
+			aria-label="Reading sync"
+			className="scroll-mt-8 border-t py-8 space-y-4"
+		>
+			<h2 className="font-serif text-[30px] font-semibold">Reading sync</h2>
+			{providers && (
+				<ReadingSync
+					providers={providers}
+					unmatched={unmatched ?? []}
+					actions={actions}
+				/>
+			)}
+		</section>
 	);
 }
 

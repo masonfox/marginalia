@@ -32,8 +32,8 @@
 
 ## 6. Settings UI and server functions
 
-- [ ] 6.1 Add server functions to save, enable, reorder, test and "Sync now" each provider, to list unmatched books, to link one to an edition by hand, and to unlink. Verify integration tests through the server functions.
-- [ ] 6.2 Build the "Reading sync" settings section: a form generated from `configFields` with masked secrets, per-provider help, a schedule preset picker, a priority order, test connection, Sync now, last-sync status and error, and an unmatched list with an edition picker. Verify with component tests and a manual check at phone width.
+- [x] 6.1 Add server functions to save, enable, reorder, test and "Sync now" each provider, to list unmatched books, to link one to an edition by hand, and to unlink. Verify integration tests through the server functions.
+- [x] 6.2 Build the "Reading sync" settings section: a form generated from `configFields` with masked secrets, per-provider help, a schedule preset picker, a priority order, test connection, Sync now, last-sync status and error, and an unmatched list with an edition picker. Verify with component tests and a manual check at phone width.
 
 ## 7. Position control
 
