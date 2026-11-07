@@ -4,10 +4,10 @@ Readers already track progress in another app (BookOrbit, Hardcover, Goodreads),
 
 ## What Changes
 
-- Add pluggable **progress providers**. Each provider declares its own configuration fields: plain fields, and secret fields that are stored encrypted. It also declares how it matches books and returns raw readings (state, fraction, pages, or a precise locator). Marginalia ships three:
+- Add pluggable **progress providers**. Each provider declares its own configuration fields: plain fields, and secret fields that are stored encrypted. It also declares how it matches books and returns raw readings (state, fraction, pages, or a precise locator). Marginalia ships two:
   - **BookOrbit**, through its KOReader sync API, matched by the KOReader partial-MD5 digest of the edition's file.
   - **Hardcover**, through its GraphQL API with a personal token, matched by ISBN or Hardcover id.
-  - **Goodreads**, through public RSS feeds and matched by ISBN or Goodreads id. A spike must confirm it is viable first, and it can be dropped without affecting the others.
+  - **Goodreads is deferred.** A spike found its RSS feeds removed, its shelves behind sign-in, and book pages behind a bot challenge. The only public progress source is the HTML status list, and it offers no finished state and only weak matching. BookOrbit doesn't sync Goodreads progress either. A later change can add it as another provider.
 - Map raw readings to a reading position in one shared step that always **rounds down to the last finished reading unit**, never to the unit currently being read. A reading short of the first unit's end gives an unset position, and a finished reading gives "finished".
 - Configure each provider in Settings: enable or disable it, set its priority, and set its own sync schedule (manual only, or a preset interval). A provider also gets "Test connection" and "Sync now". A book can be synced on its own from its position control.
 - Link editions to provider books automatically where possible. Unmatched provider books that the reader is reading are listed in Settings with a "link to edition" picker. Provider books with no edition in the library are ignored. A reader can opt a single book out of sync.
@@ -18,7 +18,7 @@ Readers already track progress in another app (BookOrbit, Hardcover, Goodreads),
 ## Capabilities
 
 ### New Capabilities
-- `progress-sync`: provider abstraction and configuration, book matching and linking, scheduled and manual sync, mapping readings to a spoiler-safe position, per-book opt-out, and the three built-in providers.
+- `progress-sync`: provider abstraction and configuration, book matching and linking, scheduled and manual sync, mapping readings to a spoiler-safe position, per-book opt-out, and the two built-in providers.
 
 ### Modified Capabilities
 - `reading-position`: a position applied by sync bypasses the confirmation for moving back. A position records its source (manual or a provider) and shows it in the position control. A manual edit on a synced book stays until the provider reports a change.
@@ -28,5 +28,5 @@ Readers already track progress in another app (BookOrbit, Hardcover, Goodreads),
 - **Database**: new `progress_providers` table (one row per provider kind, with secrets encrypted using `MARGINALIA_SECRET_KEY`), new `progress_links` table, and new source and sync columns on `reading_positions`. Drizzle migrations are needed.
 - **Jobs**: new pg-boss job kinds for each provider sync and each book sync. Schedules are created and removed at runtime from Settings rather than from environment variables at boot.
 - **Code**: a new `src/modules/progress` module (provider contract, adapters, mapping, sync). Also touched: settings server functions and UI, the reading position control, and the reading position write path in `src/modules/guide`.
-- **Outbound network**: calls to the BookOrbit instance URL the reader configures, to `api.hardcover.app`, and to `goodreads.com` RSS. None happen unless a provider is enabled.
+- **Outbound network**: calls to the BookOrbit instance URL the reader configures and to `api.hardcover.app`. None happen unless a provider is enabled.
 - **Docs**: a new reading sync section in `docs/deployment.md`.

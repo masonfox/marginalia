@@ -5,7 +5,7 @@ Keeps each book's reading position in step with an external reading tracker. Pro
 ## ADDED Requirements
 
 ### Requirement: Progress providers
-The system SHALL support progress providers of these kinds: BookOrbit, Hardcover, and Goodreads. Each kind SHALL be configured at most once per instance. Each provider SHALL declare its own configuration fields, and each field SHALL be marked plain or secret. The system SHALL store secret fields encrypted at rest and SHALL NOT return their values to the browser after saving. Instead it SHALL show only a short hint, such as the last four characters. A provider SHALL be disabled until the reader enables it, and a disabled provider SHALL make no network requests.
+The system SHALL support progress providers of these kinds: BookOrbit and Hardcover. Each kind SHALL be configured at most once per instance. Each provider SHALL declare its own configuration fields, and each field SHALL be marked plain or secret. The system SHALL store secret fields encrypted at rest and SHALL NOT return their values to the browser after saving. Instead it SHALL show only a short hint, such as the last four characters. A provider SHALL be disabled until the reader enables it, and a disabled provider SHALL make no network requests.
 
 #### Scenario: Configure Hardcover
 - **WHEN** a reader enters a Hardcover API token and enables Hardcover
@@ -60,7 +60,6 @@ The reader SHALL be able to start a sync of one provider from Settings, and a sy
 The system SHALL link an edition to a provider's book automatically when they match unambiguously:
 - **BookOrbit**: by the KOReader partial-MD5 digest of the edition's file.
 - **Hardcover**: by ISBN or Hardcover id.
-- **Goodreads**: by ISBN or Goodreads id.
 
 ISBNs SHALL be compared after normalizing to ISBN-13. A provider book that matches more than one edition SHALL NOT be linked automatically. Provider books the reader is currently reading that match no edition SHALL be listed in Settings, where the reader can link each one to an edition by hand. A manual link SHALL take precedence over automatic matching. Provider books that the reader is not reading and that match no edition SHALL be ignored.
 
@@ -150,7 +149,6 @@ The reader SHALL be able to exclude a single edition from sync. An excluded edit
 The system SHALL provide these providers:
 - **BookOrbit**: configured with an instance URL, a KOReader username, and a KOReader key (secret). It reads progress through BookOrbit's KOReader sync API, one book at a time, by digest.
 - **Hardcover**: configured with a personal API token (secret). It reads the reader's books and their read progress, and stays within Hardcover's published rate limit.
-- **Goodreads**: configured with a public profile id. It reads the reader's public shelves and status updates. It SHALL be delivered only if a spike confirms the public feeds give usable progress, and it SHALL say in its settings that the reader's profile must be public.
 
 #### Scenario: BookOrbit precise location
 - **WHEN** BookOrbit returns a KOReader location for a linked book

@@ -19,6 +19,7 @@
 - Creating editions or wishlist entries from provider books that aren't in the library.
 - Syncing conversation scopes. Conversations keep their own bounds (reading-position spec).
 - Combining readings from several providers. Only one source applies per book.
+- Goodreads. It is deferred to a later change (see D8).
 
 ## Decisions
 
@@ -57,7 +58,7 @@ type ProviderBook = { externalId: string; isbns: string[]; ids: Record<string,st
                       title: string; reading: ProgressReading };
 ```
 
-- **Hardcover and Goodreads** use `list`. One sync fetches the reader's books with their readings, and the core matches them against editions.
+- **Hardcover** uses `list`. One sync fetches the reader's books with their readings, and the core matches them against editions.
 - **BookOrbit** uses `lookup`, because its KOReader sync API has only `GET /koreader/syncs/progress/:digest`. A sync looks up only the *candidate* editions: those already linked, those with a reading position, and those opened in the last 90 days. That keeps the request count bounded.
 
 ### D3. KOReader digest stored on the edition
@@ -68,7 +69,7 @@ KOReader's partial MD5 reads 1 KiB at offsets `1024 << 2i` for `i = -1..10` and 
 
 ```
 progress_providers
-  kind            text PK  ('bookorbit' | 'hardcover' | 'goodreads')
+  kind            text PK  ('bookorbit' | 'hardcover')
   enabled         bool
   priority        smallint  unique   -- lower = wins
   schedule        text               -- 'manual' | '1h' | '6h' | '24h'
@@ -131,19 +132,29 @@ Characters are a better proxy than passage count, because provider percentages c
 - Saving a provider's schedule calls `boss.schedule('progress-sync', cron, { kind }, { key: kind })`, or `boss.unschedule('progress-sync', kind)` for manual or disabled. pg-boss keeps the schedule, so a web-only process can change it. Workers fire it.
 - Hardcover requests are throttled in the adapter to stay under 60 per minute. A 429 response reschedules the remaining work rather than failing.
 
-### D8. Goodreads behind a spike
+### D8. Goodreads deferred after a spike
 
-Goodreads has had no API since 2020. The candidate sources are the public RSS feeds `review/list_rss/<id>?shelf=currently-reading|read` (state, ISBN, book id) and `user/updates_rss/<id>` (status lines like "is on page 120 of 400"). The spike (task 1) confirms:
-- the feeds exist and are reachable without logging in, and are not blocked by a challenge page
-- progress lines can be parsed
-- what happens when the profile is private
+Goodreads has had no API since 2020. A spike on 2026-11-07 against a public profile, with no sign-in, found:
 
-If progress isn't available, Goodreads still delivers state only (reading or finished). If the feeds are gone, Goodreads is dropped from this change, which doesn't affect the other providers.
+| Source | Result |
+|---|---|
+| `review/list_rss/<id>?shelf=…` | 404, removed |
+| `user/updates_rss/<id>` | 404, removed |
+| `review/list/<id>?shelf=…` (HTML) | redirects to Sign in |
+| `book/show/<id>` (HTML) | 202 with an empty body (AWS WAF JavaScript challenge) |
+| `user_status/list/<id>?page=N` (HTML) | 200, public, rendered on the server: "is on page X of Y" (and "is N% done"), a Goodreads book id, and a time with no timezone |
+
+A Goodreads provider would therefore have to scrape HTML and could report progress only:
+- **No finished state.** The shelves need sign-in.
+- **Weak matching.** It gets only a per-edition Goodreads book id. ISBN lookup would rely on the `book/auto_complete` JSON endpoint, which BookOrbit reports stays available while the WAF gates HTML pages.
+- **Fragile.** The status list could fall behind the same challenge at any time.
+
+BookOrbit, which issue #47 cited, uses Goodreads only for metadata (autocomplete and book-page scraping, with WAF detection). Its tracker sync targets Hardcover and StoryGraph. Goodreads is out of this change. The provider contract (D1, D2 list mode) already fits a later Goodreads adapter without core changes.
 
 ## Risks / Trade-offs
 
 - **[Hardcover pages are for a different edition]** → The fraction is approximate, but rounding down means the error only puts the position early, never late. Readers may see a position a chapter behind. That is the accepted cost of being spoiler-safe.
-- **[Goodreads feeds are undocumented and could vanish or hit a challenge page]** → It is isolated behind the spike and in its own adapter. Failures show as `last_error` in Settings and never affect positions.
+- **[Goodreads, which the issue asked for, is missing]** → Deferred on the spike's evidence (D8). Goodreads readers can import into Hardcover and sync from there.
 - **[BookOrbit lookup is one request per book]** → It only looks up candidate editions, and runs on the reader's LAN.
 - **[Re-reads silently move the position back]** → This is intended (the provider wins). The control shows "moved back from …", so it is visible.
 - **[A bad automatic match could apply someone else's progress to a book]** → Automatic linking needs an exact digest or ISBN match, and ambiguous matches go to the unmatched list.

@@ -1,7 +1,7 @@
-## 1. Goodreads spike (gates group 9 only)
+## 1. Goodreads spike
 
-- [ ] 1.1 Fetch `review/list_rss/<id>?shelf=currently-reading` and `?shelf=read` and `user/updates_rss/<id>` for a public test profile without logging in. Record in design.md D8 whether each works, which fields carry the ISBN, book id and progress, and whether a challenge page appears.
-- [ ] 1.2 Try the same feeds for a private profile and record the response. Decide whether Goodreads is full, state-only, or dropped, then update the proposal and the progress-sync spec to match.
+- [x] 1.1 Fetch the Goodreads RSS feeds, shelf pages and status list for a public profile without logging in, and record the results in design.md D8. (RSS removed, shelves need sign-in, book pages behind WAF, status list public.)
+- [x] 1.2 Decide Goodreads' scope and update the proposal and the progress-sync spec. (Deferred to a later change. The private-profile check isn't needed.)
 
 ## 2. Data model
 
@@ -43,11 +43,7 @@
 - [ ] 8.1 BookOrbit adapter: config (URL, username, key secret), `testConnection` via `users/auth`, and lookup by digest that parses percentage and `DocFragment[n]` xpointer into a spine locator. Verify unit tests against recorded fixtures for success, 401, unreachable and empty progress.
 - [ ] 8.2 Hardcover adapter: config (token secret), `testConnection` via `me`, a list query for user books with status, ISBNs and latest read progress, mapped to `ProgressReading`, plus a throttle under 60 requests per minute and backoff on 429. Verify unit tests against recorded GraphQL fixtures, including rate-limit handling.
 
-## 9. Goodreads provider (only if 1.2 says go)
+## 9. Docs and end-to-end
 
-- [ ] 9.1 Goodreads adapter: config (profile id), help noting the profile must be public, `testConnection` that fetches the shelf feed, and list sync that parses shelves (plus status updates if the spike confirmed them). Verify unit tests against recorded RSS fixtures, including the private-profile response.
-
-## 10. Docs and end-to-end
-
-- [ ] 10.1 Add a "Reading sync" section to `docs/deployment.md` covering providers, outbound hosts, the shared-position caveat, round-down behavior, and BookOrbit setup on the same library folder. Verify the docs test passes.
-- [ ] 10.2 Add an e2e test that configures a fake provider through Settings, runs Sync now, and checks that the book page shows the rounded-down chapter with its source. Verify `pnpm test:e2e` passes.
+- [ ] 9.1 Add a "Reading sync" section to `docs/deployment.md` covering providers, outbound hosts, the shared-position caveat, round-down behavior, and BookOrbit setup on the same library folder. Verify the docs test passes.
+- [ ] 9.2 Add an e2e test that configures a fake provider through Settings, runs Sync now, and checks that the book page shows the rounded-down chapter with its source. Verify `pnpm test:e2e` passes.
