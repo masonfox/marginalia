@@ -767,7 +767,7 @@ test.describe("book page", () => {
 			);
 			await expect(header.getByRole("progressbar")).toBeVisible();
 			await expect(page.getByTestId("reading-progress")).toHaveText(
-				/^\d+ of \d+$/,
+				/^\d+\/\d+$/,
 			);
 
 			await tab(page, "Contents").click();

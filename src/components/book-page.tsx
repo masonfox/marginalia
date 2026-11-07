@@ -171,7 +171,7 @@ export function BookHero({ variant }: { variant: "full" | "compact" }) {
 							</p>
 						)}
 						{full && (
-							<div className="mt-4 sm:mt-6">
+							<div className="mt-4 sm:mt-[26px]">
 								<HeroStatus />
 							</div>
 						)}

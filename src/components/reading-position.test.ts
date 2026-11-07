@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ReadingPosition } from "#/modules/guide";
 import { offersPositionUpdate } from "./conversation-controls";
-import { isMoveBack, positionText } from "./reading-position";
+import { isMoveBack, nextUnit, positionText } from "./reading-position";
 
 const at = (maxPosition: number): ReadingPosition => ({
 	kind: "unit",
@@ -50,5 +50,31 @@ describe("offersPositionUpdate", () => {
 		expect(offersPositionUpdate({ kind: "finished" }, { kind: "whole" })).toBe(
 			false,
 		);
+	});
+});
+
+describe("nextUnit", () => {
+	const unit = (ordinal: number, endPosition: number) => ({
+		ordinal,
+		label: `Chapter ${ordinal + 1}`,
+		path: [`Chapter ${ordinal + 1}`],
+		startPosition: endPosition - 9,
+		endPosition,
+		startLocator: `p${endPosition - 9}`,
+	});
+	const units = [unit(0, 10), unit(1, 20), unit(2, 30)];
+
+	it("continues after the position's unit, or from the start when unset", () => {
+		expect(nextUnit(null, units)?.startLocator).toBe("p1");
+		expect(nextUnit(at(10), units)?.startLocator).toBe("p11");
+		expect(nextUnit(at(20), units)?.startLocator).toBe("p21");
+	});
+
+	it("offers nothing once the book is read or the unit is unknown", () => {
+		expect(nextUnit(at(30), units)).toBeUndefined();
+		expect(nextUnit({ kind: "finished" }, units)).toBeUndefined();
+		expect(nextUnit(at(15), units)).toBeUndefined();
+		expect(nextUnit(null, [])).toBeUndefined();
+		expect(nextUnit(null, undefined)).toBeUndefined();
 	});
 });
