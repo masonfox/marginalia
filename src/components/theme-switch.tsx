@@ -72,7 +72,7 @@ export function ThemeSwitch({ className }: { className?: string }) {
 					aria-pressed={current === theme}
 					aria-label={`${THEME_LABELS[theme]} theme`}
 					onClick={() => setThemeChoice(theme)}
-					className="grid size-[34px] cursor-pointer place-items-center rounded-full text-faint-foreground outline-none transition-[color,background-color,box-shadow] hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring aria-pressed:bg-card aria-pressed:text-amber-foreground aria-pressed:shadow-[0_1px_3px_rgba(0,0,0,.18)]"
+					className="grid size-[34px] cursor-pointer pointer-coarse:size-11 place-items-center rounded-full text-faint-foreground outline-none transition-[color,background-color,box-shadow] hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring aria-pressed:bg-card aria-pressed:text-amber-foreground aria-pressed:shadow-[0_1px_3px_rgba(0,0,0,.18)]"
 				>
 					<ThemeIcon theme={theme} className="size-4" />
 				</button>
