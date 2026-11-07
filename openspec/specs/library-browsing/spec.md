@@ -305,7 +305,7 @@ The page at the site root SHALL be titled "Dashboard" and SHALL show, in order, 
 - **THEN** the dashboard shows neither section and links to the Library page
 
 ### Requirement: Reading section on the dashboard
-When at least one edition is in the Reading state (a ready edition with a reading position that is not finished, as on the library list), the dashboard SHALL show a "Reading" section listing those editions, most recently updated reading position first, with at most four on wider viewports and at most two on narrow viewports. Each book SHALL show its cover (or a placeholder), title, authors, and its reading position as "Through" followed by the position's label, and selecting it SHALL open the book's page. The section SHALL link to the Library page filtered to Reading. When no edition is in the Reading state, the section SHALL NOT be shown. Unavailable, processing, and failed editions SHALL NOT be shown in the section.
+When at least one edition is in the Reading state (a ready edition with a reading position that is not finished, as on the library list), the dashboard SHALL show a Reading section titled "On the nightstand" listing those editions, most recently updated reading position first, with at most four on every viewport. On wider viewports the books SHALL be laid out as a grid; on narrow viewports they SHALL be a single row that scrolls horizontally within the section, with about two books fully visible at 360 pixels wide, and the page SHALL NOT scroll horizontally. Each book SHALL show its cover (or a placeholder), title, authors, and its reading position as "Through" followed by the position's label, and selecting it SHALL open the book's page. The section SHALL link to the Library page filtered to Reading, with the link text "See all books you're reading". When no edition is in the Reading state, the section SHALL NOT be shown. Unavailable, processing, and failed editions SHALL NOT be shown in the section.
 
 #### Scenario: Most recent position first
 - **WHEN** the reader set a position in "Mrs Dalloway" yesterday and in "Infinite Jest" today
@@ -317,11 +317,11 @@ When at least one edition is in the Reading state (a ready edition with a readin
 
 #### Scenario: More books than fit
 - **WHEN** six books are being read and the reader opens the dashboard on a desktop
-- **THEN** the four with the most recently updated positions are shown, with a link that opens the Library filtered to Reading
+- **THEN** the four with the most recently updated positions are shown, with a "See all books you're reading" link that opens the Library filtered to Reading
 
 #### Scenario: On a phone
 - **WHEN** three books are being read and the reader opens the dashboard at 360 pixels wide
-- **THEN** two books are shown
+- **THEN** the first two books are fully visible, the third is reachable by scrolling the shelf sideways, and the page does not scroll horizontally
 
 #### Scenario: Finished and unstarted books
 - **WHEN** the library holds only finished books and books with no reading position
