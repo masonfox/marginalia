@@ -40,7 +40,7 @@
 
 ## 8. Built-in providers: BookOrbit and Hardcover
 
-- [ ] 8.1 BookOrbit adapter: config (URL, username, key secret), `testConnection` via `users/auth`, and lookup by digest that parses percentage and `DocFragment[n]` xpointer into a spine locator. Verify unit tests against recorded fixtures for success, 401, unreachable and empty progress.
+- [x] 8.1 BookOrbit adapter: config (URL, username, key secret), `testConnection` via `users/auth`, and lookup by digest that parses percentage and `DocFragment[n]` xpointer into a spine locator. Verify unit tests against recorded fixtures for success, 401, unreachable and empty progress.
 - [ ] 8.2 Hardcover adapter: config (token secret), `testConnection` via `me`, a list query for user books with status, ISBNs and latest read progress, mapped to `ProgressReading`, plus a throttle under 60 requests per minute and backoff on 429. Verify unit tests against recorded GraphQL fixtures, including rate-limit handling.
 
 ## 9. Docs and end-to-end

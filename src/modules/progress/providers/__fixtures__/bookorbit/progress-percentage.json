@@ -1,0 +1,11 @@
+{
+	"status": 200,
+	"body": {
+		"document": "0b7f2c1e9d4a6b3c8e5f1a2d7c9b0e43",
+		"percentage": 0.618,
+		"progress": null,
+		"device": "web",
+		"device_id": "bookorbit-web",
+		"timestamp": 1762448400
+	}
+}

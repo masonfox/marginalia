@@ -59,7 +59,7 @@ type ProviderBook = { externalId: string; isbns: string[]; ids: Record<string,st
 ```
 
 - **Hardcover** uses `list`. One sync fetches the reader's books with their readings, and the core matches them against editions.
-- **BookOrbit** uses `lookup`, because its KOReader sync API has only `GET /koreader/syncs/progress/:digest`. A sync looks up only the *candidate* editions: those already linked, those with a reading position, and those opened in the last 90 days. That keeps the request count bounded.
+- **BookOrbit** uses `lookup`, because its KOReader sync API has only `GET /api/v1/koreader/syncs/progress/:digest`. A sync looks up only the *candidate* editions: those already linked, those with a reading position, and those opened in the last 90 days. That keeps the request count bounded.
 
 ### D3. KOReader digest stored on the edition
 

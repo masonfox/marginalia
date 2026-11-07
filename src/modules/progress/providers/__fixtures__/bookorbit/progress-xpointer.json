@@ -1,0 +1,11 @@
+{
+	"status": 200,
+	"body": {
+		"document": "0b7f2c1e9d4a6b3c8e5f1a2d7c9b0e43",
+		"percentage": 0.4237,
+		"progress": "/body/DocFragment[12]/body/div/p[37]/text().118",
+		"device": "Kobo Libra 2",
+		"device_id": "A1B2C3D4E5F60718293A4B5C6D7E8F90",
+		"timestamp": 1762444800
+	}
+}
