@@ -450,9 +450,13 @@ test.describe("dashboard", () => {
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await page.goto("/");
 		await page.waitForLoadState("networkidle");
-		await expect(
-			page.getByRole("heading", { name: "Dashboard", level: 1 }),
-		).toBeVisible();
+		// Populated dashboard leads with the continue-reading hero, whose H1 is
+		// the most recent book's title (other fixtures may compete for it).
+		const hero = page.locator(
+			'section[aria-labelledby="continue-reading-title"]',
+		);
+		await expect(hero).toBeVisible();
+		await expect(hero.getByRole("heading", { level: 1 })).toHaveText(/\S/);
 		await expect(
 			page.getByRole("heading", { name: "On the nightstand" }),
 		).toBeVisible();
