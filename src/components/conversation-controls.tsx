@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Bookmark, Cpu, Pencil, Trash2 } from "lucide-react";
+import { Bookmark, ChevronDown, Ellipsis, Pencil, Trash2 } from "lucide-react";
 import {
 	createContext,
 	type ReactNode,
@@ -27,7 +27,6 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "#/components/ui/alert-dialog";
-import { Badge } from "#/components/ui/badge";
 import { Button, buttonVariants } from "#/components/ui/button";
 import {
 	Dialog,
@@ -38,6 +37,12 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "#/components/ui/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "#/components/ui/dropdown-menu";
 import { Input } from "#/components/ui/input";
 import {
 	deleteConversationFn,
@@ -209,77 +214,65 @@ function useRefreshConversations() {
 }
 
 /**
- * A rename button that swaps to an inline form. Refreshes the page data and
- * the conversation lists when saved.
+ * The conversation's "…" menu: rename and delete, each in a dialog.
+ * Renaming takes precedence over automatic naming.
  */
-export function RenameConversation({
+export function ConversationActions({
 	conversationId,
 	title,
+	onDeleted,
+	className,
 }: {
 	conversationId: string;
 	title: string;
+	onDeleted: () => void | Promise<void>;
+	className?: string;
 }) {
-	const refresh = useRefreshConversations();
-	const rename = useServerFn(renameConversationFn);
-	const [editing, setEditing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-
-	if (!editing) {
-		return (
-			<Button
-				type="button"
-				size="sm"
-				variant="ghost"
-				onClick={() => setEditing(true)}
-				aria-label={`Rename “${title}”`}
-			>
-				<Pencil aria-hidden /> Rename
-			</Button>
-		);
-	}
+	const [renaming, setRenaming] = useState(false);
+	const [deleting, setDeleting] = useState(false);
 	return (
-		<form
-			className="flex items-center gap-2"
-			onSubmit={async (e) => {
-				e.preventDefault();
-				const value = new FormData(e.currentTarget).get("title");
-				const next = typeof value === "string" ? value.trim() : "";
-				if (!next) return;
-				setError(null);
-				try {
-					const result = await rename({
-						data: { conversationId, title: next },
-					});
-					if (result.renamed) namingRenamed(conversationId, next);
-					setEditing(false);
-					await refresh();
-				} catch {
-					setError("Could not rename. Please try again.");
-				}
-			}}
-		>
-			<Input
-				name="title"
-				defaultValue={title}
-				aria-label="Conversation title"
-				maxLength={200}
-				autoFocus
+		<>
+			<DropdownMenu modal={false}>
+				<DropdownMenuTrigger asChild>
+					<Button
+						type="button"
+						size="icon"
+						variant="ghost"
+						className={className}
+						aria-label={`Actions for “${title}”`}
+					>
+						<Ellipsis aria-hidden />
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end">
+					<DropdownMenuItem onSelect={() => setRenaming(true)}>
+						<Pencil aria-hidden /> Rename
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						variant="destructive"
+						onSelect={() => setDeleting(true)}
+					>
+						<Trash2 aria-hidden /> Delete
+					</DropdownMenuItem>
+				</DropdownMenuContent>
+			</DropdownMenu>
+			<RenameConversationDialog
+				conversationId={conversationId}
+				title={title}
+				open={renaming}
+				onOpenChange={setRenaming}
 			/>
-			<Button type="submit" size="sm">
-				Save
-			</Button>
-			<Button
-				type="button"
-				size="sm"
-				variant="ghost"
-				onClick={() => setEditing(false)}
-			>
-				Cancel
-			</Button>
-			{error && (
-				<span className="text-sm text-destructive-foreground">{error}</span>
-			)}
-		</form>
+			<DeleteConversation
+				conversationId={conversationId}
+				title={title}
+				open={deleting}
+				onOpenChange={setDeleting}
+				onDeleted={async () => {
+					await onDeleted();
+					setDeleting(false);
+				}}
+			/>
+		</>
 	);
 }
 
@@ -322,7 +315,10 @@ export function RenameConversationDialog({
 						setBusy(true);
 						setError(null);
 						try {
-							await rename({ data: { conversationId, title: next } });
+							const result = await rename({
+								data: { conversationId, title: next },
+							});
+							if (result.renamed) namingRenamed(conversationId, next);
 							await refresh();
 							onOpenChange(false);
 						} catch {
@@ -529,36 +525,53 @@ export function ConversationModelControl({
 	if (effect.status === "disabled") return null;
 	const fallback = status.chat.available ? status.chat.selection : null;
 	const blank = draft !== null && draft.model.trim() === "";
+	const source =
+		effect.status === "no_default"
+			? null
+			: effect.own
+				? "this conversation"
+				: "default";
+	const full =
+		effect.status === "no_default"
+			? "No model chosen"
+			: `${selectionLabel(effect.selection)}${effect.status === "unavailable" ? " (unavailable)" : ""}`;
 	return (
 		<>
-			<span data-testid="provider-label">
-				{" · "}
-				{effect.status === "no_default" ? (
-					"No model chosen"
-				) : (
-					<>
-						{selectionLabel(effect.selection)}
-						{effect.status === "unavailable" && " (unavailable)"}{" "}
-						<Badge variant="outline" data-testid="model-source">
-							{effect.own ? "this conversation" : "default"}
-						</Badge>
-					</>
-				)}{" "}
-				<Button
-					type="button"
-					variant="ghost"
-					size="xs"
-					disabled={disabled}
-					onClick={() => onOpenChange(true)}
-					title={
-						disabled
-							? "The model can be changed once the reply ends"
-							: undefined
-					}
-				>
-					<Cpu aria-hidden /> Change model
-				</Button>
-			</span>
+			<Button
+				type="button"
+				variant="outline"
+				size="sm"
+				className="h-9 max-w-full min-w-0 rounded-full px-4 font-medium pointer-coarse:h-11"
+				disabled={disabled}
+				onClick={() => onOpenChange(true)}
+				aria-label={`Change model: ${full}${source ? `, ${source}` : ""}`}
+				title={
+					disabled
+						? "The model can be changed once the reply ends"
+						: `${full}${source === "this conversation" ? ", chosen for this conversation" : source ? ", the default" : ""}. Change model`
+				}
+			>
+				<span className="truncate" data-testid="provider-label">
+					{effect.status === "no_default" ? (
+						"Choose a model"
+					) : (
+						<>
+							{/* The provider is in the tooltip and accessible name; the pill keeps to the model. */}
+							<span className="sr-only">
+								{PROVIDER_LABELS[effect.selection.provider]} /{" "}
+							</span>
+							{effect.selection.model}
+							{effect.status === "unavailable" && " (unavailable)"}
+						</>
+					)}
+				</span>
+				{source && (
+					<span className="sr-only" data-testid="model-source">
+						{source}
+					</span>
+				)}
+				<ChevronDown aria-hidden className="text-muted-foreground" />
+			</Button>
 			<Dialog
 				open={open && !disabled}
 				onOpenChange={(next) => {

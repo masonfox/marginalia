@@ -2,6 +2,7 @@ import {
 	infiniteQueryOptions,
 	keepPreviousData,
 	useInfiniteQuery,
+	useQueries,
 	useQueryClient,
 } from "@tanstack/react-query";
 import {
@@ -11,7 +12,14 @@ import {
 	useNavigate,
 } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { BookOpen, RefreshCw, Search, Upload } from "lucide-react";
+import {
+	AlertTriangle,
+	BookOpen,
+	LoaderCircle,
+	RefreshCw,
+	Search,
+	Upload,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { BookCover } from "#/components/book-cover";
@@ -94,6 +102,25 @@ function LibraryPage() {
 	const first = pages[0];
 	const items = pages.flatMap((p) => p.items);
 	const total = first?.total ?? 0;
+	const counts = useQueries({
+		queries: SHELF_FILTERS.filter((value) => value !== "attention").map(
+			(value) => ({
+				queryKey: ["shelf", "count", value],
+				queryFn: () => listShelfFn({ data: { status: value } }),
+				refetchInterval: (first?.processing ?? 0) > 0 ? 3000 : false,
+			}),
+		),
+	});
+	const filterCounts: Partial<Record<ShelfFilter | "all", number>> = {
+		all: total,
+		attention: first?.needsAttention ?? 0,
+	};
+	for (const [i, value] of (
+		["not-started", "reading", "finished"] as const
+	).entries()) {
+		const count = counts[i]?.data?.matching;
+		if (count != null) filterCounts[value] = count;
+	}
 	const matching = first?.matching ?? 0;
 	const narrowed = Boolean(q?.trim()) || status !== undefined;
 	const setQuery = useCallback(
@@ -114,12 +141,14 @@ function LibraryPage() {
 	);
 
 	return (
-		<main className="mx-auto max-w-5xl px-4 py-8">
+		<main className="mx-auto max-w-[1240px] px-4 pt-8 pb-24 sm:px-8 sm:pt-14">
 			<div className="flex flex-wrap items-end justify-between gap-4">
 				<div>
-					<h1 className="font-serif text-3xl font-semibold">Library</h1>
+					<h1 className="font-serif text-[clamp(48px,5vw,68px)] leading-[1.02] font-semibold tracking-[-0.015em]">
+						Library
+					</h1>
 					<p
-						className="mt-1 text-sm text-muted-foreground"
+						className="mt-2 text-sm text-muted-foreground"
 						data-testid="library-count"
 					>
 						{shelfCountLabel(total, matching, narrowed)}
@@ -146,10 +175,11 @@ function LibraryPage() {
 				</div>
 			) : (
 				<>
-					<div className="mt-6 flex flex-wrap items-center gap-3">
+					<div className="mt-9 flex min-w-0 flex-wrap items-center gap-3.5">
 						<SearchBox value={q ?? ""} onChange={setQuery} />
 						<StatusFilter
 							selected={status}
+							counts={filterCounts}
 							needsAttention={first?.needsAttention ?? 0}
 							onChange={(next) => setSearch({ status: next })}
 						/>
@@ -172,22 +202,43 @@ function LibraryPage() {
 						</div>
 					) : (
 						<ul
-							className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4"
+							className="mt-10 grid grid-cols-2 gap-x-5 gap-y-11 sm:grid-cols-3 sm:gap-x-7 md:grid-cols-4 lg:grid-cols-6"
 							data-testid="library-books"
 						>
 							{items.map((e) => (
-								<li key={e.id} className="flex flex-col">
+								<li
+									key={e.id}
+									className="flex min-w-0 flex-col"
+									aria-busy={e.status === "processing"}
+								>
 									<Link
 										to="/books/$editionId"
 										params={{ editionId: e.id }}
 										className="group block"
 									>
-										<BookCover
-											id={e.id}
-											title={e.title}
-											hasCover={e.hasCover}
-										/>
-										<h2 className="mt-2 line-clamp-2 font-medium break-words group-hover:underline">
+										{e.status === "processing" ? (
+											<div className="flex aspect-[2/3] items-end rounded-[3px_7px_7px_3px] border bg-secondary p-4">
+												<LoaderCircle
+													aria-hidden
+													className="size-5 animate-spin text-status-processing motion-reduce:animate-none"
+												/>
+											</div>
+										) : e.status === "failed" || e.status === "unavailable" ? (
+											<div className="flex aspect-[2/3] items-center justify-center rounded-[3px_7px_7px_3px] border border-dashed border-status-failed/55 bg-status-failed/5">
+												<AlertTriangle
+													aria-hidden
+													className="size-6 text-status-failed"
+												/>
+											</div>
+										) : (
+											<BookCover
+												id={e.id}
+												title={e.title}
+												hasCover={e.hasCover}
+												author={e.authors[0]}
+											/>
+										)}
+										<h2 className="mt-3.5 line-clamp-2 text-[15px] leading-snug font-semibold break-words group-hover:underline">
 											{e.title}
 										</h2>
 									</Link>
@@ -196,9 +247,9 @@ function LibraryPage() {
 											{e.authors.join(", ")}
 										</p>
 									)}
-									<div className="mt-1">
+									<div className="mt-2.5">
 										<Badge
-											variant="outline"
+											variant="status"
 											className={SHELF_STATUS_CLASS[e.status]}
 										>
 											{SHELF_STATUS_LABEL[e.status]}
@@ -257,7 +308,7 @@ function SearchBox({
 	}, [text, onChange]);
 
 	return (
-		<div className="relative w-full max-w-xs">
+		<div className="relative w-full sm:max-w-[380px] sm:flex-[1_1_280px]">
 			<Search
 				aria-hidden
 				className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
@@ -277,17 +328,19 @@ function SearchBox({
 
 function StatusFilter({
 	selected,
+	counts,
 	needsAttention,
 	onChange,
 }: {
 	selected: ShelfFilter | undefined;
+	counts: Partial<Record<ShelfFilter | "all", number>>;
 	needsAttention: number;
 	onChange: (status: ShelfFilter | undefined) => void;
 }) {
 	// One row that scrolls sideways when the filters do not fit (phones).
 	return (
 		<fieldset
-			className="flex min-w-0 max-w-full gap-1 overflow-x-auto"
+			className="flex min-w-0 max-w-full gap-1.5 overflow-x-auto pb-1"
 			aria-label="Filter by status"
 			data-testid="status-filter"
 		>
@@ -296,11 +349,16 @@ function StatusFilter({
 					key={option.label}
 					size="sm"
 					variant={option.value === selected ? "secondary" : "ghost"}
-					className="pointer-coarse:h-11 pointer-coarse:min-w-11"
+					className="min-h-11 shrink-0 rounded-full border border-input px-3.5 aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background"
 					aria-pressed={option.value === selected}
 					onClick={() => onChange(option.value)}
 				>
-					{option.label}
+					{option.label}{" "}
+					{counts[option.value ?? "all"] !== undefined && (
+						<span className="ml-1 font-semibold">
+							{counts[option.value ?? "all"]}
+						</span>
+					)}
 				</Button>
 			))}
 		</fieldset>

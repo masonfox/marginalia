@@ -39,6 +39,11 @@ const manifesto = () =>
 	);
 
 async function login(page: Page) {
+	if (!PASSWORD) {
+		await page.goto("/");
+		await page.waitForLoadState("networkidle");
+		return;
+	}
 	await page.goto("/login");
 	await page.getByLabel("Password").fill(PASSWORD);
 	await page.getByRole("button", { name: "Log in" }).click();
@@ -445,10 +450,16 @@ test.describe("dashboard", () => {
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await page.goto("/");
 		await page.waitForLoadState("networkidle");
+		// Populated dashboard leads with the continue-reading hero, whose H1 is
+		// the most recent book's title (other fixtures may compete for it).
+		const hero = page.locator(
+			'section[aria-labelledby="continue-reading-title"]',
+		);
+		await expect(hero).toBeVisible();
+		await expect(hero.getByRole("heading", { level: 1 })).toHaveText(/\S/);
 		await expect(
-			page.getByRole("heading", { name: "Dashboard", level: 1 }),
+			page.getByRole("heading", { name: "On the nightstand" }),
 		).toBeVisible();
-		await expect(page.getByRole("heading", { name: "Reading" })).toBeVisible();
 		await expect(readingCards(page)).toHaveCount(4);
 		await expect(readingCards(page).getByRole("heading")).toHaveText(
 			[1, 2, 3, 4].map(titleOf),
@@ -469,16 +480,23 @@ test.describe("dashboard", () => {
 		await expect(page).toHaveURL(`/books/${ids[0]}`);
 	});
 
-	test("Reading shows two books at 360 pixels", async ({ page }) => {
+	test("Reading shows two books at 360 pixels and scrolls to the rest", async ({
+		page,
+	}) => {
 		await page.setViewportSize({ width: 360, height: 740 });
 		await page.goto("/");
 		await page.waitForLoadState("networkidle");
 		await expect(readingCards(page)).toHaveCount(4);
-		await expect(readingCards(page).filter({ visible: true })).toHaveCount(2);
-		// Hidden cards are not exposed to assistive technology either.
+		await readingCards(page).first().scrollIntoViewIfNeeded();
+		await expect(readingCards(page).nth(0)).toBeInViewport({ ratio: 1 });
+		await expect(readingCards(page).nth(1)).toBeInViewport({ ratio: 1 });
+		await expect(readingCards(page).nth(2)).not.toBeInViewport({ ratio: 1 });
+		// Every book stays accessible in the horizontally scrolling shelf.
 		await expect(
 			page.getByTestId("reading-shelf").getByRole("heading", { level: 3 }),
-		).toHaveText([1, 2].map(titleOf));
+		).toHaveText([1, 2, 3, 4].map(titleOf));
+		await readingCards(page).nth(3).scrollIntoViewIfNeeded();
+		await expect(readingCards(page).nth(3)).toBeInViewport({ ratio: 1 });
 	});
 
 	test("an old library URL opens the Library with its search and filter, replacing the root URL", async ({
@@ -651,7 +669,11 @@ test.describe("book page", () => {
 		const look = (link: Locator) =>
 			link.evaluate((el) => {
 				const style = getComputedStyle(el);
-				return { border: style.borderBottomColor, text: style.color };
+				return {
+					border: style.borderBottomColor,
+					background: style.backgroundColor,
+					text: style.color,
+				};
 			});
 		// Alpha of a computed `rgb(...)`, `rgba(...)`, `oklch(... / a)` or
 		// `color(... / a)`: transparent computes to alpha 0.
@@ -668,7 +690,9 @@ test.describe("book page", () => {
 			const on = await look(current);
 			const off = await look(other);
 			expect(alpha(on.border)).toBeGreaterThan(0);
-			expect(on.border).not.toBe(off.border);
+			expect(on.border !== off.border || on.background !== off.background).toBe(
+				true,
+			);
 			expect(on.text).not.toBe(off.text);
 		};
 
@@ -747,7 +771,7 @@ test.describe("book page", () => {
 			);
 			await expect(header.getByRole("progressbar")).toBeVisible();
 			await expect(page.getByTestId("reading-progress")).toHaveText(
-				/^\d+ of \d+$/,
+				/^\d+\/\d+$/,
 			);
 
 			await tab(page, "Contents").click();
@@ -1184,7 +1208,7 @@ test.describe("conversation list", () => {
 		page,
 	}) => {
 		const { id: editionId } = await manifesto();
-		const title = `A long conversation title ${"that keeps on going ".repeat(8)}${randomUUID().slice(0, 8)}`;
+		const title = `A long conversation title ${"that keeps on going ".repeat(24)}${randomUUID().slice(0, 8)}`;
 		const id = await conversation(title);
 		await assistantMessage(id, "**Hal** is reading the\n\ndictionary because");
 		try {
@@ -1193,14 +1217,21 @@ test.describe("conversation list", () => {
 			const row = page
 				.getByTestId("conversation-row")
 				.filter({ has: page.locator(`a[href="/c/${id}"]`) });
+			await row.scrollIntoViewIfNeeded();
 			await expect(row.getByTestId("conversation-preview")).toHaveText(
 				"Hal is reading the dictionary because",
 			);
 			const titleText = row.getByTestId("conversation-title");
 			expect(
-				await titleText.evaluate((el) => el.scrollWidth > el.clientWidth),
+				await titleText.evaluate(
+					(el) =>
+						el.scrollWidth > el.clientWidth ||
+						el.scrollHeight > el.clientHeight,
+				),
 			).toBe(true);
-			const menu = row.getByRole("button", { name: `Actions for “${title}”` });
+			const menu = row.getByRole("button", {
+				name: `Actions for “${title}”`,
+			});
 			await expect(menu).toBeInViewport();
 
 			await menu.click();
@@ -1335,8 +1366,9 @@ test.describe("conversations home", () => {
 			.first();
 		await expect(latest.locator(`a[href="/c/${id}"]`)).toBeVisible();
 		await expect(latest.getByTestId("conversation-books")).toContainText(
-			"The Communist Manifesto · Whole book",
+			"The Communist Manifesto",
 		);
+		await expect(latest.getByText("Whole book", { exact: true })).toBeVisible();
 		await latest.locator(`a[href="/c/${id}"]`).click();
 		await expect(page).toHaveURL(`/c/${id}`);
 		// The header's navigation is on every page; neither entry is current here.
@@ -1619,7 +1651,7 @@ test.describe("new conversation from the header", () => {
 		await expect(composer.getByTestId("composer-no-book")).toBeVisible();
 		await composer.getByLabel("Your question").fill("How do these compare?");
 		await expect(
-			composer.getByRole("button", { name: "Send", exact: true }),
+			composer.getByRole("button", { name: "Start conversation", exact: true }),
 		).toHaveAttribute("aria-disabled", "true");
 
 		await addBook(page, "The Communist Manifesto");
@@ -1643,7 +1675,9 @@ test.describe("new conversation from the header", () => {
 		);
 		expect(created).toEqual([]);
 
-		await composer.getByRole("button", { name: "Send", exact: true }).click();
+		await composer
+			.getByRole("button", { name: "Start conversation", exact: true })
+			.click();
 		// Only the book without a position asks for its scope.
 		const sheet = page.getByTestId("composer-scope-sheet");
 		await sheet.getByRole("radio", { name: "Whole book" }).check();
@@ -1684,6 +1718,7 @@ test.describe("new conversation from the header", () => {
 				header.getByRole("link", { name: "Dashboard" }),
 				header.getByRole("link", { name: "Library" }),
 				header.getByRole("link", { name: "Conversations" }),
+				header.getByRole("group", { name: "Theme" }),
 				newConversation(page),
 				header.getByRole("link", { name: "Settings" }),
 			].map(async (l) => {
@@ -1706,6 +1741,114 @@ test.describe("new conversation from the header", () => {
 		await page.goto("/login");
 		await expect(page.getByLabel("Password")).toBeVisible();
 		await expect(newConversation(page)).toHaveCount(0);
+	});
+});
+
+test.describe("header", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.emulateMedia({ colorScheme: "light" });
+		await login(page);
+	});
+
+	const themeButtons = (page: Page) =>
+		page
+			.getByRole("banner")
+			.getByRole("group", { name: "Theme" })
+			.getByRole("button");
+	const pressedThemes = (page: Page) =>
+		themeButtons(page).and(page.locator('[aria-pressed="true"]'));
+
+	test("the theme switch applies a theme without reloading, marks it pressed, and remembers it", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await expect(themeButtons(page)).toHaveCount(3);
+		for (const [index, name] of [
+			"Light theme",
+			"Sepia theme",
+			"Dark theme",
+		].entries())
+			await expect(themeButtons(page).nth(index)).toHaveAccessibleName(name);
+		// Following the light system preference: Light is the one pressed.
+		await expect(pressedThemes(page)).toHaveAccessibleName("Light theme");
+		await page.evaluate(() => {
+			(window as unknown as { __noReload: boolean }).__noReload = true;
+		});
+
+		await page
+			.getByRole("banner")
+			.getByRole("button", { name: "Sepia theme" })
+			.click();
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "sepia");
+		await expect(page.locator("body")).toHaveCSS(
+			"background-color",
+			"rgb(242, 232, 214)",
+		);
+		await expect(pressedThemes(page)).toHaveAccessibleName("Sepia theme");
+		for (let index = 0; index < 3; index++)
+			await expect(themeButtons(page).nth(index)).toHaveAttribute(
+				"aria-pressed",
+				/true|false/,
+			);
+		expect(
+			await page.evaluate(
+				() => (window as unknown as { __noReload?: boolean }).__noReload,
+			),
+		).toBe(true);
+
+		// By keyboard: the dark button, then Space.
+		await page
+			.getByRole("banner")
+			.getByRole("button", { name: "Dark theme" })
+			.focus();
+		await page.keyboard.press("Space");
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+		await expect(pressedThemes(page)).toHaveAccessibleName("Dark theme");
+
+		await page.reload();
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+		await expect(pressedThemes(page)).toHaveAccessibleName("Dark theme");
+	});
+
+	for (const width of [640, 768, 1024]) {
+		test(`the header is one row with no sideways scroll at ${width} pixels`, async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width, height: 800 });
+			const header = page.getByRole("banner");
+			const controls = [
+				header.getByRole("link", { name: "Marginalia" }),
+				header.getByRole("link", { name: "Conversations" }),
+				header.getByRole("group", { name: "Theme" }),
+				header.getByRole("button", { name: "New conversation" }),
+				header.getByRole("link", { name: "Settings" }),
+				...(PASSWORD ? [header.getByRole("button", { name: "Log out" })] : []),
+			];
+			const boxes = await Promise.all(controls.map((c) => c.boundingBox()));
+			const middles = boxes.map((b) => {
+				if (!b) throw new Error("header control not shown");
+				return b.y + b.height / 2;
+			});
+			for (const m of middles)
+				expect(Math.abs(m - (middles[0] ?? 0))).toBeLessThan(2);
+			for (const b of boxes)
+				expect((b?.x ?? 0) + (b?.width ?? 0)).toBeLessThanOrEqual(width);
+			expect(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= window.innerWidth,
+				),
+			).toBe(true);
+		});
+	}
+
+	test("the unprotected notice links to Settings", async ({ page }) => {
+		test.skip(Boolean(PASSWORD), "Needs an instance without a password");
+		const notice = page.getByTestId("unprotected-notice");
+		await expect(notice).toContainText(
+			"No password set: anyone who can reach this instance can use it.",
+		);
+		await notice.getByRole("link", { name: "Set one" }).click();
+		await expect(page).toHaveURL("/settings#access");
 	});
 });
 
@@ -2443,7 +2586,10 @@ test.describe("composer", () => {
 			await expect
 				.poll(() => storedDraft(page, id))
 				.toContain("Unsent thought");
-			await page.getByRole("button", { name: `Delete “${title}”` }).click();
+			await page
+				.getByRole("button", { name: `Actions for “${title}”` })
+				.click();
+			await page.getByRole("menuitem", { name: "Delete" }).click();
 			await page.getByRole("button", { name: "Delete", exact: true }).click();
 			await expect(page).toHaveURL(/\/books\/[0-9a-f-]{36}$/);
 			expect(await storedDraft(page, id)).toBeNull();
@@ -2662,10 +2808,11 @@ test.describe("phone layout", () => {
 			const row = page.locator("body > div > header > div").first();
 			// One row: the 44px touch targets and padding.
 			expect((await row.boundingBox())?.height).toBeLessThan(80);
-			// No navigation, Settings, or Log out outside the menu.
+			// No navigation, theme switch, Settings, or Log out outside the menu.
 			await expect(
 				header.getByRole("navigation", { name: "Main" }),
 			).toBeHidden();
+			await expect(header.getByRole("group", { name: "Theme" })).toBeHidden();
 			await expect(header.getByRole("link", { name: "Settings" })).toBeHidden();
 			await expect(
 				header.getByRole("button", { name: "Log out" }),
@@ -2689,7 +2836,8 @@ test.describe("phone layout", () => {
 				"Settings",
 				...(PASSWORD ? ["Log out"] : []),
 			]);
-			await expect(menu.getByRole("separator")).toHaveCount(1);
+			// The navigation, then the theme options, then Settings and Log out.
+			await expect(menu.getByRole("separator")).toHaveCount(2);
 			await expect(items.and(page.locator('[aria-current="page"]'))).toHaveText(
 				["Dashboard"],
 			);
@@ -2724,8 +2872,76 @@ test.describe("phone layout", () => {
 
 			if (!PASSWORD) return;
 			await menuButton.click();
-			await items.filter({ hasText: "Log out" }).click();
+			await items.filter({ hasText: "Log out" }).focus();
+			await page.keyboard.press("Enter");
 			await expect(page).toHaveURL(/\/login$/);
+		});
+
+		test("the theme is chosen from the menu by keyboard, and the header stays one row", async ({
+			page,
+		}) => {
+			await page.emulateMedia({ colorScheme: "light" });
+			await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+			const header = page.getByRole("banner");
+			const menuButton = header.getByRole("button", { name: "Menu" });
+			await menuButton.focus();
+			await page.keyboard.press("Enter");
+			const menu = page.getByRole("menu");
+			const theme = menu.getByRole("group", { name: "Theme: Light" });
+			const options = theme.getByRole("menuitemradio");
+			await expect(options).toHaveText(["Light", "Sepia", "Dark"]);
+			await expect(
+				options.and(page.locator('[aria-checked="true"]')),
+			).toHaveText(["Light"]);
+			await menu.evaluate((el) =>
+				Promise.all(el.getAnimations().map((a) => a.finished)),
+			);
+			for (let i = 0; i < 3; i++) await expectTouchTarget(options.nth(i));
+
+			// Establish the first item before moving through the menu by keyboard.
+			await page.keyboard.press("Home");
+			await expect(
+				menu.getByRole("menuitem", { name: "Dashboard", exact: true }),
+			).toBeFocused();
+			for (const name of [
+				"Library",
+				"Conversations",
+				"Light",
+				"Sepia",
+				"Dark",
+			]) {
+				await page.keyboard.press("ArrowDown");
+				await expect(
+					menu.getByRole(
+						name === "Library" || name === "Conversations"
+							? "menuitem"
+							: "menuitemradio",
+						{ name, exact: true },
+					),
+				).toBeFocused();
+			}
+			await expect(options.filter({ hasText: "Dark" })).toBeFocused();
+			await page.keyboard.press("Enter");
+			await expect(menu).toHaveCount(0);
+			await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+			await expect(page.locator("body")).toHaveCSS(
+				"background-color",
+				"rgb(13, 10, 8)",
+			);
+
+			// Still one row, with nothing past the right edge.
+			const row = page.locator("body > div > header > div").first();
+			expect((await row.boundingBox())?.height).toBeLessThan(80);
+			await expectNoHorizontalScroll(page);
+
+			// The menu now marks and names Dark.
+			await menuButton.click();
+			await expect(
+				menu
+					.getByRole("group", { name: "Theme: Dark" })
+					.getByRole("menuitemradio")
+					.and(page.locator('[aria-checked="true"]')),
+			).toHaveText(["Dark"]);
 		});
 
 		test("the library shows two books a row, one row of filters, and the upload", async ({
@@ -2752,7 +2968,8 @@ test.describe("phone layout", () => {
 				const filter = filters.nth(i);
 				expect((await filter.boundingBox())?.y).toBe(first?.y);
 				await filter.scrollIntoViewIfNeeded();
-				await expect(filter).toBeInViewport({ ratio: 1 });
+				// The scrollport can round its final scroll offset to a whole pixel.
+				await expect(filter).toBeInViewport({ ratio: 0.99 });
 				await expectTouchTarget(filter);
 			}
 			await page.evaluate(() => window.scrollTo(0, 0));
@@ -2815,8 +3032,10 @@ test.describe("phone layout", () => {
 					await heading.evaluate((el) => el.scrollWidth > el.clientWidth),
 				).toBe(true);
 				const books = page.getByTestId("conversation-books");
+				// The book chips stay on one row, however many books there are.
+				const chip = books.getByRole("link").first();
 				expect((await books.boundingBox())?.height).toBeLessThan(
-					(await lineHeightOf(books)) * 1.5,
+					((await chip.boundingBox())?.height ?? 0) * 1.5,
 				);
 				expect((await header.boundingBox())?.height).toBeLessThanOrEqual(
 					800 / 4,

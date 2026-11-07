@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronRight, TriangleAlert } from "lucide-react";
-import { Collapsible, Popover } from "radix-ui";
+import { Collapsible, Dialog, Popover } from "radix-ui";
 import type { ComponentProps, ReactNode } from "react";
 import {
 	createContext,
@@ -15,6 +15,11 @@ import {
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { selectionLabel } from "#/components/model-picker";
+import {
+	CITE_MARKER,
+	CITE_MARKER_UNVERIFIED,
+	UNVERIFIED_QUOTE,
+} from "#/components/pieces";
 import { parseCitationMarkers } from "#/lib/citations";
 import type { CitationRecord } from "#/modules/conversation";
 import type { AiStatus } from "#/modules/settings";
@@ -117,7 +122,7 @@ const BASE_COMPONENTS: Components = {
 		<ol className="my-2 list-decimal space-y-1 pl-6">{children}</ol>
 	),
 	blockquote: ({ children }) => (
-		<blockquote className="my-2 border-l-2 pl-3 text-muted-foreground">
+		<blockquote className="my-5 border-l-2 border-amber pl-5 font-reading text-[20px] leading-relaxed italic">
 			{children}
 		</blockquote>
 	),
@@ -196,7 +201,10 @@ export const AssistantText = memo(function AssistantText({
 		[markers, citations, numbers, remainingBookIds],
 	);
 	return (
-		<div className="leading-relaxed" data-reply-source={sourceMessageId}>
+		<div
+			className="min-w-0 break-words text-[15.5px] leading-[1.8]"
+			data-reply-source={sourceMessageId}
+		>
 			<Markdown
 				remarkPlugins={REMARK_PLUGINS}
 				components={components}
@@ -251,7 +259,95 @@ const UNVERIFIED_REASON: Record<string, string> = {
 };
 
 const cardClass =
-	"z-50 w-80 max-w-[90vw] rounded-md border bg-popover p-3 text-sm text-popover-foreground shadow-md";
+	"z-50 w-96 max-w-[90vw] rounded-2xl border border-input bg-popover p-5 text-sm text-popover-foreground shadow-pop";
+
+const CitationCloseContext = createContext(() => {});
+
+/** A modal bottom sheet on phones, with the same citation content on desktop. */
+function CitationSurface({
+	trigger,
+	children,
+	label,
+}: {
+	trigger: ReactNode;
+	children: ReactNode;
+	label: string;
+}) {
+	const [phone, setPhone] = useState(false);
+	const [open, setOpen] = useState(false);
+	const content = (
+		<CitationCloseContext.Provider value={() => setOpen(false)}>
+			{children}
+		</CitationCloseContext.Provider>
+	);
+	useEffect(() => {
+		const query = window.matchMedia("(max-width: 639px)");
+		const update = () => setPhone(query.matches);
+		update();
+		query.addEventListener("change", update);
+		return () => query.removeEventListener("change", update);
+	}, []);
+	if (phone)
+		return (
+			<Dialog.Root open={open} onOpenChange={setOpen}>
+				<Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
+				<Dialog.Portal>
+					<Dialog.Overlay className="fixed inset-0 z-50 bg-scrim" />
+					<Dialog.Content
+						aria-modal="true"
+						aria-describedby={undefined}
+						className="fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] overflow-y-auto rounded-t-[22px] border-t border-input bg-popover px-5 pt-3 pb-[max(24px,env(safe-area-inset-bottom))] text-popover-foreground shadow-pop"
+					>
+						<div
+							aria-hidden
+							className="mx-auto mb-5 h-1 w-10 rounded-full bg-input"
+						/>
+						<Dialog.Title className="mb-3 text-sm font-semibold">
+							{label}
+						</Dialog.Title>
+						{content}
+						<Dialog.Close className="mt-4 min-h-11 w-full rounded-[10px] border border-input text-sm font-medium focus-visible:outline-2 focus-visible:outline-ring">
+							Close
+						</Dialog.Close>
+					</Dialog.Content>
+				</Dialog.Portal>
+			</Dialog.Root>
+		);
+	return (
+		<Popover.Root open={open} onOpenChange={setOpen}>
+			<Popover.Trigger asChild>{trigger}</Popover.Trigger>
+			<Popover.Portal>
+				<Popover.Content
+					side="top"
+					sideOffset={8}
+					collisionPadding={8}
+					className={cardClass}
+					aria-label={label}
+				>
+					{content}
+				</Popover.Content>
+			</Popover.Portal>
+		</Popover.Root>
+	);
+}
+
+function RevealSource({ number }: { number: number }) {
+	const sources = useContext(SourcesContext);
+	const close = useContext(CitationCloseContext);
+	if (!sources) return null;
+	return (
+		<button
+			type="button"
+			onClick={() => {
+				close();
+				sources.reveal(number);
+			}}
+			className="mt-3 min-h-11 cursor-pointer text-xs text-muted-foreground underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-ring"
+		>
+			Show in sources
+		</button>
+	);
+}
 
 function sourceLabel(record: CitationRecord) {
 	return [record.bookTitle, record.sectionTitle].filter(Boolean).join(" · ");
@@ -280,53 +376,40 @@ function CitationMarker({
 	record: CitationRecord | undefined;
 	number: number | undefined;
 }) {
-	const sources = useContext(SourcesContext);
 	if (record?.status === "verified" && record.currentLocator && number) {
 		const verified = record as VerifiedCitation;
 		return (
-			<Popover.Root>
-				<Popover.Trigger asChild>
-					<button
-						type="button"
-						className="mx-0.5 inline-flex min-w-5 cursor-pointer items-center justify-center rounded-full bg-highlight/60 px-1.5 align-super text-[0.7rem] font-medium leading-5 text-foreground hover:bg-highlight focus-visible:outline-2 focus-visible:outline-ring"
-						aria-label={`Source ${number}: ${sourceLabel(verified) || "passage"}`}
-						data-citation-status="verified"
-					>
-						{number}
-					</button>
-				</Popover.Trigger>
-				<Popover.Portal>
-					<Popover.Content
-						side="top"
-						sideOffset={6}
-						collisionPadding={8}
-						className={cardClass}
-					>
-						<Link
-							{...passageLink(verified)}
-							className="block rounded-sm no-underline hover:bg-accent/50 focus-visible:outline-2 focus-visible:outline-ring"
+			<>
+				<span className="font-reading text-[1.12em] italic">
+					&ldquo;{quote}&rdquo;
+				</span>
+				<CitationSurface
+					label={`Source ${number}`}
+					trigger={
+						<button
+							type="button"
+							className={CITE_MARKER}
+							aria-label={`Source ${number}: ${sourceLabel(verified) || "passage"}`}
+							data-citation-status="verified"
 						>
-							<p className="border-l-2 border-l-primary pl-2 font-serif italic">
-								“{quote}”
-							</p>
-							<p className="mt-2 text-xs text-muted-foreground">
-								{sourceLabel(verified) || "Passage"} · open in book →
-							</p>
-						</Link>
-						{sources && (
-							<Popover.Close asChild>
-								<button
-									type="button"
-									onClick={() => sources.reveal(number)}
-									className="mt-2 cursor-pointer rounded-sm text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
-								>
-									Show in sources
-								</button>
-							</Popover.Close>
-						)}
-					</Popover.Content>
-				</Popover.Portal>
-			</Popover.Root>
+							{number}
+						</button>
+					}
+				>
+					<Link
+						{...passageLink(verified)}
+						className="block rounded-sm no-underline focus-visible:outline-2 focus-visible:outline-ring"
+					>
+						<p className="border-l-2 border-amber pl-4 font-reading text-xl leading-relaxed italic">
+							&ldquo;{quote}&rdquo;
+						</p>
+						<p className="mt-3 text-xs text-muted-foreground">
+							{sourceLabel(verified) || "Passage"} &middot; open in book &rarr;
+						</p>
+					</Link>
+					<RevealSource number={number} />
+				</CitationSurface>
+			</>
 		);
 	}
 	const reason =
@@ -336,29 +419,24 @@ function CitationMarker({
 				? UNVERIFIED_REASON[record.status]
 				: "not checked";
 	return (
-		<Popover.Root>
-			<Popover.Trigger asChild>
+		<CitationSurface
+			label="Could not verify citation"
+			trigger={
 				<button
 					type="button"
-					className="mx-0.5 inline-flex align-super text-muted-foreground"
+					className={CITE_MARKER_UNVERIFIED}
 					aria-label={`Could not verify citation (${reason})`}
 					data-citation-status="unverified"
 				>
 					<TriangleAlert className="size-3.5" aria-hidden />
 				</button>
-			</Popover.Trigger>
-			<Popover.Portal>
-				<Popover.Content
-					side="top"
-					sideOffset={6}
-					collisionPadding={8}
-					className={cardClass}
-				>
-					<p className="font-medium">Could not verify ({reason})</p>
-					<p className="mt-1 text-xs text-muted-foreground">claimed: {quote}</p>
-				</Popover.Content>
-			</Popover.Portal>
-		</Popover.Root>
+			}
+		>
+			<p className="font-medium">Could not verify ({reason})</p>
+			<p className="mt-2 text-xs text-muted-foreground">
+				claimed: <span className={UNVERIFIED_QUOTE}>{quote}</span>
+			</p>
+		</CitationSurface>
 	);
 }
 
@@ -447,7 +525,7 @@ export function SourcesList({ sources }: { sources: VerifiedCitation[] }) {
 					className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
 					aria-hidden
 				/>
-				<span className="shrink-0 font-medium uppercase tracking-wide">
+				<span className="shrink-0 text-[11px] font-semibold tracking-[0.14em] uppercase">
 					Sources ({sources.length})
 				</span>
 				{books.length > 0 && (
@@ -476,7 +554,7 @@ export function SourcesList({ sources }: { sources: VerifiedCitation[] }) {
 									title={`“${s.quote}” · ${sourceLabel(s) || "passage"}`}
 									className="flex min-w-0 flex-1 items-baseline gap-1.5 rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-ring"
 								>
-									<span className="min-w-0 truncate font-serif italic">
+									<span className="min-w-0 truncate font-reading italic">
 										“{s.quote}”
 									</span>
 									<span className="ml-auto max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">

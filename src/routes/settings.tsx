@@ -9,8 +9,10 @@ import {
 	selectionLabel,
 } from "#/components/model-picker";
 import { ProviderCredentials } from "#/components/provider-credentials";
+import { THEME_LABELS } from "#/components/theme-switch";
 import { Button } from "#/components/ui/button";
 import { getAiStatusFn } from "#/fns/conversations";
+import { getShellInfo } from "#/fns/library";
 import {
 	clearChatDefaultFn,
 	clearPreprocessDefaultFn,
@@ -20,6 +22,12 @@ import {
 	savePreprocessDefaultFn,
 	saveProviderCredentialsFn,
 } from "#/fns/settings";
+import {
+	setThemeChoice,
+	THEMES,
+	useResolvedTheme,
+	useThemeChoice,
+} from "#/lib/theme";
 import type { AiDefault } from "#/modules/settings";
 import type { AiProviderName, AiSelection } from "#/server/config";
 
@@ -58,59 +66,102 @@ function SettingsPage() {
 	};
 	if (!status) return null;
 	return (
-		<main className="mx-auto max-w-3xl px-4 py-8">
-			<h1 className="font-serif text-3xl font-semibold">Settings</h1>
-			<section aria-label="Providers" className="mt-6 space-y-3">
-				<h2 className="text-lg font-medium">Providers</h2>
-				<p className="text-sm text-muted-foreground">
-					Add a provider to make its models available. Keys are encrypted and
-					never shown again.
-				</p>
-				{credentials?.map((value) => (
-					<ProviderCredentials
-						key={value.provider}
-						value={value}
-						onSave={async (draft) => {
-							const result = await save({ data: draft });
-							if (result.status === "ok") await reload();
-							return result;
-						}}
-						onRemove={async (provider) => {
-							await remove({ data: { provider } });
-							await reload();
-						}}
-					/>
-				))}
-			</section>
-			{status.enabled ? (
-				<>
-					<p className="mt-1 text-sm text-muted-foreground">
-						Available providers:{" "}
-						{status.providers.map((p) => PROVIDER_LABELS[p]).join(", ")}.
-					</p>
-					<ChatDefaultCard providers={status.providers} value={status.chat} />
-					<PreprocessDefaultCard
-						providers={status.providers}
-						value={status.preprocess}
-					/>
-				</>
-			) : (
-				<>
-					<section className="mt-6 rounded-lg border border-dashed p-6 text-sm">
-						<h2 className="font-medium">No AI provider is configured</h2>
-						<p className="mt-2 text-muted-foreground">
-							Add a provider above, then choose default models here.
+		<main className="mx-auto max-w-[1240px] px-4 py-8 sm:px-8 sm:py-12">
+			<div className="grid gap-8 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-12">
+				<nav
+					aria-label="Settings"
+					className="flex flex-wrap content-start gap-1 lg:sticky lg:top-8 lg:flex-col lg:self-start"
+				>
+					<h1 className="mb-5 w-full px-3 font-serif text-5xl font-semibold tracking-[-0.015em]">
+						Settings
+					</h1>
+					{[
+						["appearance", "Appearance"],
+						["providers", "Providers"],
+						["models", "Default models"],
+						["library", "Library"],
+						["access", "Access"],
+					].map(([id, label]) => (
+						<a
+							key={id}
+							href={`#${id}`}
+							className="rounded-[10px] px-3 py-3 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+						>
+							{label}
+						</a>
+					))}
+				</nav>
+				<div className="min-w-0">
+					<Appearance />
+					<section
+						id="providers"
+						aria-label="Providers"
+						className="scroll-mt-8 border-t py-8 space-y-4"
+					>
+						<h2 className="font-serif text-[30px] font-semibold">Providers</h2>
+						<p className="text-sm text-muted-foreground">
+							Add a provider to make its models available. Keys are encrypted
+							and never shown again.
 						</p>
+						{credentials?.map((value) => (
+							<ProviderCredentials
+								key={value.provider}
+								value={value}
+								onSave={async (draft) => {
+									const result = await save({ data: draft });
+									if (result.status === "ok") await reload();
+									return result;
+								}}
+								onRemove={async (provider) => {
+									await remove({ data: { provider } });
+									await reload();
+								}}
+							/>
+						))}
 					</section>
-					{/* Saved defaults stay visible, unavailable, and clearable. */}
-					{(status.chat.selection || !status.preprocess.sameAsChat) && (
-						<>
-							<ChatDefaultCard providers={[]} value={status.chat} />
-							<PreprocessDefaultCard providers={[]} value={status.preprocess} />
-						</>
-					)}
-				</>
-			)}
+					<div id="models" className="scroll-mt-8 border-t py-8">
+						<h2 className="font-serif text-[30px] font-semibold">
+							Default models
+						</h2>
+						{status.enabled ? (
+							<>
+								<p className="mt-1 text-sm text-muted-foreground">
+									Available providers:{" "}
+									{status.providers.map((p) => PROVIDER_LABELS[p]).join(", ")}.
+								</p>
+								<ChatDefaultCard
+									providers={status.providers}
+									value={status.chat}
+								/>
+								<PreprocessDefaultCard
+									providers={status.providers}
+									value={status.preprocess}
+								/>
+							</>
+						) : (
+							<>
+								<section className="mt-6 rounded-lg border border-dashed p-6 text-sm">
+									<h2 className="font-medium">No AI provider is configured</h2>
+									<p className="mt-2 text-muted-foreground">
+										Add a provider above, then choose default models here.
+									</p>
+								</section>
+								{/* Saved defaults stay visible, unavailable, and clearable. */}
+								{(status.chat.selection || !status.preprocess.sameAsChat) && (
+									<>
+										<ChatDefaultCard providers={[]} value={status.chat} />
+										<PreprocessDefaultCard
+											providers={[]}
+											value={status.preprocess}
+										/>
+									</>
+								)}
+							</>
+						)}
+					</div>
+					<InstanceSettings />
+				</div>
+			</div>
 		</main>
 	);
 }
@@ -214,7 +265,7 @@ function ChatDefaultCard({
 	return (
 		<section
 			aria-label="Chat default"
-			className="mt-6 space-y-4 rounded-md border p-4"
+			className="mt-5 space-y-4 rounded-2xl border bg-card p-5"
 		>
 			<CurrentDefault
 				title="Chat default"
@@ -270,7 +321,7 @@ function PreprocessDefaultCard({
 	return (
 		<section
 			aria-label="Preprocessing default"
-			className="mt-6 space-y-4 rounded-md border p-4"
+			className="mt-5 space-y-4 rounded-2xl border bg-card p-5"
 		>
 			<CurrentDefault
 				title="Preprocessing default"
@@ -342,5 +393,114 @@ function PreprocessDefaultCard({
 				</Button>
 			)}
 		</section>
+	);
+}
+
+/** Theme previews use the same theme tokens as every screen. */
+export function Appearance() {
+	const choice = useThemeChoice();
+	const resolved = useResolvedTheme();
+	return (
+		<section
+			id="appearance"
+			aria-label="Appearance"
+			className="scroll-mt-8 pb-8"
+		>
+			<h2 className="font-serif text-[30px] font-semibold">Appearance</h2>
+			<fieldset className="mt-5 grid grid-cols-3 gap-2 sm:gap-4">
+				<legend className="sr-only">Display theme</legend>
+				{THEMES.map((theme) => (
+					<label key={theme} className="relative min-w-0 cursor-pointer">
+						<input
+							type="radio"
+							name="display-theme"
+							value={theme}
+							checked={resolved === theme}
+							onChange={() => setThemeChoice(theme)}
+							className="peer sr-only"
+						/>
+						<span className="block overflow-hidden rounded-[14px] border-2 border-input p-1 peer-checked:border-amber peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-ring">
+							<span
+								data-theme={theme}
+								aria-hidden
+								className="flex h-[108px] gap-2 rounded-t-[9px] bg-background p-3 text-foreground sm:p-4"
+							>
+								<span className="block h-[51px] w-[34px] shrink-0 rounded-[2px_4px_4px_2px] bg-[#1d3a5f] shadow-cover max-sm:h-10 max-sm:w-6" />
+								<span className="block min-w-0 flex-1 space-y-2 pt-1">
+									<span className="block h-2 w-3/4 rounded bg-foreground" />
+									<span className="block h-1.5 w-full rounded bg-input" />
+									<span className="block h-1.5 w-4/5 rounded bg-input" />
+									<span className="block h-3 w-2/3 rounded-full bg-amber-soft" />
+								</span>
+							</span>
+							<span className="block px-2 py-2 text-center text-sm font-medium">
+								{THEME_LABELS[theme]}
+							</span>
+						</span>
+					</label>
+				))}
+			</fieldset>
+			<label className="mt-4 flex min-h-11 w-fit cursor-pointer items-center gap-2.5 text-sm">
+				<input
+					type="checkbox"
+					checked={choice === "system"}
+					onChange={(event) =>
+						setThemeChoice(
+							event.target.checked ? "system" : (resolved ?? "light"),
+						)
+					}
+					className="size-4 accent-primary"
+				/>
+				Match my system
+			</label>
+		</section>
+	);
+}
+
+function InstanceSettings() {
+	const { data: shell } = useQuery({
+		queryKey: ["shell-info"],
+		queryFn: () => getShellInfo(),
+	});
+	return (
+		<>
+			<section
+				id="library"
+				aria-label="Library"
+				className="scroll-mt-8 border-t py-8"
+			>
+				<h2 className="font-serif text-[30px] font-semibold">Library</h2>
+				<p className="mt-3 rounded-2xl border bg-card p-5 text-sm text-muted-foreground">
+					{shell
+						? shell.hasLibraryPaths
+							? "Library folders are configured for this instance."
+							: "No library folders are configured for this instance."
+						: "Loading..."}
+				</p>
+			</section>
+			<section
+				id="access"
+				aria-label="Access"
+				className="scroll-mt-8 border-t py-8"
+			>
+				<h2 className="font-serif text-[30px] font-semibold">Access</h2>
+				{shell && (
+					<div className="mt-3 rounded-2xl border border-amber/45 bg-amber-soft p-5 text-sm">
+						<p className="font-semibold">
+							{shell.authEnabled
+								? "Password protection is enabled"
+								: "No password is set"}
+						</p>
+						{!shell.authEnabled && (
+							<p className="mt-2 text-muted-foreground">
+								Anyone who can reach this instance can use it. Set{" "}
+								<code>AUTH_PASSWORD</code> in your environment and restart to
+								turn on sign-in.
+							</p>
+						)}
+					</div>
+				)}
+			</section>
+		</>
 	);
 }

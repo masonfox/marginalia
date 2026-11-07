@@ -1,4 +1,8 @@
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useInfiniteQuery,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { BookMarked, Plus, X } from "lucide-react";
@@ -11,10 +15,12 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { BookCover } from "#/components/book-cover";
 import { AiSetupNotice, modelInEffect } from "#/components/chat";
 import { AutogrowTextarea } from "#/components/composer/autogrow-textarea";
 import { SendButton } from "#/components/composer/send-button";
 import { initialDraft, ModelChoice } from "#/components/model-picker";
+import { ScopePill } from "#/components/pieces";
 import { MoveBackDialog, SHARED_POSITION } from "#/components/reading-position";
 import {
 	type Choice,
@@ -132,12 +138,8 @@ export function ScopeStrip({
 			data-state={state.kind}
 		>
 			<div className="flex flex-wrap items-center gap-2">
-				<BookMarked
-					className="size-4 shrink-0 text-muted-foreground"
-					aria-hidden
-				/>
-				<p className="min-w-0 flex-1 font-medium" data-testid="composer-scope">
-					{scopeText(label)}
+				<p className="min-w-0 flex-1" data-testid="composer-scope">
+					<ScopePill>{scopeText(label)}</ScopePill>
 					{state.once && (
 						<span className="font-normal text-muted-foreground">
 							{" "}
@@ -318,6 +320,9 @@ export function ScopeSheet({
 export interface ComposerBook {
 	editionId: string;
 	title: string;
+	/** Already available for books selected from the shelf. */
+	hasCover?: boolean;
+	authors?: string[];
 }
 
 /**
@@ -465,6 +470,7 @@ function ComposerForm({
 	const create = useServerFn(createConversationFn);
 	const getEdition = useServerFn(getEditionFn);
 	const coarse = useCoarsePointer();
+	const startReasonId = useId();
 
 	const [books, setBooks] = useState<ComposerBook[]>(initialBooks);
 	const [draft, setDraft] = useState("");
@@ -533,7 +539,9 @@ function ComposerForm({
 		saveComposerDraft(draftId, {
 			text: draft,
 			attachment: null,
-			...(!sameBooks(books, initial.current) && { books }),
+			...(!sameBooks(books, initial.current) && {
+				books: books.map(({ editionId, title }) => ({ editionId, title })),
+			}),
 		});
 	}, [owner, draftId, draft, books]);
 
@@ -676,78 +684,71 @@ function ComposerForm({
 		} else setAsking({ ...asking, queue, chosen, error: null });
 	};
 
+	const bookSlots =
+		books.length === 0 ? (
+			<p
+				className="text-sm text-muted-foreground"
+				data-testid="composer-no-book"
+			>
+				Add a book to start a conversation about it.
+			</p>
+		) : (
+			<ul
+				className="space-y-3"
+				aria-label="Books in this conversation"
+				data-testid="composer-books"
+			>
+				{books.map((book) => (
+					<BookRow
+						key={book.editionId}
+						book={book}
+						named={books.length > 1}
+						removable={!(keepOne && books.length === 1)}
+						onRemove={() => removeBook(book.editionId)}
+						override={overrides[book.editionId] ?? null}
+						onOverrideChange={(choice) =>
+							setOverrides((current) =>
+								choice === null
+									? without(current, book.editionId)
+									: { ...current, [book.editionId]: choice },
+							)
+						}
+						onScope={reportScope}
+						disabled={busy}
+						ask={
+							asking?.queue[0] === book.editionId
+								? {
+										token: asking.token,
+										error: asking.error,
+										last: asking.queue.length === 1,
+									}
+								: null
+						}
+						onAnswered={(choice) => answered(book.editionId, choice)}
+						onDismissed={() => setAsking(null)}
+					/>
+				))}
+			</ul>
+		);
 	return (
 		<section
 			aria-label="Start a conversation"
-			className="space-y-3"
+			className="flex min-w-0 flex-col gap-4"
 			data-testid="book-composer"
 		>
-			{books.length === 0 ? (
-				<p
-					className="text-sm text-muted-foreground"
-					data-testid="composer-no-book"
-				>
-					Add a book to start a conversation about it.
-				</p>
-			) : (
-				<ul
-					className="space-y-3"
-					aria-label="Books in this conversation"
-					data-testid="composer-books"
-				>
-					{books.map((book) => (
-						<BookRow
-							key={book.editionId}
-							book={book}
-							named={books.length > 1}
-							removable={!(keepOne && books.length === 1)}
-							onRemove={() => removeBook(book.editionId)}
-							override={overrides[book.editionId] ?? null}
-							onOverrideChange={(choice) =>
-								setOverrides((current) =>
-									choice === null
-										? without(current, book.editionId)
-										: { ...current, [book.editionId]: choice },
-								)
-							}
-							onScope={reportScope}
-							disabled={busy}
-							ask={
-								asking?.queue[0] === book.editionId
-									? {
-											token: asking.token,
-											error: asking.error,
-											last: asking.queue.length === 1,
-										}
-									: null
-							}
-							onAnswered={(choice) => answered(book.editionId, choice)}
-							onDismissed={() => setAsking(null)}
-						/>
-					))}
-				</ul>
-			)}
-			{books.length < MAX_CONVERSATION_BOOKS && (
-				<Button
-					type="button"
-					size="sm"
-					variant="outline"
-					className="pointer-coarse:h-11 pointer-coarse:min-w-11"
-					disabled={busy}
-					onClick={() => setPicking(true)}
-				>
-					<Plus aria-hidden />
-					Add book
-				</Button>
-			)}
+			{!keepOne && bookSlots}
+
 			<form
-				className="rounded-2xl border bg-card p-2 shadow-sm focus-within:border-ring/60"
+				className="overflow-hidden rounded-2xl border bg-card shadow-sm focus-within:border-ring/60"
 				onSubmit={(e) => {
 					e.preventDefault();
 					send();
 				}}
 			>
-				<div className="flex items-end gap-2">
+				<div className="px-5 pt-5 pb-3 sm:px-6">
+					<p className="mb-3 text-[11px] font-semibold tracking-[0.14em] text-faint-foreground uppercase">
+						Your question
+					</p>
 					<AutogrowTextarea
 						value={draft}
 						onValueChange={setDraft}
@@ -767,26 +768,63 @@ function ComposerForm({
 						aria-label="Your question"
 						placeholder="Ask about a scene, a character, or a theory…"
 						containerClassName="min-w-0 flex-1"
-						className="px-2 py-1.5 text-base sm:text-sm"
+						className="min-h-24 px-0 py-1.5 text-base"
 					/>
-					<SendButton busy={false} reason={reason} onStop={() => {}} />
+				</div>
+				<div className="flex flex-wrap items-center gap-3 border-t bg-background-2 px-4 py-3 sm:px-5">
+					{books.length < MAX_CONVERSATION_BOOKS && (
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							className="pointer-coarse:h-11 pointer-coarse:min-w-11"
+							disabled={busy}
+							onClick={() => setPicking(true)}
+						>
+							<Plus aria-hidden />
+							Add book
+						</Button>
+					)}
+					<div
+						className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-sm"
+						data-testid="book-composer-model"
+					>
+						<span className="py-0.5 text-muted-foreground">Model:</span>
+						<div className="min-w-0 flex-1">
+							<ModelChoice
+								providers={status.providers}
+								fallback={fallback}
+								value={model}
+								onChange={setModel}
+								disabled={busy}
+							/>
+						</div>
+					</div>
+					{keepOne ? (
+						<SendButton busy={false} reason={reason} onStop={() => {}} />
+					) : (
+						<Button
+							type="submit"
+							aria-label="Start conversation"
+							aria-disabled={reason || busy ? true : undefined}
+							aria-describedby={reason || busy ? startReasonId : undefined}
+							title={reason ?? (busy ? "Please wait" : undefined)}
+							className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+							onClick={(event) => {
+								if (reason || busy) event.preventDefault();
+							}}
+						>
+							Start conversation
+							{(reason || busy) && (
+								<span id={startReasonId} className="sr-only">
+									{reason ?? "Please wait"}
+								</span>
+							)}
+						</Button>
+					)}
 				</div>
 			</form>
-			<div
-				className="flex flex-wrap items-start gap-x-2 gap-y-1 text-sm"
-				data-testid="book-composer-model"
-			>
-				<span className="py-0.5 text-muted-foreground">Model:</span>
-				<div className="min-w-0 flex-1">
-					<ModelChoice
-						providers={status.providers}
-						fallback={fallback}
-						value={model}
-						onChange={setModel}
-						disabled={busy}
-					/>
-				</div>
-			</div>
+			{keepOne && bookSlots}
 			{error && (
 				<p role="alert" className="text-sm text-destructive-foreground">
 					{error}
@@ -845,6 +883,14 @@ function BookRow({
 	onDismissed: () => void;
 }) {
 	const { editionId, title } = book;
+	const metadata = useQuery({
+		queryKey: ["composer-book-cover", editionId],
+		queryFn: () => getEditionFn({ data: { editionId } }),
+		enabled: book.hasCover === undefined,
+		staleTime: Infinity,
+		retry: false,
+	});
+	const cover = metadata.data?.edition;
 	const reading = useReadingPosition(editionId);
 	const [sheet, setSheet] = useState<Sheet | null>(null);
 
@@ -921,42 +967,53 @@ function BookRow({
 
 	return (
 		<li
-			className="space-y-2 rounded-lg border p-3"
+			className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] gap-x-3 rounded-2xl border bg-card p-3"
 			data-testid="composer-book"
 			data-edition-id={editionId}
 		>
-			<div className="flex items-center gap-2">
-				<p
-					className="min-w-0 flex-1 truncate font-medium"
-					data-testid="composer-book-title"
-				>
-					{title}
-				</p>
-				{removable && (
-					<Button
-						type="button"
-						size="icon"
-						variant="ghost"
-						className="size-8 pointer-coarse:size-11"
-						aria-label={`Remove ${title}`}
-						disabled={disabled}
-						onClick={onRemove}
+			<div className="w-11 self-start" data-testid="composer-book-cover">
+				<BookCover
+					id={editionId}
+					title={title}
+					hasCover={book.hasCover ?? Boolean(cover?.coverPath)}
+					author={book.authors?.[0] ?? cover?.authors?.[0]}
+					small
+				/>
+			</div>
+			<div className="min-w-0 space-y-2">
+				<div className="flex items-center gap-2">
+					<p
+						className="min-w-0 flex-1 truncate font-medium"
+						data-testid="composer-book-title"
 					>
-						<X aria-hidden />
-					</Button>
+						{title}
+					</p>
+					{removable && (
+						<Button
+							type="button"
+							size="icon"
+							variant="ghost"
+							className="size-8 pointer-coarse:size-11"
+							aria-label={`Remove ${title}`}
+							disabled={disabled}
+							onClick={onRemove}
+						>
+							<X aria-hidden />
+						</Button>
+					)}
+				</div>
+				<ScopeStrip
+					state={strip}
+					disabled={disabled}
+					onChange={openSheet}
+					onUsePosition={() => onOverrideChange(null)}
+				/>
+				{reading.error && !sheet && (
+					<p role="alert" className="text-sm text-destructive-foreground">
+						{reading.error}
+					</p>
 				)}
 			</div>
-			<ScopeStrip
-				state={strip}
-				disabled={disabled}
-				onChange={openSheet}
-				onUsePosition={() => onOverrideChange(null)}
-			/>
-			{reading.error && !sheet && (
-				<p role="alert" className="text-sm text-destructive-foreground">
-					{reading.error}
-				</p>
-			)}
 			<ScopeSheet
 				open={sheet !== null}
 				onOpenChange={(next) => {
@@ -1087,7 +1144,14 @@ export function BookPicker({
 										type="button"
 										className="w-full rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none pointer-coarse:min-h-11"
 										data-testid="book-picker-option"
-										onClick={() => onPick({ editionId: b.id, title: b.title })}
+										onClick={() =>
+											onPick({
+												editionId: b.id,
+												title: b.title,
+												hasCover: b.hasCover,
+												authors: b.authors,
+											})
+										}
 									>
 										<span className="block font-medium">{b.title}</span>
 										{b.authors.length > 0 && (

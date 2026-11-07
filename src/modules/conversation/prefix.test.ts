@@ -17,6 +17,7 @@ const books: ConversationBook[] = [
 		ordinal: 0,
 		maxPosition: null,
 		scopeLabel: null,
+		hasCover: false,
 	},
 ];
 

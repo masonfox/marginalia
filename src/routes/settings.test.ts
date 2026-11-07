@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, type ComponentType, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetThemeStoreForTests, THEME_STORAGE_KEY } from "#/lib/theme";
 import type { AiStatus } from "#/modules/settings";
 import type { AiSelection } from "#/server/config";
 import { Route } from "./settings";
@@ -15,6 +16,12 @@ const mocks = vi.hoisted(() => ({
 	savePreprocess: vi.fn(),
 	clearChat: vi.fn(),
 	clearPreprocess: vi.fn(),
+}));
+vi.mock("#/fns/library", () => ({
+	getShellInfo: vi.fn(async () => ({
+		authEnabled: false,
+		hasLibraryPaths: true,
+	})),
 }));
 vi.mock("#/fns/conversations", () => ({ getAiStatusFn: mocks.status }));
 vi.mock("#/fns/settings", () => ({
@@ -45,6 +52,8 @@ let container: HTMLDivElement;
 let client: QueryClient;
 
 beforeEach(() => {
+	localStorage.clear();
+	resetThemeStoreForTests();
 	for (const m of Object.values(mocks)) m.mockReset();
 	status = {
 		enabled: true,
@@ -249,7 +258,8 @@ describe("Settings without providers", () => {
 		expect(pre.textContent).toContain("Current: OpenAI / gpt-small");
 		expect(pre.textContent).toContain("this default is unavailable");
 		expect(container.querySelector("select")).toBeNull();
-		expect(container.querySelector("input")).toBeNull();
+		expect(chat.querySelector("input")).toBeNull();
+		expect(pre.querySelector("input")).toBeNull();
 		expect(() => button(chat, "Save chat default")).toThrow();
 		expect(() => button(pre, "Save preprocessing default")).toThrow();
 		await click(button(chat, "Clear"));
@@ -281,5 +291,31 @@ describe("Settings without providers", () => {
 		expect(
 			container.querySelector('section[aria-label="Preprocessing default"]'),
 		).toBeNull();
+	});
+});
+
+describe("Appearance", () => {
+	it("pins a theme, follows the system again, and pins the current theme when unchecked", async () => {
+		await mount();
+		const sepia = container.querySelector<HTMLInputElement>(
+			'input[name="display-theme"][value="sepia"]',
+		);
+		expect(sepia).not.toBeNull();
+		if (!sepia) throw new Error("Sepia option missing");
+		await click(sepia);
+		expect(document.documentElement.dataset.theme).toBe("sepia");
+		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("sepia");
+		const system = card("Appearance").querySelector<HTMLInputElement>(
+			'input[type="checkbox"]',
+		);
+		if (!system) throw new Error("System checkbox missing");
+		expect(system.checked).toBe(false);
+		await click(system);
+		expect(system.checked).toBe(true);
+		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("system");
+		const current = document.documentElement.dataset.theme;
+		await click(system);
+		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe(current);
+		expect(system.checked).toBe(false);
 	});
 });

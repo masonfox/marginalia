@@ -84,9 +84,9 @@ function IndexView() {
 							aria-pressed={kind === k}
 							onClick={() => filter({ kind: k })}
 							className={cn(
-								"rounded-md border px-2.5 py-1 text-sm transition-colors hover:bg-accent",
+								"min-h-10 rounded-full border px-4 py-2 text-sm pointer-coarse:min-h-11 transition-colors hover:bg-accent",
 								kind === k &&
-									"border-primary bg-primary text-primary-foreground hover:bg-primary",
+									"border-input bg-secondary text-foreground hover:bg-secondary",
 							)}
 						>
 							{k ? KIND_LABELS[k].plural : "All"}
@@ -121,13 +121,13 @@ function IndexView() {
 						: "No subjects match these filters."}
 				</p>
 			) : (
-				<ul className="mt-4 divide-y rounded-md border">
+				<ul className="mt-6 flex flex-wrap gap-3">
 					{shown.map((s) => (
 						<li key={s.ref} data-testid="guide-subject">
 							<Link
 								to="/books/$editionId/guide/index/$subjectRef"
 								params={{ editionId, subjectRef: s.ref }}
-								className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 hover:bg-accent/50"
+								className="flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-card px-4 py-3 hover:border-input hover:bg-accent/50"
 							>
 								<span className="font-medium">{s.name}</span>
 								<Badge variant="secondary">

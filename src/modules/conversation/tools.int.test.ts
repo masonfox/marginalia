@@ -60,6 +60,7 @@ const book = (
 	ordinal,
 	maxPosition,
 	scopeLabel: maxPosition === null ? null : `Position ${maxPosition}`,
+	hasCover: false,
 });
 
 const chapters = (word: string, count: number) =>

@@ -15,7 +15,7 @@ export function PassageQuote({ snapshot }: { snapshot: PassageSnapshot }) {
 			<p className="text-xs font-medium text-muted-foreground">
 				Passage from the book · {source}
 			</p>
-			<blockquote className="mt-1 font-serif text-base whitespace-pre-line">
+			<blockquote className="mt-1 font-reading text-base whitespace-pre-line">
 				{snapshot.text}
 			</blockquote>
 			<Link

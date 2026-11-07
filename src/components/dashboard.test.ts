@@ -8,7 +8,12 @@ import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ReadingShelfItem } from "#/modules/shelf";
-import { ContinueSection, DashboardEmpty, ReadingSection } from "./dashboard";
+import {
+	ContinueReadingHero,
+	ContinueSection,
+	DashboardEmpty,
+	ReadingSection,
+} from "./dashboard";
 
 const router = createRouter({
 	routeTree: createRootRoute(),
@@ -76,7 +81,7 @@ describe("ReadingSection", () => {
 		expect(html).toContain('href="/library?status=reading"');
 	});
 
-	it("hides books after the second on narrow viewports", () => {
+	it("keeps every book available in the scrolling phone shelf", () => {
 		const html = render(
 			createElement(ReadingSection, {
 				items: [book(1), book(2), book(3), book(4)],
@@ -84,12 +89,8 @@ describe("ReadingSection", () => {
 		);
 		const items = html.match(/<li[^>]*>/g) ?? [];
 		expect(items).toHaveLength(4);
-		expect(items.map((li) => li.includes("max-sm:hidden"))).toEqual([
-			false,
-			false,
-			true,
-			true,
-		]);
+		expect(html).not.toContain("max-sm:hidden");
+		expect(html).toContain("overflow-x-auto");
 	});
 });
 
@@ -98,5 +99,16 @@ describe("ContinueSection", () => {
 		expect(render(createElement(ContinueSection, { conversations: [] }))).toBe(
 			"",
 		);
+	});
+});
+
+describe("ContinueReadingHero", () => {
+	it("links to the real book contents and guide without inventing reading progress", () => {
+		const html = render(createElement(ContinueReadingHero, { book: book(1) }));
+		expect(html).toContain(`href="/books/${book(1).id}/contents"`);
+		expect(html).toContain(`href="/books/${book(1).id}/guide"`);
+		expect(html).toContain("Through Chapter 3");
+		expect(html).not.toContain("Resume conversation");
+		expect(html).not.toContain('role="progressbar"');
 	});
 });

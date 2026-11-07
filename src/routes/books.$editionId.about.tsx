@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useBook } from "#/components/book-page";
+import { EYEBROW } from "#/components/pieces";
+import { PreprocessCard } from "#/components/preprocess-card";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -42,8 +44,7 @@ export const Route = createFileRoute("/books/$editionId/about")({
 });
 
 /** Section headings share one quiet, small-caps style so the content leads. */
-const HEADING =
-	"text-xs font-semibold uppercase tracking-wider text-muted-foreground";
+const HEADING = EYEBROW;
 
 /** Blurbs longer than this start clamped, with a Show more toggle. */
 const LONG_DESCRIPTION = 1200;
@@ -61,7 +62,7 @@ function AboutTab() {
 	const ids = identifierRows(edition.identifiers);
 
 	return (
-		<div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_17rem] lg:grid-rows-[auto_auto_1fr] lg:gap-x-12">
+		<div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-x-14">
 			{edition.description && (
 				<section aria-labelledby="about-description" className="min-w-0">
 					<h2 id="about-description" className={HEADING}>
@@ -71,22 +72,9 @@ function AboutTab() {
 				</section>
 			)}
 
-			<aside
-				aria-label="Book details"
-				className="min-w-0 space-y-8 lg:col-start-2 lg:row-span-3 lg:row-start-1"
-			>
-				<Details
-					language={languageName(edition.language)}
-					publisher={edition.publisher}
-					published={formatPublished(edition.published)}
-					epubVersion={edition.epubVersion}
-					passages={passageCount}
-					parserVersion={edition.parserVersion}
-					currentParserVersion={currentParserVersion}
-					outdated={outdated}
-				/>
-				{ids.length > 0 && <Identifiers rows={ids} />}
-			</aside>
+			<div className="min-w-0 lg:col-start-1">
+				<PreprocessCard editionId={edition.id} />
+			</div>
 
 			<section aria-labelledby="about-files" className="min-w-0 lg:col-start-1">
 				<h2 id="about-files" className={HEADING}>
@@ -97,11 +85,11 @@ function AboutTab() {
 						No file is linked to this book.
 					</p>
 				) : (
-					<ul className="mt-3 divide-y rounded-lg border">
+					<ul className="mt-4 divide-y rounded-2xl border bg-card">
 						{edition.sources.map((s) => (
 							<li
 								key={`${s.kind}:${s.label}`}
-								className="flex items-start gap-3 px-3 py-2.5 text-sm"
+								className="flex items-start gap-4 px-5 py-5 text-sm"
 							>
 								{s.kind === "upload" ? (
 									<Upload
@@ -123,10 +111,7 @@ function AboutTab() {
 									</p>
 								</div>
 								{!s.available && (
-									<Badge
-										variant="outline"
-										className="border-status-unavailable/30 bg-status-unavailable/10 text-status-unavailable"
-									>
+									<Badge variant="status" className="text-status-unavailable">
 										Missing
 									</Badge>
 								)}
@@ -138,7 +123,7 @@ function AboutTab() {
 
 			<section
 				aria-labelledby="about-delete"
-				className="min-w-0 self-start rounded-lg border border-destructive/30 p-4 lg:col-start-1"
+				className="min-w-0 self-start rounded-2xl border border-destructive-foreground/30 p-6 lg:col-start-1"
 			>
 				<h2 id="about-delete" className="text-sm font-medium">
 					Delete this book
@@ -153,6 +138,22 @@ function AboutTab() {
 					inLibraryFolder={edition.sources.some((s) => s.kind === "filesystem")}
 				/>
 			</section>
+			<aside
+				aria-label="Book details"
+				className="min-w-0 space-y-8 lg:col-start-2 lg:row-span-4 lg:row-start-1"
+			>
+				<Details
+					language={languageName(edition.language)}
+					publisher={edition.publisher}
+					published={formatPublished(edition.published)}
+					epubVersion={edition.epubVersion}
+					passages={passageCount}
+					parserVersion={edition.parserVersion}
+					currentParserVersion={currentParserVersion}
+					outdated={outdated}
+				/>
+				{ids.length > 0 && <Identifiers rows={ids} />}
+			</aside>
 		</div>
 	);
 }
@@ -165,7 +166,7 @@ function Description({ text }: { text: string }) {
 		<>
 			<p
 				id={id}
-				className={`mt-3 max-w-prose text-[0.9375rem] leading-6 text-pretty${long && !expanded ? " line-clamp-[10]" : ""}`}
+				className={`mt-4 max-w-prose font-reading text-xl leading-[1.7] text-pretty${long && !expanded ? " line-clamp-[10]" : ""}`}
 			>
 				{text}
 			</p>
@@ -207,12 +208,12 @@ function Details({
 	return (
 		<section
 			aria-labelledby="about-details"
-			className="rounded-xl border bg-card p-4 text-card-foreground shadow-xs"
+			className="rounded-2xl border bg-card p-6 text-card-foreground"
 		>
 			<h2 id="about-details" className={HEADING}>
 				Details
 			</h2>
-			<dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+			<dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-5 text-[15px]">
 				{publisher && (
 					<Fact term="Publisher" wide>
 						{publisher}
@@ -275,7 +276,10 @@ function Identifiers({ rows }: { rows: IdentifierRow[] }) {
 	const shown = rows.filter((r) => !r.internal);
 	const internal = rows.filter((r) => r.internal);
 	return (
-		<section aria-labelledby="about-identifiers">
+		<section
+			aria-labelledby="about-identifiers"
+			className="rounded-2xl border bg-card p-6"
+		>
 			<h2 id="about-identifiers" className={HEADING}>
 				Identifiers
 			</h2>
@@ -295,9 +299,12 @@ function Identifiers({ rows }: { rows: IdentifierRow[] }) {
 
 function IdentifierList({ rows }: { rows: IdentifierRow[] }) {
 	return (
-		<dl className="mt-2 space-y-1">
+		<dl className="mt-3 divide-y">
 			{rows.map((r) => (
-				<div key={r.key} className="group/id flex items-center gap-2 text-sm">
+				<div
+					key={r.key}
+					className="group/id flex flex-wrap items-center gap-2 py-3 text-sm"
+				>
 					<dt className="w-20 shrink-0 text-xs text-muted-foreground">
 						{r.label}
 					</dt>
@@ -366,7 +373,7 @@ function IdentifierValue({ row }: { row: IdentifierRow }) {
 			<Button
 				variant="ghost"
 				size="icon-xs"
-				className="text-muted-foreground max-sm:size-8"
+				className="text-muted-foreground max-sm:size-11"
 				aria-label={`Copy ${row.label} ${row.value}`}
 				onClick={() => void copy()}
 			>
@@ -417,11 +424,7 @@ function DeleteBook({
 			}}
 		>
 			<AlertDialogTrigger asChild>
-				<Button
-					size="sm"
-					variant="outline"
-					className="border-destructive/40 text-destructive-foreground hover:bg-destructive/10 hover:text-destructive-foreground"
-				>
+				<Button size="sm" variant="destructive-outline">
 					<Trash2 />
 					Delete book
 				</Button>

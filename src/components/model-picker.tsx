@@ -45,7 +45,7 @@ const sentence = (text: string) =>
 	/[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`;
 
 const selectClass =
-	"h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
+	"h-11 w-full rounded-[12px] border border-input bg-card px-3 py-1 text-base text-foreground outline-none focus-visible:border-amber focus-visible:ring-[3px] focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
 
 /** Presentational picker; the container below loads the model list. */
 export function ModelPickerView({

@@ -190,7 +190,7 @@ export function CorrectionReviewPanel() {
 	if (regenerated.length === 0 && detached.length === 0) return null;
 	return (
 		<section
-			className="mb-6 space-y-3 rounded-md border p-4 text-sm"
+			className="mb-6 space-y-3 rounded-2xl border bg-card p-5 text-sm"
 			aria-labelledby="correction-review"
 			data-testid="correction-review"
 		>
