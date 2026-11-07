@@ -20,7 +20,7 @@
 
 - [x] 4.1 Define the `ProgressProvider` contract, `ConfigField`, `ProgressReading`, and the list/lookup matching types in `src/modules/progress`, plus a registry of built-in providers. Verify the types compile and the registry lists all kinds.
 - [x] 4.2 Implement provider config storage: plain fields as jsonb, secret fields as one encrypted blob using `settings/crypto`, and read models that return hints only. Verify integration tests show secrets never come back in plaintext and survive a round trip.
-- [ ] 4.3 Implement matching: ISBN-13 normalization, identifier matching against `editions.identifiers`, ambiguous matches routed to unmatched, manual links taking precedence, and refreshing `progress_unmatched` for in-progress books only. Verify unit and integration tests for each spec scenario under "Matching books to provider books".
+- [x] 4.3 Implement matching: ISBN-13 normalization, identifier matching against `editions.identifiers`, ambiguous matches routed to unmatched, manual links taking precedence, and refreshing `progress_unmatched` for in-progress books only. Verify unit and integration tests for each spec scenario under "Matching books to provider books".
 
 ## 5. Jobs and scheduling
 

@@ -58,6 +58,11 @@ export type TestResult =
 export interface ProviderBook {
 	externalId: string;
 	isbns: string[];
+	/**
+	 * Other ids, keyed by the identifier scheme an EPUB would use for them
+	 * (`hardcover-id`, `hardcover-edition`, `hardcover` for the slug,
+	 * `goodreads`, ...). Matched against editions by `identifierRows` label.
+	 */
 	ids: Record<string, string>;
 	title: string;
 	/** Not in design D2's sketch; `progress_unmatched` stores them for display. */

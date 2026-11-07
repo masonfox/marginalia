@@ -68,7 +68,7 @@ ISBNs SHALL be compared after normalizing to ISBN-13. A provider book that match
 - **THEN** the edition is linked to the BookOrbit book by digest with no action from the reader
 
 #### Scenario: ISBN match
-- **WHEN** Hardcover reports a book being read with ISBN 978-0-00-000000-2 and an edition carries ISBN 0000000002 in another form
+- **WHEN** Hardcover reports a book being read with ISBN 978-0-00-000000-2 and an edition carries the same ISBN as ISBN-10 0000000000
 - **THEN** the edition is linked to that Hardcover book
 
 #### Scenario: Unmatched book in progress
