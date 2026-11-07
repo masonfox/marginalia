@@ -39,7 +39,15 @@ export interface ShelfPage {
 	needsAttention: number | null;
 	/** Editions processing, ignoring the search and filter. */
 	processing: number | null;
+	/** Editions in each reading status, ignoring the search and filter. */
+	statusCounts: StatusCounts | null;
 }
+
+/** Editions in each reading status, whatever the search and filter. */
+export type StatusCounts = Record<
+	"not-started" | "reading" | "finished",
+	number
+>;
 
 export interface ShelfQuery {
 	q?: string;
@@ -99,6 +107,29 @@ function filterCondition(status: ShelfFilter | undefined): SQL | undefined {
 	return eq(statusSql, status);
 }
 
+/**
+ * Count columns for each reading status. They never apply the search, so
+ * the filter's counts stay put while the reader types.
+ */
+const statusCountColumns = {
+	notStarted: sql<number>`(count(*) filter (where ${filterCondition("not-started")}))::int`,
+	reading: sql<number>`(count(*) filter (where ${filterCondition("reading")}))::int`,
+	finished: sql<number>`(count(*) filter (where ${filterCondition("finished")}))::int`,
+};
+
+function statusCountsOf(
+	row:
+		| { notStarted: number; reading: number; finished: number }
+		| null
+		| undefined,
+): StatusCounts {
+	return {
+		"not-started": row?.notStarted ?? 0,
+		reading: row?.reading ?? 0,
+		finished: row?.finished ?? 0,
+	};
+}
+
 // --- Query ------------------------------------------------------------------
 
 /**
@@ -152,6 +183,7 @@ export async function listShelf(
 				: sql<number>`count(*)::int`,
 			needsAttention: sql<number>`(count(*) filter (where ${inArray(statusSql, [...ATTENTION_STATUSES])}))::int`,
 			processing: sql<number>`(count(*) filter (where ${editions.status} = 'processing'))::int`,
+			...statusCountColumns,
 		})
 		.from(editions)
 		.leftJoin(readingPositions, joined);
@@ -183,6 +215,7 @@ export async function listShelf(
 		matching: after ? null : (counts?.matching ?? 0),
 		needsAttention: after ? null : (counts?.needsAttention ?? 0),
 		processing: after ? null : (counts?.processing ?? 0),
+		statusCounts: after ? null : statusCountsOf(counts),
 	};
 }
 
@@ -199,11 +232,14 @@ export interface ReadingShelf {
 	items: ReadingShelfItem[];
 	/** Editions in the library, whatever their status. */
 	total: number;
+	/** Editions in each reading status. */
+	statusCounts: StatusCounts;
 }
 
 /**
  * The books being read (the list's Reading status), most recently updated
- * reading position first, with the library's edition count. Never pages.
+ * reading position first, with the library's edition count and its counts
+ * per reading status. Never pages.
  */
 export async function listReadingShelf(
 	db: Executor,
@@ -224,7 +260,10 @@ export async function listReadingShelf(
 			.where(eq(statusSql, "reading"))
 			.orderBy(desc(readingPositions.updatedAt), asc(editions.id))
 			.limit(Math.max(1, Math.min(Math.trunc(limit), 500))),
-		db.select({ total: sql<number>`count(*)::int` }).from(editions),
+		db
+			.select({ total: sql<number>`count(*)::int`, ...statusCountColumns })
+			.from(editions)
+			.leftJoin(readingPositions, joined),
 	]);
 	return {
 		items: rows.map((r) => ({
@@ -235,5 +274,6 @@ export async function listReadingShelf(
 			scopeLabel: r.scopeLabel,
 		})),
 		total: counts?.total ?? 0,
+		statusCounts: statusCountsOf(counts),
 	};
 }
