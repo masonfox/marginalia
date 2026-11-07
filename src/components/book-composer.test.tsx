@@ -75,6 +75,7 @@ vi.mock("#/fns/progress-book", () => ({
 	setBookSyncExcludedFn: vi.fn(),
 	syncBookFn: vi.fn(),
 }));
+vi.mock("#/fns/progress-settings", () => ({ unlinkBookFn: vi.fn() }));
 vi.mock("#/fns/library", () => ({
 	listShelfFn: (...args: unknown[]) => mocks.shelf(...args),
 	getEditionFn: (...args: unknown[]) => mocks.edition(...args),
