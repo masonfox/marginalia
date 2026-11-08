@@ -59,7 +59,7 @@ type ProviderBook = { externalId: string; isbns: string[]; ids: Record<string,st
 ```
 
 - **Hardcover** uses `list`. One sync fetches the reader's books with their readings, and the core matches them against editions.
-- **BookOrbit** uses `lookup`, because its KOReader sync API has only `GET /api/v1/koreader/syncs/progress/:digest`. A sync looks up only the *candidate* editions: those already linked, those with a reading position, and those opened in the last 90 days. That keeps the request count bounded.
+- **BookOrbit** uses `lookup`, because its KOReader sync API has only `GET /api/v1/koreader/syncs/progress/:digest`. A sync looks up only the *candidate* editions: those already linked, those with a reading position, and those used in the last 90 days. Marginalia doesn't record when a book is opened, so "used" means a conversation about the edition or a reader note on it updated in that window. A book that is only opened is picked up once the reader sets a position or links it. That keeps the request count bounded.
 
 ### D3. KOReader digest stored on the edition
 
@@ -88,6 +88,8 @@ progress_links
   applied_reading jsonb               -- raw reading last APPLIED
   applied_at      timestamptz
   moved_back_from text                -- previous unit label, when that apply moved the position back
+  last_error      text                -- reason the last sync of this book failed; null after a success
+  last_attempt_at timestamptz
   PK (edition_id, provider_kind); unique (provider_kind, external_id)
 
 progress_unmatched                   -- refreshed on each list-mode sync

@@ -56,6 +56,10 @@ The reader SHALL be able to start a sync of one provider from Settings, and a sy
 - **WHEN** a reader clicks sync in a linked book's position control
 - **THEN** only that book's link is synced, and the control shows the result
 
+#### Scenario: Book sync fails
+- **WHEN** a reader clicks sync in a linked book's position control and the provider rejects the credentials
+- **THEN** the control says the sync failed and why, until a later sync of that book succeeds
+
 ### Requirement: Matching books to provider books
 The system SHALL link an edition to a provider's book automatically when they match unambiguously:
 - **BookOrbit**: by the KOReader partial-MD5 digest of the edition's file.
