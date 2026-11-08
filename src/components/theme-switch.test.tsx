@@ -10,7 +10,12 @@ import {
 	it,
 	vi,
 } from "vitest";
-import { resetThemeStoreForTests, THEME_STORAGE_KEY } from "#/lib/theme";
+import {
+	resetThemeStoreForTests,
+	SYSTEM_LIGHT_THEME_STORAGE_KEY,
+	setThemeChoice,
+	THEME_STORAGE_KEY,
+} from "#/lib/theme";
 import { ThemeSwitch } from "./theme-switch";
 
 declare global {
@@ -97,4 +102,15 @@ describe("ThemeSwitch", () => {
 		expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("sepia");
 		expect(pressed()).toEqual(["Sepia theme"]);
 	});
+});
+
+it("header manual choice retains the system pairing for restoration", () => {
+	localStorage.setItem(SYSTEM_LIGHT_THEME_STORAGE_KEY, "sepia");
+	render();
+	expect(pressed()).toEqual(["Sepia theme"]);
+	act(() => buttons()[0]?.click());
+	expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
+	expect(localStorage.getItem(SYSTEM_LIGHT_THEME_STORAGE_KEY)).toBe("sepia");
+	act(() => setThemeChoice("system"));
+	expect(pressed()).toEqual(["Sepia theme"]);
 });

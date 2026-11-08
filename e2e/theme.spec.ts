@@ -165,3 +165,54 @@ test("a stored choice of system follows the system too", async ({ page }) => {
 	await page.emulateMedia({ colorScheme: "dark" });
 	await expect(htmlTheme(page)).toHaveAttribute("data-theme", "dark");
 });
+
+test("saved system Sepia paints first, persists, and follows live OS changes", async ({
+	page,
+}) => {
+	await page.emulateMedia({ colorScheme: "light" });
+	await page.addInitScript(() => {
+		if (!sessionStorage.getItem("theme-seeded")) {
+			localStorage.setItem("marginalia:theme", "system");
+			localStorage.setItem("marginalia:system-light-theme", "sepia");
+			sessionStorage.setItem("theme-seeded", "true");
+		}
+	});
+	await recordThemeFrames(page);
+	for (const path of ["/", "/settings"]) {
+		await page.goto(path);
+		await page.waitForLoadState("networkidle");
+		const frames = await themeFrames(page);
+		expect(new Set(frames.themes)).toEqual(new Set(["sepia"]));
+		expect(frames.firstFrame).toEqual({
+			theme: "sepia",
+			background: BACKGROUNDS.sepia,
+		});
+	}
+	await page.reload();
+	await page.waitForLoadState("networkidle");
+	expect((await themeFrames(page)).firstFrame).toEqual({
+		theme: "sepia",
+		background: BACKGROUNDS.sepia,
+	});
+	await expect(htmlTheme(page)).toHaveCSS("color-scheme", "light");
+	await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+		"content",
+		"#f2e8d6",
+	);
+	await page.emulateMedia({ colorScheme: "dark" });
+	await expect(htmlTheme(page)).toHaveAttribute("data-theme", "dark");
+	await expect(htmlTheme(page)).toHaveCSS("color-scheme", "dark");
+	await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+		"content",
+		"#0d0a08",
+	);
+	await page.emulateMedia({ colorScheme: "light" });
+	await expect(htmlTheme(page)).toHaveAttribute("data-theme", "sepia");
+	await expect(page.locator("body")).toHaveCSS(
+		"background-color",
+		BACKGROUNDS.sepia,
+	);
+	expect(
+		await page.evaluate(() => localStorage.getItem("marginalia:theme")),
+	).toBe("system");
+});
