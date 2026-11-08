@@ -24,9 +24,31 @@ export const SYNC_POLL_MS = 2_000;
 
 /**
  * What the last "Sync" click did, once its job finished: `updated` when it
- * applied a reading, `unchanged` when nothing new was applied.
+ * applied a reading, `failed` when a provider it tried failed and nothing
+ * was applied, `unchanged` when nothing new was applied.
  */
-export type BookSyncOutcome = "updated" | "unchanged" | null;
+export type BookSyncOutcome = "updated" | "unchanged" | "failed" | null;
+
+type BookSyncStatus = NonNullable<Awaited<ReturnType<typeof getBookSyncFn>>>;
+
+/** Each link's last attempt time, to tell which links a sync tried. */
+const attemptTimes = (status: BookSyncStatus | null) =>
+	new Map(
+		(status?.links ?? []).map((l) => [
+			l.kind,
+			l.lastAttemptAt?.getTime() ?? null,
+		]),
+	);
+
+/**
+ * Why the last sync of this book failed, from the first enabled link (in
+ * priority order) whose last attempt failed; null when none did.
+ */
+export function bookSyncFailure(
+	status: Pick<BookSyncStatus, "links"> | null,
+): string | null {
+	return status?.links.find((l) => l.enabled && l.lastError)?.lastError ?? null;
+}
 
 /** A provider link the reader can remove from the position control. */
 export interface BookSyncLink {
@@ -68,23 +90,35 @@ export function useBookSync(
 	const status = query.data ?? null;
 	const pending = status?.pending ?? null;
 
-	// The applied time when the reader asked for a sync, while waiting for it.
-	const watching = useRef<{ appliedAt: number | null } | null>(null);
+	// The applied and attempt times when the reader asked for a sync, while waiting for it.
+	const watching = useRef<{
+		appliedAt: number | null;
+		attempts: Map<string, number | null>;
+	} | null>(null);
 	const wasPending = useRef(false);
 
 	/** The sync job settled: reload the position and say what it did. */
-	const settle = (appliedAt: Date | null) => {
+	const settle = (settled: BookSyncStatus) => {
 		const asked = watching.current;
 		watching.current = null;
 		void queryClient.invalidateQueries({
 			queryKey: readingPositionKey(editionId),
 		});
-		if (asked)
-			setOutcome(
-				(appliedAt?.getTime() ?? null) !== asked.appliedAt
-					? "updated"
+		if (!asked) return;
+		const attempts = attemptTimes(settled);
+		const failed = settled.links.some(
+			(l) =>
+				l.enabled &&
+				l.lastError &&
+				attempts.get(l.kind) !== asked.attempts.get(l.kind),
+		);
+		setOutcome(
+			(settled.appliedAt?.getTime() ?? null) !== asked.appliedAt
+				? "updated"
+				: failed
+					? "failed"
 					: "unchanged",
-			);
+		);
 	};
 	const settleRef = useRef(settle);
 	settleRef.current = settle;
@@ -96,7 +130,7 @@ export function useBookSync(
 		}
 		if (!wasPending.current || !status) return;
 		wasPending.current = false;
-		settleRef.current(status.appliedAt);
+		settleRef.current(status);
 	}, [pending, status]);
 
 	/** Queues a sync of this book, unless one is already pending. */
@@ -106,13 +140,16 @@ export function useBookSync(
 		setError(null);
 		setOutcome(null);
 		setUnlinked(null);
-		const appliedAt = status?.appliedAt?.getTime() ?? null;
+		const asked = {
+			appliedAt: status?.appliedAt?.getTime() ?? null,
+			attempts: attemptTimes(status),
+		};
 		try {
 			await sync({ data: { editionId } });
-			watching.current = { appliedAt };
+			watching.current = asked;
 			const { data } = await query.refetch();
 			// Already done before the first check: no pending state to wait out.
-			if (data && !data.pending) settle(data.appliedAt);
+			if (data && !data.pending) settle(data);
 		} catch {
 			watching.current = null;
 			setError("Could not start a sync. Please try again.");
@@ -175,6 +212,8 @@ export function useBookSync(
 		pending,
 		changing,
 		outcome,
+		/** Why the last sync of this book failed, until a later one succeeds. */
+		failure: bookSyncFailure(status),
 		error,
 		confirmingUnlink,
 		unlinked,

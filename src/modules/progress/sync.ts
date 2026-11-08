@@ -1,7 +1,18 @@
 // Running progress syncs (design D7): one provider's whole sync, or one
 // book's readings from every provider linked to it. A provider that is
 // disabled or not fully configured makes no network requests.
-import { and, asc, eq, exists, gt, isNotNull, ne, or, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	exists,
+	gt,
+	inArray,
+	isNotNull,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
 import { maskSecrets } from "#/modules/ai";
 import { conversationEditions, conversations } from "#/modules/conversation";
 import { readerNotes, readingPositions } from "#/modules/guide";
@@ -206,6 +217,37 @@ async function record(
 		.where(eq(progressProviders.kind, kind));
 }
 
+/**
+ * Records a book sync's outcome on its provider link: when it was tried and,
+ * for a failure, why (null clears an earlier failure).
+ */
+async function recordLinkAttempt(
+	db: Executor,
+	editionId: string,
+	kind: ProviderKind,
+	lastError: string | null,
+) {
+	await db
+		.update(progressLinks)
+		.set({ lastError, lastAttemptAt: new Date() })
+		.where(
+			and(
+				eq(progressLinks.editionId, editionId),
+				eq(progressLinks.providerKind, kind),
+			),
+		);
+}
+
+/** Why a provider whose config is not usable cannot sync. */
+function skippedMessage(
+	label: string,
+	reason: "unreadable" | "not-configured",
+): string {
+	return reason === "unreadable"
+		? `${label}'s saved secrets cannot be read. Enter them again in Settings.`
+		: `${label} is missing required settings.`;
+}
+
 type Ready =
 	| { status: "ok"; config: ProviderConfig }
 	| { status: "skipped"; reason: "disabled" | "not-configured" | "unreadable" };
@@ -241,26 +283,23 @@ export async function syncProvider(
 	const provider = (deps.provider ?? getProvider)(kind);
 	const ready = await readyConfig(deps, kind);
 	if (ready.status === "skipped") {
-		if (ready.reason === "unreadable")
+		if (ready.reason !== "disabled")
 			await record(db, kind, {
-				lastError: `${provider.label}'s saved secrets cannot be read. Enter them again in Settings.`,
-			});
-		else if (ready.reason === "not-configured")
-			await record(db, kind, {
-				lastError: `${provider.label} is missing required settings.`,
+				lastError: skippedMessage(provider.label, ready.reason),
 			});
 		return ready;
 	}
 	const cfg = ready.config;
-	let matched = 0;
 	let applied = 0;
+	/** Editions whose link this run read: a success clears their book sync failure. */
+	const seen: string[] = [];
 	try {
 		const { matching } = provider;
 		if (matching.mode === "list") {
 			const books = await matching.list(cfg);
 			const linked = await matchProviderBooks(db, kind, books);
-			matched = linked.length;
 			for (const { editionId, book } of linked) {
+				seen.push(editionId);
 				deps.signal?.throwIfAborted();
 				const result = await applyReading(db, editionId, kind, book.reading);
 				if (result.status === "applied") applied++;
@@ -275,7 +314,7 @@ export async function syncProvider(
 				if (!reading) continue;
 				if (!externalId && !(await linkByKey(db, edition.id, kind, key)))
 					continue;
-				matched++;
+				seen.push(edition.id);
 				const result = await applyReading(db, edition.id, kind, reading);
 				if (result.status === "applied") applied++;
 			}
@@ -295,19 +334,33 @@ export async function syncProvider(
 		await record(db, kind, { lastError: message });
 		return { status: "failed", message };
 	}
+	const now = new Date();
+	if (seen.length > 0)
+		await db
+			.update(progressLinks)
+			.set({ lastError: null, lastAttemptAt: now })
+			.where(
+				and(
+					eq(progressLinks.providerKind, kind),
+					inArray(progressLinks.editionId, seen),
+				),
+			);
 	await record(db, kind, {
-		lastSyncAt: new Date(),
-		lastSyncMatched: matched,
+		lastSyncAt: now,
+		lastSyncMatched: seen.length,
 		lastError: null,
 	});
-	return { status: "synced", matched, applied };
+	return { status: "synced", matched: seen.length, applied };
 }
 
 /**
  * Fetches one book's reading from every enabled, configured provider linked
  * to it (a lookup provider also tries the edition's own key when not yet
  * linked) and applies each; `applyReading` decides which one is the source.
- * Provider rows' sync status is left alone.
+ * Records each linked provider's outcome on its link: `last_attempt_at`,
+ * and `last_error` for a failure or null for a success. A rate limit is not
+ * a failure and records nothing, since the job runs again later. Provider
+ * rows' sync status is left alone.
  */
 export async function syncBook(
 	deps: SyncDeps,
@@ -344,9 +397,18 @@ export async function syncBook(
 		if (provider.matching.mode === "list" && !link) continue;
 		const ready = await readyConfig(deps, kind);
 		if (ready.status === "skipped") {
-			if (link) results.push({ kind, status: "not-configured" });
+			if (!link) continue;
+			results.push({ kind, status: "not-configured" });
+			if (ready.reason !== "disabled")
+				await recordLinkAttempt(
+					db,
+					editionId,
+					kind,
+					skippedMessage(provider.label, ready.reason),
+				);
 			continue;
 		}
+		let linked = link !== undefined;
 		try {
 			let reading: ProgressReading | null = null;
 			const { matching } = provider;
@@ -358,31 +420,32 @@ export async function syncBook(
 				const key = link?.externalId ?? (await matching.keyFor(edition));
 				if (!key || key === rejectedId) continue;
 				reading = await matching.get(ready.config, key);
-				if (reading && !link && !(await linkByKey(db, editionId, kind, key)))
-					reading = null;
+				if (reading && !link) {
+					linked = await linkByKey(db, editionId, kind, key);
+					if (!linked) reading = null;
+				}
 			}
 			if (!reading) {
 				if (link) results.push({ kind, status: "no-reading" });
-				continue;
+			} else {
+				const applied = await applyReading(db, editionId, kind, reading);
+				results.push({ kind, status: applied.status });
 			}
-			const applied = await applyReading(db, editionId, kind, reading);
-			results.push({ kind, status: applied.status });
+			if (linked) await recordLinkAttempt(db, editionId, kind, null);
 		} catch (err) {
 			if (deps.signal?.aborted) throw err;
-			results.push(
-				err instanceof RateLimitedError
-					? {
-							kind,
-							status: "rate-limited",
-							retryAfterMs: err.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS,
-							message: syncFailureMessage(provider.label, err),
-						}
-					: {
-							kind,
-							status: "failed",
-							message: syncFailureMessage(provider.label, err),
-						},
-			);
+			const message = syncFailureMessage(provider.label, err);
+			if (err instanceof RateLimitedError) {
+				results.push({
+					kind,
+					status: "rate-limited",
+					retryAfterMs: err.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS,
+					message,
+				});
+				continue;
+			}
+			results.push({ kind, status: "failed", message });
+			if (linked) await recordLinkAttempt(db, editionId, kind, message);
 		}
 	}
 	return { status: "synced", providers: results };

@@ -95,6 +95,10 @@ export const progressLinks = pgTable(
 		appliedAt: timestamp("applied_at", { withTimezone: true }),
 		/** The previous unit label, when that apply moved the position back. */
 		movedBackFrom: text("moved_back_from"),
+		/** Why the last sync of this book with this provider failed; null after a success. */
+		lastError: text("last_error"),
+		/** When this book was last synced with this provider, successfully or not. */
+		lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),

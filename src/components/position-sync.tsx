@@ -172,9 +172,13 @@ export function SyncActions({
 	);
 }
 
-/** The sync's progress or result, and errors, for screen readers too. */
+/**
+ * The sync's progress or result, and errors, for screen readers too. "Sync
+ * failed: <reason>" while the book's last sync with a provider failed, until
+ * a later sync of it succeeds.
+ */
 export function SyncMessage({ sync }: { sync: BookSync }) {
-	const { status, pending, outcome, error, unlinked } = sync;
+	const { status, pending, outcome, failure, error, unlinked } = sync;
 	if (error)
 		return (
 			<p
@@ -184,11 +188,16 @@ export function SyncMessage({ sync }: { sync: BookSync }) {
 				{error}
 			</p>
 		);
+	const quiet = status?.excluded || (!status?.linked && !pending);
+	// A failed sync stays said until a later sync of this book succeeds, but
+	// a pending sync or a position just updated says that instead.
+	const failed =
+		!unlinked && !quiet && !pending && outcome !== "updated" && !!failure;
 	const text = unlinked
 		? unlinked.auto
 			? `Unlinked from ${unlinked.label}. It won’t be matched to this book again automatically; you can link it by hand in Settings, under Reading sync.`
 			: `Unlinked from ${unlinked.label}.`
-		: status?.excluded || (!status?.linked && !pending)
+		: quiet
 			? null
 			: pending === "queued"
 				? "Sync queued…"
@@ -196,12 +205,14 @@ export function SyncMessage({ sync }: { sync: BookSync }) {
 					? "Syncing…"
 					: outcome === "updated"
 						? "Synced: position updated."
-						: outcome === "unchanged"
-							? "Synced: nothing new to apply."
-							: null;
+						: failed
+							? `Sync failed: ${failure}`
+							: outcome
+								? "Synced: nothing new to apply."
+								: null;
 	return (
 		<output
-			className="block basis-full text-xs text-muted-foreground empty:hidden"
+			className={`block basis-full text-xs empty:hidden ${failed ? "text-destructive-foreground" : "text-muted-foreground"}`}
 			data-testid="book-sync-message"
 		>
 			{text}

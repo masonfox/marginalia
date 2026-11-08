@@ -25,8 +25,18 @@ export interface SyncStatus {
 	/** The previous unit label, when that sync moved the position back. */
 	movedBackFrom: string | null;
 	excluded: boolean;
-	/** The edition's live links (rejected ones left out), in priority order. */
-	links: { kind: ProviderKind; matchedBy: LinkMatchedBy; enabled: boolean }[];
+	/**
+	 * The edition's live links (rejected ones left out), in priority order,
+	 * each with why its last book sync failed (null after a success) and when
+	 * it was last tried.
+	 */
+	links: {
+		kind: ProviderKind;
+		matchedBy: LinkMatchedBy;
+		enabled: boolean;
+		lastError: string | null;
+		lastAttemptAt: Date | null;
+	}[];
 }
 
 /**
@@ -62,6 +72,8 @@ export async function getSyncStatus(
 				appliedReading: progressLinks.appliedReading,
 				appliedAt: progressLinks.appliedAt,
 				movedBackFrom: progressLinks.movedBackFrom,
+				lastError: progressLinks.lastError,
+				lastAttemptAt: progressLinks.lastAttemptAt,
 			})
 			.from(progressLinks)
 			.innerJoin(
@@ -83,11 +95,15 @@ export async function getSyncStatus(
 		appliedAt: null,
 		movedBackFrom: null,
 		excluded: edition.excluded,
-		links: links.map(({ kind, matchedBy, enabled }) => ({
-			kind,
-			matchedBy,
-			enabled,
-		})),
+		links: links.map(
+			({ kind, matchedBy, enabled, lastError, lastAttemptAt }) => ({
+				kind,
+				matchedBy,
+				enabled,
+				lastError,
+				lastAttemptAt,
+			}),
+		),
 	};
 	if (row) {
 		if (row.source === "manual") return { ...status, source: "manual" };

@@ -23,7 +23,14 @@ interface BookSync {
 	movedBackFrom: string | null;
 	excluded: boolean;
 	linked: boolean;
-	links: { kind: "hardcover" | "bookorbit"; label: string; auto: boolean }[];
+	links: {
+		kind: "hardcover" | "bookorbit";
+		label: string;
+		auto: boolean;
+		enabled?: boolean;
+		lastError?: string | null;
+		lastAttemptAt?: Date | null;
+	}[];
 	pending: "queued" | "active" | null;
 }
 
@@ -318,6 +325,77 @@ describe("Per-book sync actions", () => {
 		expect(document.querySelector('[role="alert"]')?.textContent).toBe(
 			"Could not start a sync. Please try again.",
 		);
+	});
+});
+
+describe("Book sync fails", () => {
+	// The same applied time throughout: these syncs apply nothing new.
+	const appliedAt = new Date(Date.now() - 2 * HOUR);
+	const REJECTED =
+		"Hardcover rejected the credentials. Check them in Settings.";
+	const failing = (attempt: Date) =>
+		synced({
+			appliedAt,
+			links: [
+				{
+					kind: "hardcover",
+					label: "Hardcover",
+					auto: true,
+					enabled: true,
+					lastError: REJECTED,
+					lastAttemptAt: attempt,
+				},
+			],
+		});
+	const succeeded = (attempt: Date) =>
+		synced({
+			appliedAt,
+			links: [
+				{
+					kind: "hardcover",
+					label: "Hardcover",
+					auto: true,
+					enabled: true,
+					lastError: null,
+					lastAttemptAt: attempt,
+				},
+			],
+		});
+
+	it("says the sync failed and why, instead of nothing new to apply", async () => {
+		await render(at(3), succeeded(new Date(Date.now() - HOUR)));
+		expect(text("book-sync-message")).toBe("");
+		mocks.syncBook.mockResolvedValue({ queued: true });
+		mocks.status = { ...failing(new Date()), pending: "active" };
+		await click("Sync");
+		expect(text("book-sync-message")).toBe("Syncing…");
+
+		mocks.status = failing(new Date());
+		await poll();
+		expect(text("book-sync-message")).toBe(`Sync failed: ${REJECTED}`);
+		expect(document.body.textContent).not.toContain("nothing new to apply");
+	});
+
+	it("keeps saying so until a later sync of the book succeeds", async () => {
+		await render(at(3), failing(new Date(Date.now() - HOUR)));
+		expect(text("book-sync-message")).toBe(`Sync failed: ${REJECTED}`);
+
+		mocks.syncBook.mockResolvedValue({ queued: true });
+		mocks.status = succeeded(new Date());
+		await click("Sync");
+		expect(text("book-sync-message")).toBe("Synced: nothing new to apply.");
+		expect(document.body.textContent).not.toContain("Sync failed");
+	});
+
+	it("says nothing about a failure on a disabled provider", async () => {
+		const status = failing(new Date());
+		await render(
+			at(3),
+			synced({
+				links: status.links.map((l) => ({ ...l, enabled: false })),
+			}),
+		);
+		expect(text("book-sync-message")).toBe("");
 	});
 });
 

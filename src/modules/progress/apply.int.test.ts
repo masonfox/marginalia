@@ -302,7 +302,15 @@ describe("sync details on the link", () => {
 			appliedAt: l?.appliedAt,
 			movedBackFrom: null,
 			excluded: false,
-			links: [{ kind: "hardcover", matchedBy: "auto", enabled: true }],
+			links: [
+				{
+					kind: "hardcover",
+					matchedBy: "auto",
+					enabled: true,
+					lastError: null,
+					lastAttemptAt: null,
+				},
+			],
 		});
 	});
 

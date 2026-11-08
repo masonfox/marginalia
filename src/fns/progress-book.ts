@@ -36,12 +36,21 @@ export const getBookSyncFn = createServerFn({ method: "GET" })
 					? getProvider(rest.source).label
 					: null,
 			linked: links.some((l) => l.enabled),
-			/** Auto and manual links (never rejected ones), for "Unlink from …". */
-			links: links.map(({ kind, matchedBy }) => ({
-				kind,
-				label: getProvider(kind).label,
-				auto: matchedBy === "auto",
-			})),
+			/**
+			 * Auto and manual links (never rejected ones), for "Unlink from …",
+			 * with why the last sync of this book failed (null after a success)
+			 * and when it was last tried.
+			 */
+			links: links.map(
+				({ kind, matchedBy, enabled, lastError, lastAttemptAt }) => ({
+					kind,
+					label: getProvider(kind).label,
+					auto: matchedBy === "auto",
+					enabled,
+					lastError,
+					lastAttemptAt,
+				}),
+			),
 			pending,
 		};
 	});

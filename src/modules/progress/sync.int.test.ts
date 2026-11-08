@@ -409,6 +409,125 @@ describe("progress-sync-book job", () => {
 		// A book sync leaves the providers' sync status alone.
 		expect((await providerRow("hardcover"))?.lastSyncAt).toBeNull();
 	});
+
+	it("records a failed book sync on its link until a later sync succeeds", async () => {
+		await configure("hardcover", true);
+		const id = await book();
+		await t.db.insert(progressLinks).values({
+			editionId: id,
+			providerKind: "hardcover",
+			externalId: "hc-7",
+			matchedBy: "manual",
+		});
+		const link = async () => {
+			const [row] = await t.db
+				.select()
+				.from(progressLinks)
+				.where(eq(progressLinks.editionId, id));
+			return row;
+		};
+		const deps = { db: t.db, secret, provider: fakeProvider };
+
+		list.mockRejectedValue(
+			new ProviderError("rejected", "Hardcover rejected the API token"),
+		);
+		await expect(runBookSyncJob(deps, id)).rejects.toThrow(
+			"Hardcover rejected the credentials. Check them in Settings.",
+		);
+		const failed = await link();
+		expect(failed?.lastError).toBe(
+			"Hardcover rejected the credentials. Check them in Settings.",
+		);
+		expect(failed?.lastAttemptAt).toBeInstanceOf(Date);
+
+		// A rate limit defers the job and is not a failure: nothing recorded.
+		list.mockRejectedValue(new RateLimitedError("429", 1_000));
+		await expect(runBookSyncJob(deps, id)).rejects.toThrow("rate limited");
+		expect(await link()).toMatchObject({
+			lastError: failed?.lastError,
+			lastAttemptAt: failed?.lastAttemptAt,
+		});
+
+		// An error that is not a provider's own keeps no secret.
+		list.mockRejectedValue(new Error("boom with token hc-token-0123456789"));
+		await expect(runBookSyncJob(deps, id)).rejects.toThrow();
+		expect((await link())?.lastError).not.toContain("hc-token-0123456789");
+
+		list.mockResolvedValue([
+			{
+				externalId: "hc-7",
+				isbns: [],
+				ids: {},
+				title: "Linked",
+				reading: finished,
+			},
+		]);
+		await runBookSyncJob(deps, id);
+		const cleared = await link();
+		expect(cleared?.lastError).toBeNull();
+		expect(cleared?.lastAttemptAt?.getTime()).toBeGreaterThanOrEqual(
+			failed?.lastAttemptAt?.getTime() ?? Number.POSITIVE_INFINITY,
+		);
+		expect((await providerRow("hardcover"))?.lastError).toBeNull();
+	});
+
+	it("records a linked provider whose secrets cannot be read", async () => {
+		await configure("hardcover", true);
+		const id = await book();
+		await t.db.insert(progressLinks).values({
+			editionId: id,
+			providerKind: "hardcover",
+			externalId: "hc-8",
+			matchedBy: "manual",
+		});
+		await runBookSyncJob(
+			{
+				db: t.db,
+				secret: Buffer.alloc(32, 9).toString("base64"),
+				provider: fakeProvider,
+			},
+			id,
+		);
+		const [row] = await t.db
+			.select()
+			.from(progressLinks)
+			.where(eq(progressLinks.editionId, id));
+		expect(row?.lastError).toBe(
+			"Hardcover's saved secrets cannot be read. Enter them again in Settings.",
+		);
+		expect(list).not.toHaveBeenCalled();
+	});
+
+	it("clears a book's failure when a provider sync reads its link", async () => {
+		await configure("hardcover", true);
+		const id = await book();
+		await t.db.insert(progressLinks).values({
+			editionId: id,
+			providerKind: "hardcover",
+			externalId: "hc-6",
+			matchedBy: "manual",
+			lastError: "Hardcover rejected the credentials. Check them in Settings.",
+		});
+		list.mockResolvedValue([
+			{
+				externalId: "hc-6",
+				isbns: [],
+				ids: {},
+				title: "Linked",
+				reading: finished,
+			},
+		]);
+		await runProviderSyncJob(
+			{ db: t.db, secret, provider: fakeProvider },
+			"hardcover",
+		);
+		const [row] = await t.db
+			.select()
+			.from(progressLinks)
+			.where(eq(progressLinks.editionId, id));
+		expect(row?.lastError).toBeNull();
+		expect(row?.lastAttemptAt).toBeInstanceOf(Date);
+	});
 });
 
 describe("lookupCandidates", () => {
