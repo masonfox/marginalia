@@ -653,6 +653,42 @@ describe("one generation across threads", () => {
 		await mainResponse.text();
 		await mainCount(id, 4);
 	});
+
+	it("lets only one of several concurrent quoted sends generate", async () => {
+		const model = scripted([textReply("Answer.")]);
+		const { id, reply } = await withAnswer(model);
+		const before = await counts(id);
+		let release = () => {};
+		const gate = new Promise<void>((r) => {
+			release = r;
+		});
+		const slow = scripted([textReply("Slow.")], gate);
+		const quoted = (message: string) =>
+			startChat(deps(runtime(slow)), {
+				conversationId: id,
+				message,
+				replyContext: { messageId: reply, text: "Answer." },
+			});
+		const results = await Promise.all(
+			["A", "B", "C", "D", "E"].map((m) => quoted(m)),
+		);
+		expect(results.map((r) => r.status).sort()).toEqual([
+			"busy",
+			"busy",
+			"busy",
+			"busy",
+			"ok",
+		]);
+		const ok = results.find((r) => r.status === "ok");
+		release();
+		if (ok?.status === "ok") await ok.response.text();
+		await mainCount(id, 4);
+		expect(slow.doStreamCalls).toHaveLength(1);
+		expect(await counts(id)).toEqual({
+			threads: before?.threads,
+			messages: (before?.messages ?? 0) + 2,
+		});
+	});
 });
 
 const res = (chunks: { type: string; data?: unknown }[]) =>

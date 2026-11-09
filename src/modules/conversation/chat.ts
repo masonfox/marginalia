@@ -193,7 +193,6 @@ export async function startChat(
 			return { status: "passage_out_of_scope", unitLabel: check.unitLabel };
 		passage = check.snapshot;
 	}
-	if (inFlight.has(conversation.id)) return { status: "busy" };
 	if (input.replyContext) {
 		const context = replyContextSchema.safeParse(input.replyContext);
 		if (
@@ -209,6 +208,8 @@ export async function startChat(
 			return { status: "invalid_context" };
 		input = { ...input, replyContext: context.data };
 	}
+	// No await between the check and the add, so concurrent sends cannot both pass.
+	if (inFlight.has(conversation.id)) return { status: "busy" };
 	inFlight.add(conversation.id);
 	try {
 		const prepared = await prepareHistory(db, conversation, input.message, {
