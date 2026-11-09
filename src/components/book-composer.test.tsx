@@ -69,7 +69,13 @@ vi.mock("#/fns/guide", () => ({
 	getReadingPositionFn: vi.fn(),
 	setReadingPositionFn: vi.fn(),
 }));
-vi.mock("#/fns/settings", () => ({ listModelsFn: vi.fn() }));
+vi.mock("#/fns/settings", () => ({
+	listModelsFn: vi.fn(),
+	getDiscussionPromptFn: vi.fn(async () => ({
+		mode: "default",
+		text: "policy",
+	})),
+}));
 vi.mock("#/fns/library", () => ({
 	listShelfFn: (...args: unknown[]) => mocks.shelf(...args),
 	getEditionFn: (...args: unknown[]) => mocks.edition(...args),
@@ -178,15 +184,18 @@ const refuseExecCommand = () => {
 	return execCommand;
 };
 
-const render = (node: ReactNode) =>
-	act(() =>
+const render = (node: ReactNode) => {
+	const client = new QueryClient();
+	client.setQueryData(["discussion-prompt"], {
+		mode: "default",
+		text: "policy",
+	});
+	return act(() =>
 		root.render(
-			<QueryClientProvider client={new QueryClient()}>
-				{node}
-			</QueryClientProvider>,
+			<QueryClientProvider client={client}>{node}</QueryClientProvider>,
 		),
 	);
-
+};
 const byTestId = (id: string) =>
 	document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 /** A button by its accessible name, or the start of its text. */

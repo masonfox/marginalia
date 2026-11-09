@@ -3,6 +3,8 @@ import {
 	BOOK_MAP_CHARS,
 	buildBookMapMessage,
 	buildSystemPrompt,
+	effectiveDiscussionText,
+	effectivePromptIdentity,
 	PROMPT_VERSION,
 	type PromptBook,
 	renderBookBlock,
@@ -137,7 +139,7 @@ describe("scope in the system prompt", () => {
 	});
 
 	it("changed the prompt version", () => {
-		expect(PROMPT_VERSION).toBe("7");
+		expect(PROMPT_VERSION).toBe("8");
 	});
 });
 
@@ -338,5 +340,70 @@ describe("reader content in the system prompt", () => {
 
 	it("contains no reader text", () => {
 		expect(prompt).not.toContain("source=");
+	});
+});
+
+describe("effective discussion identity", () => {
+	const books = [
+		{ ordinal: 0, title: "A book", authors: [], scopeLabel: "Chapter 2" },
+	];
+	it("distinguishes mode and every custom edit without volatile inputs", () => {
+		const text = "My policy";
+		expect(effectivePromptIdentity(text, "custom")).toBe(
+			effectivePromptIdentity(text, "custom"),
+		);
+		expect(effectivePromptIdentity(text, "custom")).toMatch(
+			/^8:custom:[a-f0-9]{64}$/,
+		);
+		expect(effectivePromptIdentity(text, "custom")).not.toBe(
+			effectivePromptIdentity(`${text} `, "custom"),
+		);
+		expect(effectivePromptIdentity(text, "custom")).not.toBe(
+			effectivePromptIdentity(text, "default"),
+		);
+		expect(
+			buildSystemPrompt(books, { maxSteps: 4, discussionPrompt: text }),
+		).toBe(
+			buildSystemPrompt(structuredClone(books), {
+				maxSteps: 4,
+				discussionPrompt: text,
+			}),
+		);
+		expect(effectiveDiscussionText(books, text)).toBe(text);
+	});
+});
+
+describe("final-step discussion policy ownership", () => {
+	const books = [
+		{ ordinal: 0, title: "A book", authors: [], scopeLabel: "Chapter 2" },
+	];
+	const restriction =
+		"answer from what you have retrieved, and say what you did not get to read";
+	it("allows Custom knowledge and spoilers with a one-step budget without higher-priority grounding", () => {
+		const custom =
+			"Answer from your own knowledge, including later events. Do not discuss retrieval limitations.";
+		const prompt = buildSystemPrompt(books, {
+			maxSteps: 1,
+			discussionPrompt: custom,
+		});
+		expect(prompt).toContain(custom);
+		expect(prompt).toContain(
+			"You have 1 turns per reply; tools are available on all but the last.",
+		);
+		expect(prompt).toContain("On your final turn tools are unavailable");
+		expect(prompt).not.toContain(restriction);
+		expect(prompt).not.toContain(
+			"Read only what you need to ground the answer",
+		);
+		expect(prompt).not.toContain("Do not reveal, hint at, or speculate");
+	});
+	it("retains Default final-step grounding and disclosure in editable policy", () => {
+		const prompt = buildSystemPrompt(books, { maxSteps: 1 });
+		const [technical, policy] = prompt.split("# Discussion instructions");
+		expect(technical).toContain("On your final turn tools are unavailable");
+		expect(technical).not.toContain(restriction);
+		expect(policy).toContain(restriction);
+		expect(policy).toContain("Read only what you need to ground the answer");
+		expect(policy).toContain("Retrieve before you claim");
 	});
 });

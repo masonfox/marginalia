@@ -22,4 +22,10 @@ export {
 	saveChatDefault,
 	savePreprocessDefault,
 } from "./defaults";
+export {
+	getDiscussionPrompt,
+	getDiscussionPromptOverride,
+	resetDiscussionPrompt,
+	saveDiscussionPrompt,
+} from "./discussion";
 export * from "./schema";

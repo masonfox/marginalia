@@ -28,6 +28,8 @@ import {
 	widenScopeFn,
 } from "#/fns/conversations";
 import { getReadingPositionFn } from "#/fns/guide";
+import { getDiscussionPromptFn } from "#/fns/settings";
+import type { DiscussionPromptMode } from "#/lib/conversation-prompt";
 import type { PassageRef } from "#/lib/passage-ref";
 import type { ReadingUnit } from "#/modules/catalog";
 import type { ConversationBook, Scope } from "#/modules/conversation";
@@ -322,11 +324,21 @@ function quotedList(items: string[]): string {
  * order as `labels`) and both whole-book and bounded books, the warning names
  * the books the assistant may reveal in full and the others with their scopes.
  */
+export function PromptScopeNotice(props: Parameters<typeof ScopeNotice>[0]) {
+	const { data } = useQuery({
+		queryKey: ["discussion-prompt"],
+		queryFn: () => getDiscussionPromptFn(),
+	});
+	return <ScopeNotice {...props} mode={data?.mode ?? null} />;
+}
+
 export function ScopeNotice({
 	labels,
 	titles,
 	plain = false,
+	mode = "default",
 }: {
+	mode?: DiscussionPromptMode | null;
 	labels: (string | null)[];
 	titles?: string[];
 	/** A quiet line without the box, for the conversation header. */
@@ -357,6 +369,30 @@ export function ScopeNotice({
 			<span>{children}</span>
 		</p>
 	);
+	if (mode !== "default") {
+		const access = labels
+			.map((label, i) => {
+				const book = titles?.[i]
+					? `“${titles[i]}”`
+					: labels.length === 1
+						? "the book"
+						: `book ${i + 1}`;
+				return label === null
+					? `${book} in full (the assistant may reveal any part)`
+					: `${book} only through “${label}”`;
+			})
+			.join("; ");
+		return notice(
+			labels.some((l) => l === null) ? "spoiler-notice" : "scope-note",
+			TriangleAlert,
+			<>
+				Retrieval access: {access}.{" "}
+				{mode === "custom"
+					? "Spoiler behavior follows your custom prompt; the assistant may know later events from its training."
+					: "Spoiler instructions are loading; the assistant may know the book from its training."}
+			</>,
+		);
+	}
 	if (titles?.length === labels.length) {
 		const whole = titles.filter((_, i) => labels[i] === null);
 		const bounded = titles.flatMap((title, i) => {
@@ -515,7 +551,9 @@ export function NewConversationDialog({
 						}}
 					/>
 				)}
-				{chosenLabel !== undefined && <ScopeNotice labels={[chosenLabel]} />}
+				{chosenLabel !== undefined && (
+					<PromptScopeNotice labels={[chosenLabel]} />
+				)}
 				{aiStatus.data?.enabled && (
 					<div className="space-y-1" data-testid="new-conversation-model">
 						<p className="text-sm font-medium">Model</p>

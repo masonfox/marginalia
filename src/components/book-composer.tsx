@@ -26,7 +26,7 @@ import {
 	type Choice,
 	positionChoice,
 	ScopeChoices,
-	ScopeNotice,
+	PromptScopeNotice as ScopeNotice,
 	STALE,
 	scopeText,
 	toScope,
@@ -115,8 +115,8 @@ export function ScopeStrip({
 					aria-hidden
 				/>
 				<p className="min-w-0 flex-1">
-					How far have you read? The assistant reads only that far, so it does
-					not spoil what comes next.
+					How far have you read? The assistant reads only that far, and your
+					discussion prompt governs spoiler behavior.
 				</p>
 				<Button
 					type="button"

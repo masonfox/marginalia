@@ -134,6 +134,13 @@
       "when": 1793916387108,
       "tag": "0018_red_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794063783075,
+      "tag": "0019_silly_toad",
+      "breakpoints": true
     }
   ]
 }

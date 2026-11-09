@@ -30,7 +30,13 @@ vi.mock("#/fns/conversations", () => ({
 	})),
 	widenScopeFn: mocks.widen,
 }));
-vi.mock("#/fns/settings", () => ({ listModelsFn: vi.fn() }));
+vi.mock("#/fns/settings", () => ({
+	listModelsFn: vi.fn(),
+	getDiscussionPromptFn: vi.fn(async () => ({
+		mode: "default",
+		text: "policy",
+	})),
+}));
 vi.mock("#/fns/guide", () => ({
 	getReadingPositionFn: mocks.position,
 	setReadingPositionFn: vi.fn(),
@@ -509,5 +515,27 @@ describe("ScopeNotice", () => {
 	it("falls back to the whole-book warning when titles are not given", async () => {
 		const { spoiler } = await notice({ labels: ["Chapter 4", null] });
 		expect(spoiler?.textContent).toContain("may reveal later events");
+	});
+});
+
+describe("Custom scope notices", () => {
+	it.each([
+		{ labels: ["Chapter 2"], titles: ["Bounded"] },
+		{ labels: [null], titles: ["Whole"] },
+		{ labels: ["Chapter 2", null], titles: ["Bounded", "Whole"] },
+	])("states retrieval and custom spoiler behavior for $titles", async (props) => {
+		const at = await render(
+			createElement(ScopeNotice, { ...props, mode: "custom" }),
+		);
+		expect(at.textContent).toContain("Retrieval access:");
+		expect(at.textContent).toContain(
+			"Spoiler behavior follows your custom prompt",
+		);
+		expect(at.textContent).not.toContain("told not to discuss later events");
+		for (const title of props.titles) expect(at.textContent).toContain(title);
+		if (props.labels.includes(null))
+			expect(at.textContent).toContain("in full");
+		if (props.labels.includes("Chapter 2"))
+			expect(at.textContent).toContain("only through");
 	});
 });

@@ -45,7 +45,11 @@ import {
 	SaveNoteBookDialog,
 } from "#/components/reply-selection";
 import { ResearchTrail, type TrailContext } from "#/components/research-trail";
-import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
+import {
+	PromptScopeNotice as ScopeNotice,
+	scopeText,
+	WidenScope,
+} from "#/components/scope";
 import { Button } from "#/components/ui/button";
 import {
 	Dialog,
