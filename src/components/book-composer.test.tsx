@@ -694,6 +694,7 @@ describe("Composer with several books", () => {
 		matching: null,
 		needsAttention: null,
 		processing: null,
+		statusCounts: null,
 	});
 
 	const row = (editionId: string) => {

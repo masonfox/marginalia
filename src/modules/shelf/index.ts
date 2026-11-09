@@ -13,4 +13,5 @@ export {
 	type ShelfItem,
 	type ShelfPage,
 	type ShelfQuery,
+	type StatusCounts,
 } from "./list";

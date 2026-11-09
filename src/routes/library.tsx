@@ -2,7 +2,6 @@ import {
 	infiniteQueryOptions,
 	keepPreviousData,
 	useInfiniteQuery,
-	useQueries,
 	useQueryClient,
 } from "@tanstack/react-query";
 import {
@@ -102,25 +101,11 @@ function LibraryPage() {
 	const first = pages[0];
 	const items = pages.flatMap((p) => p.items);
 	const total = first?.total ?? 0;
-	const counts = useQueries({
-		queries: SHELF_FILTERS.filter((value) => value !== "attention").map(
-			(value) => ({
-				queryKey: ["shelf", "count", value],
-				queryFn: () => listShelfFn({ data: { status: value } }),
-				refetchInterval: (first?.processing ?? 0) > 0 ? 3000 : false,
-			}),
-		),
-	});
 	const filterCounts: Partial<Record<ShelfFilter | "all", number>> = {
 		all: total,
 		attention: first?.needsAttention ?? 0,
+		...first?.statusCounts,
 	};
-	for (const [i, value] of (
-		["not-started", "reading", "finished"] as const
-	).entries()) {
-		const count = counts[i]?.data?.matching;
-		if (count != null) filterCounts[value] = count;
-	}
 	const matching = first?.matching ?? 0;
 	const narrowed = Boolean(q?.trim()) || status !== undefined;
 	const setQuery = useCallback(

@@ -3,7 +3,7 @@
  *
  * The reader's choice is kept in this browser under THEME_STORAGE_KEY. The
  * default, "system", follows the OS light/dark preference and changes with it;
- * sepia is only ever an explicit choice. THEME_INIT_SCRIPT applies the theme
+ * the light-side theme defaults to Light. THEME_INIT_SCRIPT applies the theme
  * from <head> before first paint; this module keeps it in step afterwards.
  */
 import { useEffect, useSyncExternalStore } from "react";
@@ -11,8 +11,21 @@ import { useEffect, useSyncExternalStore } from "react";
 export const THEMES = ["light", "sepia", "dark"] as const;
 export type Theme = (typeof THEMES)[number];
 export type ThemeChoice = Theme | "system";
+export type SystemLightTheme = "light" | "sepia";
 
 export const THEME_STORAGE_KEY = "marginalia:theme";
+export const SYSTEM_LIGHT_THEME_STORAGE_KEY = "marginalia:system-light-theme";
+
+export function readSystemLightTheme(): SystemLightTheme {
+	try {
+		return window.localStorage.getItem(SYSTEM_LIGHT_THEME_STORAGE_KEY) ===
+			"sepia"
+			? "sepia"
+			: "light";
+	} catch {
+		return "light";
+	}
+}
 
 /** Each theme's --background, for <meta name="theme-color">. */
 export const THEME_COLORS: Record<Theme, string> = {
@@ -51,9 +64,13 @@ export function systemPrefersDark(): boolean {
 	);
 }
 
-export function resolveTheme(choice: ThemeChoice, prefersDark: boolean): Theme {
+export function resolveTheme(
+	choice: ThemeChoice,
+	prefersDark: boolean,
+	lightTheme: SystemLightTheme = "light",
+): Theme {
 	if (choice !== "system") return choice;
-	return prefersDark ? "dark" : "light";
+	return prefersDark ? "dark" : lightTheme;
 }
 
 /** Sets data-theme, color-scheme, and the theme-color meta on the document. */
@@ -74,12 +91,17 @@ export function applyTheme(theme: Theme, doc: Document = document) {
  * Runs inline in <head> before the stylesheet paints. Self-contained: it
  * mirrors readThemeChoice, resolveTheme, and applyTheme above.
  */
-export const THEME_INIT_SCRIPT = `(function(){try{var k=${JSON.stringify(THEME_STORAGE_KEY)},c=${JSON.stringify(THEME_COLORS)},t=null;try{t=localStorage.getItem(k)}catch(e){}if(!Object.prototype.hasOwnProperty.call(c,t)){t=window.matchMedia&&window.matchMedia(${JSON.stringify(DARK_QUERY)}).matches?"dark":"light"}var d=document.documentElement;d.setAttribute("data-theme",t);d.style.colorScheme=t==="dark"?"dark":"light";var m=document.querySelector('meta[name="theme-color"]');if(!m){m=document.createElement("meta");m.name="theme-color";document.head.appendChild(m)}m.content=c[t]}catch(e){}})();`;
+export const THEME_INIT_SCRIPT = `(function(){try{var k=${JSON.stringify(THEME_STORAGE_KEY)},c=${JSON.stringify(THEME_COLORS)},t=null,l="light";try{t=localStorage.getItem(k)}catch(e){}try{if(localStorage.getItem(${JSON.stringify(SYSTEM_LIGHT_THEME_STORAGE_KEY)})==="sepia")l="sepia"}catch(e){}if(!Object.prototype.hasOwnProperty.call(c,t)){t=window.matchMedia&&window.matchMedia(${JSON.stringify(DARK_QUERY)}).matches?"dark":l}var d=document.documentElement;d.setAttribute("data-theme",t);d.style.colorScheme=t==="dark"?"dark":"light";var m=document.querySelector('meta[name="theme-color"]');if(!m){m=document.createElement("meta");m.name="theme-color";document.head.appendChild(m)}m.content=c[t]}catch(e){}})();`;
 
 // A small store so every control showing the theme stays in step, across
 // components and across tabs.
 
 let choice: ThemeChoice | null = null;
+let lightTheme: SystemLightTheme | null = null;
+const currentSystemLightTheme = () => {
+	lightTheme ??= readSystemLightTheme();
+	return lightTheme;
+};
 const listeners = new Set<() => void>();
 
 const currentChoice = () => {
@@ -91,17 +113,35 @@ const currentTheme = (): Theme => {
 	const applied = document.documentElement.dataset.theme;
 	return isTheme(applied)
 		? applied
-		: resolveTheme(currentChoice(), systemPrefersDark());
+		: resolveTheme(
+				currentChoice(),
+				systemPrefersDark(),
+				currentSystemLightTheme(),
+			);
 };
 
 function sync() {
-	applyTheme(resolveTheme(currentChoice(), systemPrefersDark()));
+	applyTheme(
+		resolveTheme(
+			currentChoice(),
+			systemPrefersDark(),
+			currentSystemLightTheme(),
+		),
+	);
 	for (const listener of listeners) listener();
 }
 
 function onStorage(event: StorageEvent) {
-	if (event.key !== THEME_STORAGE_KEY && event.key !== null) return;
-	choice = readThemeChoice();
+	if (
+		event.key !== THEME_STORAGE_KEY &&
+		event.key !== SYSTEM_LIGHT_THEME_STORAGE_KEY &&
+		event.key !== null
+	)
+		return;
+	if (event.key === THEME_STORAGE_KEY || event.key === null)
+		choice = readThemeChoice();
+	if (event.key === SYSTEM_LIGHT_THEME_STORAGE_KEY || event.key === null)
+		lightTheme = readSystemLightTheme();
 	sync();
 }
 
@@ -127,6 +167,24 @@ export function setThemeChoice(next: ThemeChoice) {
 	sync();
 }
 
+export function setSystemLightTheme(next: SystemLightTheme) {
+	lightTheme = next;
+	try {
+		window.localStorage.setItem(SYSTEM_LIGHT_THEME_STORAGE_KEY, next);
+	} catch {
+		// Keep the preference for this session when storage is unavailable.
+	}
+	sync();
+}
+
+export function useSystemLightTheme(): SystemLightTheme {
+	return useSyncExternalStore(
+		subscribe,
+		currentSystemLightTheme,
+		() => "light",
+	);
+}
+
 /** The reader's choice; "system" during server rendering. */
 export function useThemeChoice(): ThemeChoice {
 	return useSyncExternalStore(subscribe, currentChoice, () => "system");
@@ -146,4 +204,5 @@ export function ThemeSync() {
 /** For tests: forget the cached choice. */
 export function resetThemeStoreForTests() {
 	choice = null;
+	lightTheme = null;
 }
