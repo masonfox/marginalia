@@ -133,17 +133,37 @@ interface ChatBody {
 }
 
 /**
+ * How the next chat request fails: `reject` answers 500 before storing
+ * anything; `abort` stores the new thread and the user message, then drops
+ * the connection before any response (so no thread header or part arrives);
+ * `stream-error` stores them, streams the thread part, then an error.
+ */
+type ChatFailure = "reject" | "abort" | "stream-error";
+
+/**
  * Stands in for the chat endpoint: stores the user message and the reply
  * (creating a new thread first), then streams the reply, starting with the
- * thread chunk on a thread turn. `hold` delays the reply until released.
+ * thread chunk on a thread turn. A retry (no message) stores only the reply.
+ * `hold` delays the reply until released; `failNext` fails the next request.
  */
 async function fakeChat(page: Page, reply = "A thread answer.") {
 	const bodies: ChatBody[] = [];
 	let hold: Promise<void> | null = null;
 	let release = () => {};
+	let failure: ChatFailure | null = null;
 	await page.route("**/api/chat", async (route: Route) => {
 		const body = route.request().postDataJSON() as ChatBody;
 		bodies.push(body);
+		const fail = failure;
+		failure = null;
+		if (fail === "reject") {
+			await route.fulfill({
+				status: 500,
+				contentType: "application/json",
+				body: JSON.stringify({ error: "Rejected before storage" }),
+			});
+			return;
+		}
 		let threadId = body.threadId ?? null;
 		if (body.newThread) {
 			threadId = randomUUID();
@@ -157,26 +177,57 @@ async function fakeChat(page: Page, reply = "A thread answer.") {
 				],
 			);
 		}
-		const seq = await nextSeq(body.conversationId);
-		await db.query(
-			"insert into messages (conversation_id,thread_id,seq,role,parts) values ($1,$2,$3,'user',$4)",
-			[
-				body.conversationId,
-				threadId,
-				seq,
-				JSON.stringify([
-					...(body.replyContext
-						? [
-								{
-									type: "data-reply-context",
-									data: { version: 1, ...body.replyContext },
-								},
-							]
-						: []),
-					{ type: "text", text: body.message },
-				]),
-			],
-		);
+		let seq = await nextSeq(body.conversationId);
+		if (body.message !== undefined) {
+			await db.query(
+				"insert into messages (conversation_id,thread_id,seq,role,parts) values ($1,$2,$3,'user',$4)",
+				[
+					body.conversationId,
+					threadId,
+					seq++,
+					JSON.stringify([
+						...(body.replyContext
+							? [
+									{
+										type: "data-reply-context",
+										data: { version: 1, ...body.replyContext },
+									},
+								]
+							: []),
+						{ type: "text", text: body.message },
+					]),
+				],
+			);
+		}
+		if (fail === "abort") {
+			await route.abort();
+			return;
+		}
+		if (fail === "stream-error") {
+			const chunks = [
+				{ type: "start" },
+				...(threadId
+					? [{ type: "data-thread", data: { threadId }, transient: true }]
+					: []),
+				{ type: "error", errorText: "The reply failed." },
+			];
+			await route.fulfill({
+				status: 200,
+				contentType: "text/event-stream",
+				headers: {
+					"x-vercel-ai-ui-message-stream": "v1",
+					...(threadId && { "x-marginalia-thread-id": threadId }),
+				},
+				body: chunks
+					.map(
+						(c) => `data: ${JSON.stringify(c)}
+
+`,
+					)
+					.join(""),
+			});
+			return;
+		}
 		const replyId = randomUUID();
 		await db.query(
 			"insert into messages (id,conversation_id,thread_id,seq,role,parts,finish_reason) values ($1,$2,$3,$4,'assistant',$5,'stop')",
@@ -184,7 +235,7 @@ async function fakeChat(page: Page, reply = "A thread answer.") {
 				replyId,
 				body.conversationId,
 				threadId,
-				seq + 1,
+				seq,
 				JSON.stringify([{ type: "text", text: reply }]),
 			],
 		);
@@ -226,7 +277,23 @@ async function fakeChat(page: Page, reply = "A thread answer.") {
 			});
 			return () => release();
 		},
+		/** Fails the next request the given way. */
+		failNext(mode: ChatFailure) {
+			failure = mode;
+		},
 	};
+}
+
+/** The conversation's threads, with how many reader messages and replies each holds. */
+async function storedThreads(conversationId: string) {
+	const { rows } = await db.query(
+		`select t.id,
+			(select count(*)::int from messages m where m.thread_id = t.id and m.role = 'user') as readers,
+			(select count(*)::int from messages m where m.thread_id = t.id and m.role = 'assistant') as replies
+		from conversation_threads t where t.conversation_id = $1`,
+		[conversationId],
+	);
+	return rows as { id: string; readers: number; replies: number }[];
 }
 
 /** Selects `text` inside the first element matching `selector`, as a reader would. */
@@ -523,6 +590,132 @@ test.describe("side threads", () => {
 			await expect(threadInput(page)).toHaveValue("A draft that must survive");
 			expect((await panel(page).boundingBox())?.width).toBeLessThan(600);
 			await expect(mainInput(page)).toBeVisible();
+		} finally {
+			await removeConversation(id);
+		}
+	});
+	/** Opens a new thread on "every word" and sends its first message. */
+	async function sendFirstThreadMessage(page: Page, reply: string) {
+		await select(page, `[data-reply-source="${reply}"]`, "every word");
+		await page.getByRole("button", { name: "Thread", exact: true }).click();
+		await expect(panel(page)).toBeVisible();
+		await threadInput(page).fill("What does he want with them?");
+		await threadSend(page).click();
+	}
+	const retryButton = (page: Page) =>
+		panel(page).getByRole("button", { name: "Retry", exact: true });
+
+	test("Retry after a new thread's reply fails continues the created thread without sending the message again", async ({
+		page,
+	}) => {
+		const { id, reply } = await conversation();
+		try {
+			await login(page);
+			await open(page, `/c/${id}`);
+			const chat = await fakeChat(page, "The recovered answer.");
+			chat.failNext("stream-error");
+			await sendFirstThreadMessage(page, reply);
+			await expect(panel(page).getByRole("alert")).toContainText(
+				"The reply failed.",
+			);
+			// The thread part arrived before the error, so the address names it.
+			await expect.poll(() => threadParam(page)).toMatch(/^[0-9a-f-]{36}$/);
+			const created = threadParam(page) as string;
+
+			await retryButton(page).click();
+			await expect(
+				panel(page).getByText("The recovered answer."),
+			).toBeVisible();
+			expect(chat.bodies).toHaveLength(2);
+			expect(chat.bodies[0]).toMatchObject({
+				message: "What does he want with them?",
+				newThread: { anchorMessageId: reply, quote: "every word" },
+			});
+			// The retry asks for the created thread's reply and nothing else.
+			expect(chat.bodies[1]).toEqual({ conversationId: id, threadId: created });
+			expect(await storedThreads(id)).toEqual([
+				{ id: created, readers: 1, replies: 1 },
+			]);
+			await expect(panel(page).getByRole("alert")).toHaveCount(0);
+			await expect(
+				panel(page).getByText("What does he want with them?"),
+			).toHaveCount(1);
+			expect(threadParam(page)).toBe(created);
+		} finally {
+			await removeConversation(id);
+		}
+	});
+
+	test("Retry after a new thread is rejected before creation sends the message and new thread again", async ({
+		page,
+	}) => {
+		const { id, reply } = await conversation();
+		try {
+			await login(page);
+			await open(page, `/c/${id}`);
+			const chat = await fakeChat(page);
+			chat.failNext("reject");
+			await sendFirstThreadMessage(page, reply);
+			await expect(panel(page).getByRole("alert")).toBeVisible();
+			expect(threadParam(page)).toBe("new");
+			expect(await storedThreads(id)).toEqual([]);
+
+			await retryButton(page).click();
+			await expect(panel(page).getByText("A thread answer.")).toBeVisible();
+			expect(chat.bodies).toHaveLength(2);
+			for (const body of chat.bodies) {
+				expect(body).toMatchObject({
+					conversationId: id,
+					message: "What does he want with them?",
+					newThread: { anchorMessageId: reply, quote: "every word" },
+				});
+				expect(body.threadId).toBeUndefined();
+			}
+			await expect.poll(() => threadParam(page)).toMatch(/^[0-9a-f-]{36}$/);
+			expect(await storedThreads(id)).toEqual([
+				{ id: threadParam(page), readers: 1, replies: 1 },
+			]);
+		} finally {
+			await removeConversation(id);
+		}
+	});
+
+	test("Retry after a new thread's response is lost adopts the thread the server created instead of starting another", async ({
+		page,
+	}) => {
+		const { id, reply } = await conversation();
+		try {
+			await login(page);
+			await open(page, `/c/${id}`);
+			const chat = await fakeChat(page, "The recovered answer.");
+			// The thread and its first message are stored, but no response
+			// (headers or stream) ever reaches the client.
+			chat.failNext("abort");
+			await sendFirstThreadMessage(page, reply);
+			await expect(panel(page).getByRole("alert")).toBeVisible();
+			expect(threadParam(page)).toBe("new");
+			const [stored] = await storedThreads(id);
+			expect(stored).toEqual({
+				id: expect.any(String),
+				readers: 1,
+				replies: 0,
+			});
+
+			await retryButton(page).click();
+			await expect(
+				panel(page).getByText("The recovered answer."),
+			).toBeVisible();
+			// The panel adopted the stored thread and asked for its reply only.
+			await expect.poll(() => threadParam(page)).toBe(stored?.id);
+			expect(chat.bodies).toHaveLength(2);
+			expect(chat.bodies[1]).toEqual({
+				conversationId: id,
+				threadId: stored?.id,
+			});
+			expect(await storedThreads(id)).toEqual([
+				{ id: stored?.id, readers: 1, replies: 1 },
+			]);
+			await expect(page.getByTestId("thread-chip")).toHaveText("1 thread");
 		} finally {
 			await removeConversation(id);
 		}
