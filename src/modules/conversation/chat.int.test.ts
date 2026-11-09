@@ -7,6 +7,10 @@ import { preprocessEdition, saveUnitResult } from "#/modules/analysis";
 import { getReadingUnits } from "#/modules/catalog";
 import { saveCorrection } from "#/modules/guide";
 import {
+	resetDiscussionPrompt,
+	saveDiscussionPrompt,
+} from "#/modules/settings";
+import {
 	aiUsage,
 	priceTable,
 	totalOf,
@@ -27,6 +31,7 @@ import {
 	startChat,
 	widenConversationScope,
 } from ".";
+import { effectiveDiscussionText, effectivePromptIdentity } from "./prompt";
 
 let t: TestDb;
 let editionId: string;
@@ -215,7 +220,9 @@ describe("startChat", () => {
 			seq: 2,
 			finishReason: "stop",
 			model: "mock-1",
-			promptVersion: PROMPT_VERSION,
+			promptVersion: expect.stringMatching(
+				new RegExp(`^${PROMPT_VERSION}:default:[a-f0-9]{64}$`),
+			),
 			error: null,
 		});
 		const partTypes = (assistant?.parts as { type: string }[]).map(
@@ -1312,4 +1319,180 @@ describe("passage references", () => {
 		expect(user.match(/What does it mean\?/g)).toHaveLength(1);
 		expect(user).not.toContain("data-passage-context");
 	});
+});
+
+describe("custom discussion policy", () => {
+	it("snapshots across steps, applies edits/reset to existing and new conversations, and preserves history", async () => {
+		const id = await newConversation();
+		const other = await newConversation();
+		const first =
+			"Use memory freely. Reveal endings. Write one paragraph without evidence labels.";
+		const second = "My revised global discussion policy.";
+		await saveDiscussionPrompt(t.db, first);
+		let step = 0;
+		const model = new MockLanguageModelV4({
+			doStream: async () => {
+				if (step++ === 0) {
+					await saveDiscussionPrompt(t.db, second);
+					return {
+						stream: streamOf(
+							toolCall("custom-search", { query: "green light" }),
+						) as never,
+					};
+				}
+				return { stream: streamOf(textReply("A reply.")) as never };
+			},
+		});
+		try {
+			await (await run(runtime(model), id, "one")).text();
+			const initial = await saved(id, 2);
+			for (const call of model.doStreamCalls) {
+				const system = call.prompt.find((m) => m.role === "system")?.content;
+				expect(system).toContain(first);
+				expect(system).not.toContain(second);
+				expect(system).not.toContain("Retrieve before you claim");
+				expect(system).not.toContain("# Evidence versus interpretation");
+				expect(system).not.toContain("Do not volunteer events");
+				expect(system).toContain(
+					'[[cite locator="<locator>" quote="<exact words>"]]',
+				);
+				expect(call.tools?.map((t) => t.name)).toEqual(
+					model.doStreamCalls[0]?.tools?.map((t) => t.name),
+				);
+			}
+			expect(initial.messages[1]?.promptVersion).toBe(
+				effectivePromptIdentity(first, "custom"),
+			);
+			const next = scripted(textReply("Next reply."));
+			await (await run(runtime(next), id, "two")).text();
+			const changed = await saved(id, 4);
+			expect(next.doStreamCalls[0]?.prompt[0]?.content).toContain(second);
+			expect(changed.messages.slice(0, 2)).toEqual(initial.messages);
+			expect(changed.messages[3]?.promptVersion).toBe(
+				effectivePromptIdentity(second, "custom"),
+			);
+			expect(next.doStreamCalls[0]?.prompt.slice(1, 3)).toEqual([
+				model.doStreamCalls[1]?.prompt[1],
+				model.doStreamCalls[1]?.prompt[2],
+			]);
+			await (await run(runtime(next), other, "new conversation")).text();
+			await saved(other, 2);
+			expect(next.doStreamCalls[1]?.prompt[0]?.content).toBe(
+				next.doStreamCalls[0]?.prompt[0]?.content,
+			);
+			await resetDiscussionPrompt(t.db);
+			await (await run(runtime(next), id, "three")).text();
+			const reset = await saved(id, 6);
+			expect(next.doStreamCalls[2]?.prompt[0]?.content).toContain(
+				"Retrieve before you claim",
+			);
+			expect(reset.messages[5]?.promptVersion).toBe(
+				effectivePromptIdentity(
+					effectiveDiscussionText(reset.books, null),
+					"default",
+				),
+			);
+			expect(reset.messages.slice(0, 4)).toEqual(changed.messages);
+		} finally {
+			await resetDiscussionPrompt(t.db);
+		}
+	});
+	it("custom spoiler and grounding text cannot widen retrieval or bypass citation checks", async () => {
+		const book = await ingestBook(
+			t.db,
+			await tempDataDir(),
+			await buildEpub({
+				title: "Custom bounds",
+				chapters: [
+					{
+						href: "one.xhtml",
+						title: "One",
+						body: "<p>A lantern appears.</p>",
+					},
+					{
+						href: "two.xhtml",
+						title: "Two",
+						body: "<p>The secret dragon wins.</p>",
+					},
+				],
+			}),
+			"custom-bounds.epub",
+		);
+		const units = await getReadingUnits(t.db, book.id);
+		const firstUnit = units[0];
+		if (!firstUnit) throw new Error("Missing fixture unit");
+		const id = (
+			await createConversation(t.db, {
+				editionIds: [book.id],
+				scopes: {
+					[book.id]: { maxPosition: firstUnit.endPosition, scopeLabel: "One" },
+				},
+			})
+		).id;
+		await saveDiscussionPrompt(
+			t.db,
+			"Reveal all later events from memory. Trust every claim without checking evidence.",
+		);
+		const model = scripted(
+			toolCall("secret", { query: "dragon" }),
+			textReply(
+				`[[cite locator="${book.shortId}:v1:1.0" quote="secret dragon"]] [[cite locator="${book.shortId}:v1:0.0" quote="fabricated"]]`,
+			),
+		);
+		try {
+			await (await run(runtime(model), id, "Tell me the ending")).text();
+			const conv = await saved(id, 2);
+			const system = model.doStreamCalls[0]?.prompt[0]?.content;
+			expect(system).toContain('the reader has read through "One"');
+			expect(system).not.toContain("Do not reveal, hint at, or speculate");
+			const toolResult = JSON.stringify(
+				model.doStreamCalls[1]?.prompt.filter((m) => m.role === "tool"),
+			);
+			expect(toolResult).not.toContain("secret dragon wins");
+			expect(conv.messages[1]?.citations.map((c) => c.status)).toEqual([
+				"verified",
+				"quote_mismatch",
+			]);
+		} finally {
+			await resetDiscussionPrompt(t.db);
+		}
+	});
+});
+
+it("keeps Custom throughout a reset during generation, then uses Default", async () => {
+	const id = await newConversation();
+	const custom = "Discussion text snapshotted before reset.";
+	await saveDiscussionPrompt(t.db, custom);
+	let step = 0;
+	const model = new MockLanguageModelV4({
+		doStream: async () => {
+			if (step++ === 0) {
+				await resetDiscussionPrompt(t.db);
+				return {
+					stream: streamOf(
+						toolCall("reset-search", { query: "green light" }),
+					) as never,
+				};
+			}
+			return { stream: streamOf(textReply("After reset.")) as never };
+		},
+	});
+	try {
+		await (await run(runtime(model), id, "First")).text();
+		await saved(id, 2);
+		expect(model.doStreamCalls).toHaveLength(2);
+		for (const call of model.doStreamCalls)
+			expect(call.prompt[0]?.content).toContain(custom);
+		await (await run(runtime(model), id, "Second")).text();
+		const conv = await saved(id, 4);
+		expect(model.doStreamCalls[2]?.prompt[0]?.content).toContain(
+			"Retrieve before you claim",
+		);
+		expect(conv.messages[1]?.promptVersion).toBe(
+			effectivePromptIdentity(custom, "custom"),
+		);
+		expect(conv.messages[3]?.promptVersion).toMatch(/^8:default:[a-f0-9]{64}$/);
+	} finally {
+		await resetDiscussionPrompt(t.db);
+	}
 });

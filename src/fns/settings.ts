@@ -4,11 +4,14 @@ import { listModels, type ModelList } from "#/modules/ai";
 import {
 	clearChatDefault,
 	clearPreprocessDefault,
+	getDiscussionPrompt,
 	listProviderCredentials,
 	loadCredentials,
 	removeProviderCredentials,
+	resetDiscussionPrompt,
 	type SaveResult,
 	saveChatDefault,
+	saveDiscussionPrompt,
 	savePreprocessDefault,
 	saveProviderCredentials,
 } from "#/modules/settings";
@@ -112,3 +115,14 @@ export const removeProviderCredentialsFn = createServerFn({ method: "POST" })
 		await removeProviderCredentials(appContext().db, data.provider);
 		return { status: "ok" as const };
 	});
+
+/** Protected by the Settings request guard; no provider credentials needed. */
+export const getDiscussionPromptFn = createServerFn({ method: "GET" }).handler(
+	async () => getDiscussionPrompt(appContext().db),
+);
+export const saveDiscussionPromptFn = createServerFn({ method: "POST" })
+	.validator((input: unknown) => input)
+	.handler(async ({ data }) => saveDiscussionPrompt(appContext().db, data));
+export const resetDiscussionPromptFn = createServerFn({
+	method: "POST",
+}).handler(async () => resetDiscussionPrompt(appContext().db));

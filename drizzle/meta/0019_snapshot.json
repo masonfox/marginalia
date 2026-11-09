@@ -1,5 +1,5 @@
 {
-  "id": "bc282e69-e9ff-4112-bb52-d67c9ca310ba",
+  "id": "a0b3598e-fd1c-41d9-8e99-36872cda9e4d",
   "prevId": "c5a01699-6064-4a9e-b01e-53d50b91d8d7",
   "version": "7",
   "dialect": "postgresql",
@@ -1150,121 +1150,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.conversation_threads": {
-      "name": "conversation_threads",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "conversation_id": {
-          "name": "conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "anchor_message_id": {
-          "name": "anchor_message_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "anchor_quote": {
-          "name": "anchor_quote",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "conversation_threads_conversation_idx": {
-          "name": "conversation_threads_conversation_idx",
-          "columns": [
-            {
-              "expression": "conversation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_threads_anchor_idx": {
-          "name": "conversation_threads_anchor_idx",
-          "columns": [
-            {
-              "expression": "anchor_message_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "conversation_threads_conversation_id_conversations_id_fk": {
-          "name": "conversation_threads_conversation_id_conversations_id_fk",
-          "tableFrom": "conversation_threads",
-          "tableTo": "conversations",
-          "columnsFrom": [
-            "conversation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "conversation_threads_anchor_message_id_messages_id_fk": {
-          "name": "conversation_threads_anchor_message_id_messages_id_fk",
-          "tableFrom": "conversation_threads",
-          "tableTo": "messages",
-          "columnsFrom": [
-            "anchor_message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "conversation_threads_anchor_quote_check": {
-          "name": "conversation_threads_anchor_quote_check",
-          "value": "char_length(\"conversation_threads\".\"anchor_quote\") between 1 and 2000"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.conversations": {
       "name": "conversations",
       "schema": "",
@@ -1468,12 +1353,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "thread_id": {
-          "name": "thread_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "seq": {
           "name": "seq",
           "type": "integer",
@@ -1543,35 +1422,7 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "messages_conversation_thread_seq_idx": {
-          "name": "messages_conversation_thread_seq_idx",
-          "columns": [
-            {
-              "expression": "conversation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "thread_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "seq",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "messages_conversation_id_conversations_id_fk": {
           "name": "messages_conversation_id_conversations_id_fk",
@@ -1579,19 +1430,6 @@
           "tableTo": "conversations",
           "columnsFrom": [
             "conversation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "messages_thread_id_conversation_threads_id_fk": {
-          "name": "messages_thread_id_conversation_threads_id_fk",
-          "tableFrom": "messages",
-          "tableTo": "conversation_threads",
-          "columnsFrom": [
-            "thread_id"
           ],
           "columnsTo": [
             "id"
@@ -2719,6 +2557,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "discussion_prompt": {
+          "name": "discussion_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "preprocess_mode": {
           "name": "preprocess_mode",
           "type": "text",
@@ -2807,12 +2651,6 @@
         },
         "attempt_id": {
           "name": "attempt_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "thread_id": {
-          "name": "thread_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -2926,21 +2764,6 @@
           "method": "btree",
           "with": {}
         },
-        "ai_usage_thread_idx": {
-          "name": "ai_usage_thread_idx",
-          "columns": [
-            {
-              "expression": "thread_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "ai_usage_edition_idx": {
           "name": "ai_usage_edition_idx",
           "columns": [
@@ -2990,19 +2813,6 @@
           "tableTo": "messages",
           "columnsFrom": [
             "message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "ai_usage_thread_id_conversation_threads_id_fk": {
-          "name": "ai_usage_thread_id_conversation_threads_id_fk",
-          "tableFrom": "ai_usage",
-          "tableTo": "conversation_threads",
-          "columnsFrom": [
-            "thread_id"
           ],
           "columnsTo": [
             "id"

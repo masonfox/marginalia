@@ -39,7 +39,11 @@ import {
 	ReplySelection,
 	SaveNoteBookDialog,
 } from "#/components/reply-selection";
-import { ScopeNotice, scopeText, WidenScope } from "#/components/scope";
+import {
+	PromptScopeNotice as ScopeNotice,
+	scopeText,
+	WidenScope,
+} from "#/components/scope";
 import { ThreadMarkers } from "#/components/thread-markers";
 import { ThreadPanel } from "#/components/thread-panel";
 import { Button } from "#/components/ui/button";

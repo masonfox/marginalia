@@ -24,8 +24,11 @@ vi.mock("@tanstack/react-start", () => ({
 }));
 
 import {
+	getDiscussionPromptFn,
 	listProviderCredentialsFn,
 	removeProviderCredentialsFn,
+	resetDiscussionPromptFn,
+	saveDiscussionPromptFn,
 	saveProviderCredentialsFn,
 } from "./settings";
 
@@ -90,5 +93,59 @@ describe("credential server functions", () => {
 			expect(response.status).toBe(200);
 			expect(await response.text()).not.toContain(key);
 		}
+	});
+});
+
+describe("discussion prompt server access", () => {
+	it("protects reads, saves and resets and leaves the override unchanged on denied writes", async () => {
+		const password = await setupPassword(t.db, "test-password", {
+			info() {},
+			warn() {},
+		} as never);
+		const access = {
+			db: t.db,
+			password,
+			limiter: new LoginRateLimiter(),
+			sessionDays: 30,
+			trustProxy: false,
+			publicUrl: undefined,
+		};
+		const session = await createSession(t.db, 30);
+		const request = (authorized: boolean) =>
+			new Request("http://books.local/_serverFn/prompt", {
+				method: "POST",
+				headers: authorized
+					? { cookie: `marginalia_session=${session.token}` }
+					: {},
+			});
+		await saveDiscussionPromptFn({ data: "saved policy" });
+		for (const action of [
+			() => getDiscussionPromptFn(),
+			() => saveDiscussionPromptFn({ data: "unauthorized" }),
+			() => resetDiscussionPromptFn(),
+		]) {
+			const handler = vi.fn(async () => Response.json(await action()));
+			expect(
+				(await handleRequest(request(false), { config, access }, handler))
+					.status,
+			).toBe(401);
+			expect(handler).not.toHaveBeenCalled();
+			expect((await getDiscussionPromptFn()).text).toBe("saved policy");
+		}
+		const handler = async () =>
+			Response.json(await saveDiscussionPromptFn({ data: "  " }));
+		const invalid = await handleRequest(
+			request(true),
+			{ config, access },
+			handler,
+		);
+		expect((await invalid.json()).error).toBeTruthy();
+		expect((await getDiscussionPromptFn()).text).toBe("saved policy");
+		const cleared = await handleRequest(
+			request(true),
+			{ config, access },
+			async () => Response.json(await resetDiscussionPromptFn()),
+		);
+		expect((await cleared.json()).mode).toBe("default");
 	});
 });
