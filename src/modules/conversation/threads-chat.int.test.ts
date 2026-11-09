@@ -2,6 +2,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { AiRuntime } from "#/modules/ai";
 import { priceTable, totalOf, usageForConversation } from "#/modules/usage";
+import type { Database } from "#/server/db";
 import { createTestDb, type TestDb } from "../../../test/db";
 import { buildEpub } from "../../../test/epub-builder";
 import { ingestBook, tempDataDir } from "../../../test/library";
@@ -21,6 +22,7 @@ import {
 	startChat,
 	THREAD_ID_HEADER,
 } from ".";
+import { messages } from "./schema";
 
 let t: TestDb;
 let editionId: string;
@@ -84,6 +86,48 @@ function scripted(responses: Chunk[][], gate?: Promise<void>) {
 			};
 		},
 	});
+}
+
+/**
+ * Wraps a database so the quote-source read (`select { id } from messages`)
+ * waits until `n` reads have reached it, or until `open` is called: a send
+ * that settles without reaching it opens the barrier rather than deadlocking.
+ */
+function quoteReadBarrier(db: Database, n: number) {
+	let arrived = 0;
+	let open = () => {};
+	const opened = new Promise<void>((r) => {
+		open = r;
+	});
+	const wrapped = new Proxy(db, {
+		get(target, prop) {
+			const value = Reflect.get(target, prop, target);
+			if (prop !== "select")
+				return typeof value === "function" ? value.bind(target) : value;
+			return (fields?: Record<string, unknown>) => {
+				const builder = target.select(fields as never);
+				if (
+					!fields ||
+					Object.keys(fields).length !== 1 ||
+					fields.id !== messages.id
+				)
+					return builder;
+				return {
+					from: (table: typeof messages) => {
+						const from = builder.from(table);
+						return {
+							where: (cond: Parameters<typeof from.where>[0]) => {
+								const query = from.where(cond);
+								if (++arrived >= n) open();
+								return opened.then(() => query);
+							},
+						};
+					},
+				};
+			};
+		},
+	});
+	return { db: wrapped, open: () => open(), arrived: () => arrived };
 }
 
 const runtime = (model: MockLanguageModelV4): AiRuntime => ({
@@ -663,31 +707,42 @@ describe("one generation across threads", () => {
 			release = r;
 		});
 		const slow = scripted([textReply("Slow.")], gate);
-		const quoted = (message: string) =>
-			startChat(deps(runtime(slow)), {
-				conversationId: id,
-				message,
-				replyContext: { messageId: reply, text: "Answer." },
+		const senders = ["A", "B", "C", "D", "E"];
+		// Each send is held at the quote check until all have reached it, so
+		// none can claim the conversation before the others are validating.
+		const barrier = quoteReadBarrier(t.db, senders.length);
+		try {
+			const quoted = (message: string) =>
+				startChat(
+					{ ...deps(runtime(slow)), db: barrier.db },
+					{
+						conversationId: id,
+						message,
+						replyContext: { messageId: reply, text: "Answer." },
+					},
+				).finally(barrier.open);
+			const results = await Promise.all(senders.map((m) => quoted(m)));
+			expect(barrier.arrived()).toBe(senders.length);
+			expect(results.map((r) => r.status).sort()).toEqual([
+				"busy",
+				"busy",
+				"busy",
+				"busy",
+				"ok",
+			]);
+			const ok = results.find((r) => r.status === "ok");
+			release();
+			if (ok?.status === "ok") await ok.response.text();
+			await mainCount(id, 4);
+			expect(slow.doStreamCalls).toHaveLength(1);
+			expect(await counts(id)).toEqual({
+				threads: before?.threads,
+				messages: (before?.messages ?? 0) + 2,
 			});
-		const results = await Promise.all(
-			["A", "B", "C", "D", "E"].map((m) => quoted(m)),
-		);
-		expect(results.map((r) => r.status).sort()).toEqual([
-			"busy",
-			"busy",
-			"busy",
-			"busy",
-			"ok",
-		]);
-		const ok = results.find((r) => r.status === "ok");
-		release();
-		if (ok?.status === "ok") await ok.response.text();
-		await mainCount(id, 4);
-		expect(slow.doStreamCalls).toHaveLength(1);
-		expect(await counts(id)).toEqual({
-			threads: before?.threads,
-			messages: (before?.messages ?? 0) + 2,
-		});
+		} finally {
+			barrier.open();
+			release();
+		}
 	});
 });
 
