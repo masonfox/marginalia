@@ -27,6 +27,7 @@ describe("database", () => {
 			"ai_settings",
 			"ai_usage",
 			"conversation_editions",
+			"conversation_threads",
 			"conversations",
 			"editions",
 			"excluded_editions",

@@ -51,7 +51,7 @@ import {
 } from "#/fns/conversations";
 import { getReadingPositionFn, setReadingPositionFn } from "#/fns/guide";
 import { namingRenamed } from "#/hooks/use-naming-metadata";
-import { clearComposerDraft } from "#/lib/composer-draft";
+import { clearConversationDrafts } from "#/lib/composer-draft";
 import type { Scope } from "#/modules/conversation";
 import type { ReadingPosition } from "#/modules/guide";
 import type { AiStatus } from "#/modules/settings";
@@ -427,7 +427,7 @@ export function DeleteConversation({
 							setError(null);
 							try {
 								await remove({ data: { conversationId } });
-								clearComposerDraft(conversationId);
+								clearConversationDrafts(conversationId);
 								// Lists across books; the caller refreshes its own page (or leaves it).
 								await queryClient.invalidateQueries({
 									queryKey: ["conversations"],

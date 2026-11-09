@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { passageRefSchema } from "#/lib/passage-ref";
-import { replyContextSchema } from "#/lib/reply-context";
+import { REPLY_CONTEXT_LIMIT, replyContextSchema } from "#/lib/reply-context";
 import { type ChatDeps, startChat } from "./chat";
 
 const chatBody = z
@@ -14,13 +14,25 @@ const chatBody = z
 			.optional(),
 		replyContext: replyContextSchema.optional(),
 		passageRef: passageRefSchema.optional(),
+		/** Send (or retry) in this existing side thread. */
+		threadId: z.uuid().optional(),
+		/** Start a side thread with this message, anchored to selected reply text. */
+		newThread: z
+			.object({
+				anchorMessageId: z.uuid(),
+				quote: z.string().trim().min(1).max(REPLY_CONTEXT_LIMIT),
+			})
+			.optional(),
 	})
 	// One attachment at most, and only with a new message.
 	.refine((body) => !(body.replyContext && body.passageRef))
 	.refine(
 		(body) =>
 			!(body.replyContext || body.passageRef) || body.message !== undefined,
-	);
+	)
+	// An existing thread or a new one, never both; a new thread needs its first message.
+	.refine((body) => !(body.threadId && body.newThread))
+	.refine((body) => !body.newThread || body.message !== undefined);
 
 const json = (status: number, error: string) =>
 	Response.json({ error }, { status });
@@ -40,6 +52,8 @@ export async function handleChatRequest(
 		message: body.data.message,
 		replyContext: body.data.replyContext,
 		passageRef: body.data.passageRef,
+		threadId: body.data.threadId,
+		newThread: body.data.newThread,
 		abortSignal: request.signal,
 	});
 	switch (result.status) {
@@ -66,6 +80,10 @@ export async function handleChatRequest(
 			return json(409, "A reply is already being generated");
 		case "invalid_context":
 			return json(400, "Invalid assistant-response context");
+		case "invalid_thread":
+			return json(400, "Invalid thread");
+		case "invalid_anchor":
+			return json(400, "Invalid thread anchor");
 		case "invalid_passage":
 			return Response.json(
 				{ error: "Invalid passage reference", reason: result.reason },

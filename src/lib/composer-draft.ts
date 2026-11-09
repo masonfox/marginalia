@@ -103,6 +103,163 @@ export function clearComposerDraft(
 	}
 }
 
+/** The draft ID of an existing thread's composer in a conversation. */
+export const threadDraftId = (conversationId: string, threadId: string) =>
+	`${conversationId}:thread:${threadId}`;
+
+/** The draft ID of a conversation's single new thread that has not been sent. */
+export const newThreadDraftId = (conversationId: string) =>
+	`${conversationId}:thread:new`;
+
+/** Where a new thread starts: a main-conversation assistant response and the text selected in it. */
+const threadAnchorSchema = z.object({
+	anchorMessageId: z.uuid(),
+	quote: replyContextSchema.shape.text,
+});
+export type ThreadAnchor = z.infer<typeof threadAnchorSchema>;
+
+/**
+ * The new-thread draft is the only shape with an anchor, so only it moves to
+ * format version 2. Every other draft stays version 1.
+ */
+const newThreadDraftSchema = draftSchema.extend({
+	v: z.literal(2),
+	anchor: threadAnchorSchema,
+});
+export type NewThreadDraft = ComposerDraft & { anchor: ThreadAnchor };
+
+/** A conversation's new-thread draft; anything unreadable counts as none. */
+export function loadNewThreadDraft(
+	conversationId: string,
+	storage = sessionStore(),
+): NewThreadDraft | null {
+	try {
+		const raw = storage?.getItem(
+			composerDraftKey(newThreadDraftId(conversationId)),
+		);
+		if (!raw) return null;
+		const parsed = newThreadDraftSchema.safeParse(JSON.parse(raw));
+		if (!parsed.success) return null;
+		const { v: _, ...draft } = parsed.data;
+		return draft;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Saves the new-thread draft, replacing any earlier one in the conversation.
+ * It is kept even with no text, since the anchor alone reopens the new thread.
+ * Returns whether it was stored.
+ */
+export function saveNewThreadDraft(
+	conversationId: string,
+	draft: NewThreadDraft,
+	storage = sessionStore(),
+): boolean {
+	if (!storage) return false;
+	try {
+		storage.setItem(
+			composerDraftKey(newThreadDraftId(conversationId)),
+			JSON.stringify({ v: 2, ...draft } satisfies z.input<
+				typeof newThreadDraftSchema
+			>),
+		);
+		return true;
+	} catch {
+		// Quota or private mode: the draft is not kept.
+		return false;
+	}
+}
+
+export function clearNewThreadDraft(
+	conversationId: string,
+	storage = sessionStore(),
+): void {
+	clearComposerDraft(newThreadDraftId(conversationId), storage);
+}
+
+/** Clears every draft of a conversation: its main composer, its threads, and its new thread. */
+export function clearConversationDrafts(
+	conversationId: string,
+	storage = sessionStore(),
+): void {
+	clearComposerDraft(conversationId, storage);
+	try {
+		if (!storage) return;
+		const prefix = composerDraftKey(threadDraftId(conversationId, ""));
+		const keys: string[] = [];
+		for (let i = 0; i < storage.length; i++) {
+			const key = storage.key(i);
+			if (key?.startsWith(prefix)) keys.push(key);
+		}
+		for (const key of keys) storage.removeItem(key);
+	} catch {
+		// Nothing to clear without storage.
+	}
+}
+
+/** The composer a draft belongs to. */
+export type DraftComposer =
+	| { kind: "main" }
+	| { kind: "thread"; threadId: string }
+	| { kind: "new-thread" };
+
+/** A saved assistant message in the conversation and its thread (null for the main conversation). */
+export interface DraftSource {
+	threadId: string | null;
+}
+
+/**
+ * Whether a quote from `source` may be restored into `composer`. The main
+ * composer takes any assistant message in the conversation, including one
+ * brought from a thread. A thread composer takes only its own thread's. A new
+ * thread has no messages of its own yet, so it takes none.
+ */
+export function isQuoteSourceValid(
+	composer: DraftComposer,
+	source: DraftSource | undefined,
+): boolean {
+	if (!source) return false;
+	if (composer.kind === "main") return true;
+	if (composer.kind === "thread") return source.threadId === composer.threadId;
+	return false;
+}
+
+/**
+ * A loaded draft ready for its composer. A quote whose source is gone, or is
+ * not valid for that composer, is dropped, and the text is kept.
+ */
+export function restorableDraft<D extends ComposerDraft>(
+	draft: D,
+	composer: DraftComposer,
+	/** The conversation's saved assistant messages, by ID. */
+	sources: ReadonlyMap<string, DraftSource>,
+): D {
+	const attachment = draft.attachment;
+	if (
+		attachment?.kind === "quote" &&
+		!isQuoteSourceValid(composer, sources.get(attachment.messageId))
+	)
+		return { ...draft, attachment: null };
+	return draft;
+}
+
+/**
+ * A loaded new-thread draft ready to reopen, or null when its anchor response
+ * is no longer a main-conversation assistant message in the conversation. The
+ * new thread is then not reopened.
+ */
+export function restorableNewThreadDraft(
+	draft: NewThreadDraft | null,
+	sources: ReadonlyMap<string, DraftSource>,
+): NewThreadDraft | null {
+	if (!draft) return null;
+	const anchor = sources.get(draft.anchor.anchorMessageId);
+	if (!anchor || anchor.threadId !== null) return null;
+	return restorableDraft(draft, { kind: "new-thread" }, sources);
+}
+
 /** The draft key of a book page's composer, before any conversation exists. */
 export const bookDraftId = (editionId: string) => `book:${editionId}`;
 

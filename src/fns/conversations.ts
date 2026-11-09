@@ -14,6 +14,7 @@ import {
 	getConversation,
 	getConversationWithUsage,
 	getGuideStep,
+	getThreadWithUsage,
 	getTrailObservations,
 	listConversationsForEdition,
 	listRecentConversations,
@@ -145,7 +146,10 @@ export const checkPassageRefFn = createServerFn({ method: "GET" })
 		},
 	);
 
-/** A conversation with per-reply usage and the running total. Costs are estimates. */
+/**
+ * A conversation with its main-conversation messages, thread summaries,
+ * per-reply usage, and the running total (threads included). Costs are estimates.
+ */
 export const getConversationFn = createServerFn({ method: "GET" })
 	.validator(z.object({ conversationId: z.uuid() }))
 	.handler(({ data }) => {
@@ -153,6 +157,23 @@ export const getConversationFn = createServerFn({ method: "GET" })
 		return getConversationWithUsage(
 			db,
 			data.conversationId,
+			priceTable(config.ai?.prices),
+		);
+	});
+
+/**
+ * One side thread of a conversation: its summary, its own messages (not the
+ * main-conversation prefix), per-reply usage, and the thread's running total
+ * including retried failures. Null when the conversation has no such thread.
+ */
+export const getThreadFn = createServerFn({ method: "GET" })
+	.validator(z.object({ conversationId: z.uuid(), threadId: z.uuid() }))
+	.handler(({ data }) => {
+		const { db, config } = appContext();
+		return getThreadWithUsage(
+			db,
+			data.conversationId,
+			data.threadId,
 			priceTable(config.ai?.prices),
 		);
 	});

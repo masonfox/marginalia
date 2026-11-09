@@ -9,7 +9,11 @@ import {
 	uniqueIndex,
 	uuid,
 } from "drizzle-orm/pg-core";
-import { conversations, messages } from "#/modules/conversation";
+import {
+	conversations,
+	conversationThreads,
+	messages,
+} from "#/modules/conversation";
 import { editions } from "#/modules/library";
 
 /**
@@ -35,6 +39,13 @@ export const aiUsage = pgTable(
 			onDelete: "set null",
 		}),
 		attemptId: uuid("attempt_id"),
+		/**
+		 * The side thread of a `conversation` row made for a thread reply; kept
+		 * when a retry deletes the message, so the thread total still counts it.
+		 */
+		threadId: uuid("thread_id").references(() => conversationThreads.id, {
+			onDelete: "set null",
+		}),
 		provider: text("provider").notNull(),
 		model: text("model").notNull(),
 		/** Total input, including cache reads and writes. */
@@ -57,6 +68,7 @@ export const aiUsage = pgTable(
 			.where(sql`${t.purpose} = 'conversation-title'`),
 		index("ai_usage_conversation_idx").on(t.conversationId),
 		index("ai_usage_message_idx").on(t.messageId),
+		index("ai_usage_thread_idx").on(t.threadId),
 		index("ai_usage_edition_idx").on(t.editionId),
 	],
 );

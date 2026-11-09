@@ -4,8 +4,17 @@ import { parseHighlight } from "#/lib/citations";
 import {
 	type ComposerDraft,
 	clearComposerDraft,
+	clearNewThreadDraft,
+	type DraftComposer,
+	type DraftSource,
 	loadComposerDraft,
+	loadNewThreadDraft,
+	newThreadDraftId,
+	restorableDraft,
 	saveComposerDraft,
+	saveNewThreadDraft,
+	type ThreadAnchor,
+	threadDraftId,
 } from "#/lib/composer-draft";
 import {
 	type PassageRef,
@@ -80,28 +89,71 @@ function toDraft(text: string, attachment: Attachment | null): ComposerDraft {
 	};
 }
 
+/** The tab-session storage of one composer's draft. */
+function draftStore(
+	conversationId: string,
+	target: DraftComposer,
+	anchor: ThreadAnchor | undefined,
+) {
+	if (target.kind === "new-thread")
+		return {
+			id: newThreadDraftId(conversationId),
+			load: (): ComposerDraft | null => loadNewThreadDraft(conversationId),
+			save: (draft: ComposerDraft) => {
+				// Without its anchor the new thread could not reopen; nothing to keep.
+				if (anchor) saveNewThreadDraft(conversationId, { ...draft, anchor });
+			},
+			clear: () => clearNewThreadDraft(conversationId),
+		};
+	const id =
+		target.kind === "thread"
+			? threadDraftId(conversationId, target.threadId)
+			: conversationId;
+	return {
+		id,
+		load: () => loadComposerDraft(id),
+		save: (draft: ComposerDraft) => {
+			saveComposerDraft(id, draft);
+		},
+		clear: () => clearComposerDraft(id),
+	};
+}
+
+const MAIN: DraftComposer = { kind: "main" };
+const NO_HANDOFF: { ref?: string; hl?: string } = {};
+
 /**
- * The composer's draft, attachment, and notice for one conversation: passage
- * checks, the passage-view handoff, and the tab-session copy of the draft.
+ * The draft, attachment, and notice of one composer of a conversation (the
+ * main conversation, a thread, or the new thread): passage checks, the
+ * passage-view handoff, and the tab-session copy of the draft.
  */
 export function useComposer(
 	conversationId: string,
 	{
-		savedAssistantIds,
+		target = MAIN,
+		anchor,
+		sources,
 		books,
 		aiEnabled,
-		handoff,
+		handoff = NO_HANDOFF,
 		clearHandoff,
 	}: {
-		/** Assistant messages a restored quote may come from. */
-		savedAssistantIds: Set<string>;
+		/** Which composer this is; the main conversation's by default. */
+		target?: DraftComposer;
+		/** The new thread's anchor, saved with its draft. */
+		anchor?: ThreadAnchor;
+		/** The conversation's saved assistant messages, which a restored quote may come from. */
+		sources: ReadonlyMap<string, DraftSource>;
 		books: ConversationBook[];
 		aiEnabled: boolean;
 		/** A passage reference handed over from the passage view, from the URL. */
-		handoff: { ref?: string; hl?: string };
-		clearHandoff: () => void;
+		handoff?: { ref?: string; hl?: string };
+		clearHandoff?: () => void;
 	},
 ) {
+	const store = draftStore(conversationId, target, anchor);
+	const storeRef = useRef(store);
+	storeRef.current = store;
 	const [draft, setDraft] = useState("");
 	const [attachment, setAttachment] = useState<Attachment | null>(null);
 	const [notice, setNotice] = useState<Notice | null>(null);
@@ -114,13 +166,19 @@ export function useComposer(
 	const checkSeq = useRef(0);
 	/** The attachment is a restored passage whose quiet recheck has not passed. */
 	const unvalidated = useRef(false);
-	const pending = useRef<{ id: string; draft: ComposerDraft } | null>(null);
+	const pending = useRef<{
+		save: (draft: ComposerDraft) => void;
+		draft: ComposerDraft;
+	} | null>(null);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+	/** Just emptied by a send: the empty state is not saved back. */
+	const cleared = useRef(false);
+	/** The draft key restored last, to tell a new thread being created from a switch. */
+	const restoredId = useRef<string | null>(null);
 
 	const flush = () => {
 		clearTimeout(timer.current);
-		if (pending.current)
-			saveComposerDraft(pending.current.id, pending.current.draft);
+		if (pending.current) pending.current.save(pending.current.draft);
 		pending.current = null;
 	};
 
@@ -189,17 +247,33 @@ export function useComposer(
 	/** Checks a passage reference and attaches it, or explains why not. */
 	const attachPassage = (ref: PassageRef) => check(ref, false);
 
-	// Restore this conversation's saved draft. A layout effect, so it lands
+	// Restore this composer's saved draft. A layout effect, so it lands
 	// before the first paint and before the handoff effect below.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: restores once per conversation
+	// biome-ignore lint/correctness/useExhaustiveDependencies: restores once per composer
 	useLayoutEffect(() => {
+		const previous = restoredId.current;
+		restoredId.current = store.id;
+		// The new thread was just created: this composer carries on as the
+		// thread's, keeping anything typed since, under the thread's key.
+		if (
+			previous === newThreadDraftId(conversationId) &&
+			target.kind === "thread"
+		) {
+			pending.current = null;
+			clearTimeout(timer.current);
+			clearNewThreadDraft(conversationId);
+			setOwner(store.id);
+			return;
+		}
 		flush();
 		cancelCheck();
-		const saved = loadComposerDraft(conversationId);
+		cleared.current = false;
+		const loaded = store.load();
+		const saved = loaded && restorableDraft(loaded, target, sources);
 		const restored = saved?.attachment;
 		setDraft(saved?.text ?? "");
 		setNotice(null);
-		if (restored?.kind === "quote" && savedAssistantIds.has(restored.messageId))
+		if (restored?.kind === "quote")
 			setAttachment({
 				kind: "quote",
 				quote: { messageId: restored.messageId, text: restored.text },
@@ -209,17 +283,23 @@ export function useComposer(
 			unvalidated.current = true;
 			void check(restored.ref, true);
 		} else setAttachment(null);
-		setOwner(conversationId);
-	}, [conversationId]);
+		setOwner(store.id);
+	}, [store.id]);
 
 	// Save as the draft changes, once typing settles.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: flush reads refs only
 	useEffect(() => {
-		if (owner !== conversationId) return;
-		pending.current = { id: owner, draft: toDraft(draft, attachment) };
+		if (owner !== store.id) return;
+		const next = toDraft(draft, attachment);
+		if (cleared.current) {
+			// The send already cleared the saved draft; keep it so until typing resumes.
+			if (!next.text && !next.attachment) return;
+			cleared.current = false;
+		}
+		pending.current = { save: storeRef.current.save, draft: next };
 		clearTimeout(timer.current);
 		timer.current = setTimeout(flush, SAVE_DELAY_MS);
-	}, [owner, conversationId, draft, attachment]);
+	}, [owner, store.id, draft, attachment]);
 
 	// Save before the page goes away or the composer unmounts.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: flush reads refs only
@@ -240,7 +320,7 @@ export function useComposer(
 			locator: handoff.ref,
 			range: parseHighlight(handoff.hl) ?? undefined,
 		});
-		clearHandoff();
+		clearHandoff?.();
 		if (!aiEnabled) return;
 		if (ref.success) void attachPassage(ref.data);
 		else
@@ -301,7 +381,8 @@ export function useComposer(
 			setNotice(null);
 			pending.current = null;
 			clearTimeout(timer.current);
-			clearComposerDraft(conversationId);
+			cleared.current = true;
+			storeRef.current.clear();
 		},
 		blockedReason: blockedReason({
 			draft,

@@ -9,9 +9,11 @@ export {
 	type ChatStart,
 	type ChatUIMessage,
 	describeError,
+	type NewThreadAnchor,
 	type SetModelResult,
 	setConversationModel,
 	startChat,
+	THREAD_ID_HEADER,
 } from "./chat";
 export {
 	type GuideStepSummary,
@@ -32,6 +34,7 @@ export {
 export { buildSystemPrompt, PROMPT_VERSION } from "./prompt";
 export * from "./repository";
 export * from "./schema";
+export { projectThreadAnchor, type ThreadAnchor } from "./thread-context";
 export {
 	cancelTitleBestEffort,
 	claimTitle,
@@ -54,5 +57,8 @@ export {
 export {
 	type ConversationWithUsage,
 	getConversationWithUsage,
+	getThreadWithUsage,
+	type ThreadWithUsage,
+	usageForThread,
 } from "./usage";
 export { type VerifyDeps, verifyCitations } from "./verify";

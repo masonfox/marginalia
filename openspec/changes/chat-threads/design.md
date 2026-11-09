@@ -87,7 +87,7 @@ Markers are computed client-side from thread summaries. The chip is always shown
 
 - **List preview:** the `latest_text` subquery adds `thread_id is null`. `updatedAt` keeps being bumped by every append, so thread activity orders and dates the row.
 - **Drafts:** add keys `conversation:<id>:thread:<threadId>` and `conversation:<id>:thread:new`. The new-thread draft also stores `{ anchorMessageId, quote }`. The format version is bumped only for the new-thread shape. Existing main-conversation keys are untouched.
-- **Usage:** the conversation total needs no change. The per-thread total sums `ai_usage` joined to `messages` where `thread_id = T`, and is returned with the thread's messages.
+- **Usage:** the conversation total needs no change. `ai_usage` gains a nullable `thread_id` (FK to `conversation_threads`), set when a thread reply records usage. The per-thread total sums `ai_usage` where `thread_id = T`, and is returned with the thread's messages. Joining through `messages` would lose failed attempts: retry deletes the errored assistant message, which sets `ai_usage.message_id` to null.
 
 ## Risks / Trade-offs
 
