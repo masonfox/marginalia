@@ -154,7 +154,6 @@ export interface ThreadSummary {
 	createdAt: Date;
 	/** When a message was last appended to the thread. */
 	updatedAt: Date;
-	messageCount: number;
 }
 
 /**
@@ -443,8 +442,6 @@ const threadSummaryColumns = {
 	anchorQuote: conversationThreads.anchorQuote,
 	createdAt: conversationThreads.createdAt,
 	updatedAt: conversationThreads.updatedAt,
-	// Qualified by hand: drizzle leaves columns unqualified in a one-table select.
-	messageCount: sql<number>`(select count(*)::int from "messages" as tm where tm."thread_id" = "conversation_threads"."id")`,
 };
 
 /** A conversation's side threads, oldest first. */

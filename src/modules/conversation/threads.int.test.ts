@@ -137,7 +137,6 @@ describe("thread repository", () => {
 			id: created.threadId,
 			anchorMessageId: reply,
 			anchorQuote: "green light",
-			messageCount: 1,
 		});
 
 		const detail = await getThreadMessages(t.db, id, created.threadId);

@@ -74,6 +74,7 @@ const sum = (column: AnyColumn) => sql<number | null>`sum(${column})::int`;
 /** Recorded usage of one thread's replies, in the shape `totalOf` sums. */
 export async function usageForThread(
 	db: Executor,
+	conversationId: string,
 	threadId: string,
 ): Promise<ConversationUsage> {
 	const ofThread = and(
@@ -120,6 +121,7 @@ export async function usageForThread(
 			)
 			.where(
 				and(
+					eq(messages.conversationId, conversationId),
 					eq(messages.threadId, threadId),
 					eq(messages.role, "assistant"),
 					or(
@@ -149,7 +151,7 @@ export async function getThreadWithUsage(
 ): Promise<ThreadWithUsage | null> {
 	const [detail, recorded] = await Promise.all([
 		getThreadMessages(db, conversationId, threadId),
-		usageForThread(db, threadId),
+		usageForThread(db, conversationId, threadId),
 	]);
 	if (!detail) return null;
 	return {
