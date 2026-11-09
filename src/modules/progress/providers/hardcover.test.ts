@@ -78,14 +78,24 @@ describe("hardcover testConnection", () => {
 		expect(h.bodyOf(0).query).toContain("me");
 	});
 
-	it("is rejected on an invalid-jwt GraphQL error", async () => {
-		const h = harness([{ body: fixture("me-invalid-token") }]);
-		const result = await h.provider.testConnection(cfg);
-		expect(result.status).toBe("rejected");
+	it("is rejected on HTTP 401, which is how Hardcover answers an unknown token", async () => {
+		const h = harness([{ status: 401, body: fixture("me-invalid-token") }]);
+		expect((await h.provider.testConnection(cfg)).status).toBe("rejected");
 	});
 
-	it("is rejected on HTTP 401", async () => {
-		const h = harness([{ status: 401, body: { error: "Unauthorized" } }]);
+	it("is rejected on a JWT GraphQL error", async () => {
+		const h = harness([
+			{
+				body: {
+					errors: [
+						{
+							message: "Could not verify JWT: JWSError JWSInvalidSignature",
+							extensions: { path: "$", code: "invalid-jwt" },
+						},
+					],
+				},
+			},
+		]);
 		expect((await h.provider.testConnection(cfg)).status).toBe("rejected");
 	});
 
@@ -120,35 +130,44 @@ describe("hardcover list", () => {
 		const h = harness([{ body: fixture("user-books-statuses") }]);
 		const books = await h.list(cfg);
 		expect(books.map((b) => [b.title, b.reading.state])).toEqual([
-			["The Left Hand of Darkness", "not-started"],
-			["A Wizard of Earthsea", "reading"],
-			["The Dispossessed", "finished"],
-			["Always Coming Home", "abandoned"],
-			["Tehanu", "reading"],
+			["Fixture Want To Read", "not-started"],
+			["Fixture Currently Reading", "reading"],
+			["Fixture Read", "finished"],
+			["Fixture Did Not Finish", "abandoned"],
+			["Fixture Paused", "reading"],
+			["Fixture No Identifiers", "abandoned"],
 		]);
 
 		const reading = books[1];
 		expect(reading).toEqual({
 			externalId: "3002",
 			ids: { "hardcover-id": "3002" },
-			isbns: ["9780553383041", "0553383043", "9780547773742"],
-			title: "A Wizard of Earthsea",
-			authors: ["Ursula K. Le Guin"],
+			// The read's edition first, then the user book's edition.
+			isbns: ["9780999000038", "0999000039", "9780999000021", "0999000020"],
+			title: "Fixture Currently Reading",
+			// The editor is not an author.
+			authors: ["Odile Marsh"],
 			reading: {
 				state: "reading",
-				fraction: 0.425,
-				pages: { current: 85, total: 200 },
-				observedAt: new Date("2026-11-06T21:15:00Z"),
+				// Hardcover's progress is a percentage of the read's edition.
+				fraction: 0.1701388888888889,
+				pages: { current: 49, total: 288 },
+				observedAt: new Date("2026-11-06T21:15:00.654Z"),
 			},
 		});
 		// Only reading books carry progress; a finished book is just finished.
 		expect(books[2]?.reading).toEqual({
 			state: "finished",
-			observedAt: new Date("2026-09-12T08:30:00Z"),
+			observedAt: new Date("2026-09-12T08:30:00.5Z"),
 		});
 		expect(books[3]?.reading.fraction).toBeUndefined();
-		expect(books[0]?.isbns).toEqual(["9780441478125", "0441478123"]);
-		expect(books[3]?.isbns).toEqual([]);
+		expect(books[4]?.reading).toMatchObject({
+			fraction: 0,
+			pages: { current: 0, total: 240 },
+		});
+		expect(books[0]?.isbns).toEqual(["9780999000014", "0999000012"]);
+		expect(books[5]?.isbns).toEqual([]);
+		expect(books[5]?.authors).toBeUndefined();
 	});
 
 	it("uses pages against the user book's edition when there is no percentage", async () => {
@@ -157,7 +176,7 @@ describe("hardcover list", () => {
 		expect(book?.reading).toEqual({
 			state: "reading",
 			pages: { current: 48, total: 192 },
-			observedAt: new Date("2026-11-05T19:00:00Z"),
+			observedAt: new Date("2026-11-05T19:00:00.123Z"),
 		});
 	});
 
@@ -176,7 +195,7 @@ describe("hardcover list", () => {
 	});
 
 	it("throws a rejected ProviderError on a bad token", async () => {
-		const h = harness([{ body: fixture("me-invalid-token") }]);
+		const h = harness([{ status: 401, body: fixture("me-invalid-token") }]);
 		await expect(h.list(cfg)).rejects.toMatchObject({
 			name: "ProviderError",
 			reason: "rejected",

@@ -1,8 +1,4 @@
 {
-	"errors": [
-		{
-			"message": "Could not verify JWT: JWSError JWSInvalidSignature",
-			"extensions": { "path": "$", "code": "invalid-jwt" }
-		}
-	]
+	"error": "invalid_token",
+	"error_description": "Token is not associated with a user"
 }

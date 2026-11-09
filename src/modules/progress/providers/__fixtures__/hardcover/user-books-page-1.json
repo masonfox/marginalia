@@ -6,7 +6,7 @@
 					{
 						"id": 3101,
 						"status_id": 3,
-						"updated_at": "2026-01-01T00:00:00+00:00",
+						"updated_at": "2026-01-01T00:00:00.123456+00:00",
 						"book": {
 							"id": 5001,
 							"title": "Page One A",
@@ -24,14 +24,19 @@
 					{
 						"id": 3102,
 						"status_id": 1,
-						"updated_at": "2026-01-02T00:00:00+00:00",
+						"updated_at": "2026-01-02T00:00:00.123456+00:00",
 						"book": {
 							"id": 5002,
 							"title": "Page One B",
 							"pages": 100,
 							"contributions": []
 						},
-						"edition": null,
+						"edition": {
+							"id": 9202,
+							"isbn_10": "0999000101",
+							"isbn_13": "9780999000106",
+							"pages": 100
+						},
 						"user_book_reads": []
 					}
 				]

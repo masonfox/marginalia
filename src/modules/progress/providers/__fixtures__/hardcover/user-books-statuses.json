@@ -6,61 +6,67 @@
 					{
 						"id": 1001,
 						"status_id": 1,
-						"updated_at": "2026-10-01T12:00:00+00:00",
+						"updated_at": "2026-10-01T12:00:00.123456+00:00",
 						"book": {
 							"id": 3001,
-							"title": "The Left Hand of Darkness",
-							"pages": 304,
+							"title": "Fixture Want To Read",
+							"pages": 221,
 							"contributions": [
 								{
-									"contribution": null,
-									"author": { "name": "Ursula K. Le Guin" }
+									"contribution": "Author",
+									"author": {
+										"name": "Imogen Vale"
+									}
 								}
 							]
 						},
 						"edition": {
 							"id": 9001,
-							"isbn_10": "0441478123",
-							"isbn_13": "9780441478125",
-							"pages": 304
+							"isbn_10": "0999000012",
+							"isbn_13": "9780999000014",
+							"pages": 251
 						},
 						"user_book_reads": []
 					},
 					{
 						"id": 1002,
 						"status_id": 2,
-						"updated_at": "2026-11-06T21:15:00+00:00",
+						"updated_at": "2026-11-06T21:15:00.654321+00:00",
 						"book": {
 							"id": 3002,
-							"title": "A Wizard of Earthsea",
-							"pages": 183,
+							"title": "Fixture Currently Reading",
+							"pages": 300,
 							"contributions": [
 								{
-									"contribution": null,
-									"author": { "name": "Ursula K. Le Guin" }
+									"contribution": "Editor",
+									"author": {
+										"name": "Tobias Wren"
+									}
 								},
 								{
-									"contribution": "Illustrator",
-									"author": { "name": "Ruth Robbins" }
+									"contribution": "Author",
+									"author": {
+										"name": "Odile Marsh"
+									}
 								}
 							]
 						},
 						"edition": {
 							"id": 9002,
-							"isbn_10": null,
-							"isbn_13": "9780547773742",
-							"pages": 264
+							"isbn_10": "0999000020",
+							"isbn_13": "9780999000021",
+							"pages": 290
 						},
 						"user_book_reads": [
 							{
-								"id": 7002,
-								"progress": 42.5,
-								"progress_pages": 85,
+								"id": 7001,
+								"progress": 17.01388888888889,
+								"progress_pages": 49,
 								"edition": {
 									"id": 9003,
-									"isbn_10": "0553383043",
-									"isbn_13": "9780553383041",
-									"pages": 200
+									"isbn_10": "0999000039",
+									"isbn_13": "9780999000038",
+									"pages": 288
 								}
 							}
 						]
@@ -68,85 +74,161 @@
 					{
 						"id": 1003,
 						"status_id": 3,
-						"updated_at": "2026-09-12T08:30:00+00:00",
+						"updated_at": "2026-09-12T08:30:00.5+00:00",
 						"book": {
 							"id": 3003,
-							"title": "The Dispossessed",
-							"pages": 387,
-							"contributions": []
+							"title": "Fixture Read",
+							"pages": 517,
+							"contributions": [
+								{
+									"contribution": "Author",
+									"author": {
+										"name": "Felix Thorne"
+									}
+								},
+								{
+									"contribution": "Illustrator",
+									"author": {
+										"name": "Ada Quill"
+									}
+								}
+							]
 						},
 						"edition": {
 							"id": 9004,
-							"isbn_10": null,
-							"isbn_13": "9780061054884",
-							"pages": 387
+							"isbn_10": "0999000047",
+							"isbn_13": "9780999000045",
+							"pages": 517
 						},
 						"user_book_reads": [
 							{
-								"id": 7003,
+								"id": 7002,
 								"progress": 100,
-								"progress_pages": 387,
-								"edition": null
+								"progress_pages": 517,
+								"edition": {
+									"id": 9004,
+									"isbn_10": "0999000047",
+									"isbn_13": "9780999000045",
+									"pages": 517
+								}
 							}
 						]
 					},
 					{
 						"id": 1004,
 						"status_id": 5,
-						"updated_at": "2026-08-01T10:00:00+00:00",
+						"updated_at": "2026-08-01T10:00:00.000001+00:00",
 						"book": {
 							"id": 3004,
-							"title": "Always Coming Home",
-							"pages": 525,
-							"contributions": []
+							"title": "Fixture Did Not Finish",
+							"pages": 300,
+							"contributions": [
+								{
+									"contribution": "Editor",
+									"author": {
+										"name": "Rhea Stone"
+									}
+								},
+								{
+									"contribution": "Author",
+									"author": {
+										"name": "Jonah Pike"
+									}
+								}
+							]
 						},
-						"edition": null,
+						"edition": {
+							"id": 9005,
+							"isbn_10": "0999000055",
+							"isbn_13": "9780999000052",
+							"pages": 290
+						},
 						"user_book_reads": [
 							{
-								"id": 7004,
-								"progress": 12,
-								"progress_pages": 63,
-								"edition": null
+								"id": 7003,
+								"progress": 17.01388888888889,
+								"progress_pages": 49,
+								"edition": {
+									"id": 9006,
+									"isbn_10": "0999000063",
+									"isbn_13": "9780999000069",
+									"pages": 288
+								}
 							}
 						]
 					},
 					{
 						"id": 1005,
 						"status_id": 6,
-						"updated_at": "2026-07-01T10:00:00+00:00",
+						"updated_at": "2026-07-01T10:00:00.25+00:00",
 						"book": {
 							"id": 3005,
-							"title": "Ignored Book",
-							"pages": 100,
+							"title": "Fixture Ignored",
+							"pages": null,
 							"contributions": []
 						},
-						"edition": null,
+						"edition": {
+							"id": 9007,
+							"isbn_10": null,
+							"isbn_13": null,
+							"pages": null
+						},
 						"user_book_reads": []
 					},
 					{
 						"id": 1006,
 						"status_id": 4,
-						"updated_at": "2026-10-20T10:00:00+00:00",
+						"updated_at": "2026-10-20T10:00:00.75+00:00",
 						"book": {
 							"id": 3006,
-							"title": "Tehanu",
-							"pages": 252,
-							"contributions": []
+							"title": "Fixture Paused",
+							"pages": 215,
+							"contributions": [
+								{
+									"contribution": "Author",
+									"author": {
+										"name": "Imogen Vale"
+									}
+								}
+							]
 						},
 						"edition": {
-							"id": 9006,
-							"isbn_10": null,
-							"isbn_13": "9780689315954",
-							"pages": 252
+							"id": 9008,
+							"isbn_10": "099900008X",
+							"isbn_13": "9780999000083",
+							"pages": 285
 						},
 						"user_book_reads": [
 							{
-								"id": 7006,
-								"progress": 25,
-								"progress_pages": 63,
-								"edition": null
+								"id": 7004,
+								"progress": 0,
+								"progress_pages": 0,
+								"edition": {
+									"id": 9009,
+									"isbn_10": "0999000098",
+									"isbn_13": "9780999000090",
+									"pages": 240
+								}
 							}
 						]
+					},
+					{
+						"id": 1007,
+						"status_id": 5,
+						"updated_at": "2026-06-01T10:00:00.1+00:00",
+						"book": {
+							"id": 3007,
+							"title": "Fixture No Identifiers",
+							"pages": null,
+							"contributions": []
+						},
+						"edition": {
+							"id": 9010,
+							"isbn_10": null,
+							"isbn_13": null,
+							"pages": null
+						},
+						"user_book_reads": []
 					}
 				]
 			}

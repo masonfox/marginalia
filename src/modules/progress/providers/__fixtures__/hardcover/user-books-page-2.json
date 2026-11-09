@@ -6,20 +6,30 @@
 					{
 						"id": 3103,
 						"status_id": 2,
-						"updated_at": "2026-01-03T00:00:00+00:00",
+						"updated_at": "2026-01-03T00:00:00.123456+00:00",
 						"book": {
 							"id": 5003,
 							"title": "Page Two A",
 							"pages": 200,
 							"contributions": []
 						},
-						"edition": null,
+						"edition": {
+							"id": 9203,
+							"isbn_10": null,
+							"isbn_13": null,
+							"pages": null
+						},
 						"user_book_reads": [
 							{
 								"id": 7301,
 								"progress": 50,
 								"progress_pages": 100,
-								"edition": null
+								"edition": {
+									"id": 9204,
+									"isbn_10": "099900011X",
+									"isbn_13": "9780999000113",
+									"pages": 200
+								}
 							}
 						]
 					}

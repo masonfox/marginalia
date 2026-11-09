@@ -20,7 +20,7 @@ const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_BACKOFF_MS = 5_000;
 const MAX_BACKOFF_MS = 120_000;
 
-/** Hardcover's user_book status ids. */
+/** Hardcover's user_book status ids, as its user_book_statuses table lists them. */
 const STATUS: Record<number, ReadingState | null> = {
 	1: "not-started", // Want to Read
 	2: "reading", // Currently Reading
@@ -336,6 +336,8 @@ export function toProviderBook(userBook: HcUserBook): ProviderBook | null {
 	const read = userBook.user_book_reads?.[0];
 	const reading: ProgressReading = { state };
 	if (state === "reading" && read) {
+		// progress is a percentage (0-100, capped at 100) of the read's edition;
+		// progress_pages can exceed that edition's page count.
 		if (read.progress != null && Number.isFinite(read.progress)) {
 			reading.fraction = Math.min(1, Math.max(0, read.progress / 100));
 		}
