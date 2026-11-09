@@ -8,6 +8,7 @@ import {
 	type UIMessage,
 } from "ai";
 import { and, eq, isNull } from "drizzle-orm";
+import { THREAD_ID_HEADER } from "#/lib/new-thread";
 import {
 	type PassageRef,
 	type PassageSnapshot,
@@ -81,8 +82,7 @@ export type ChatUIMessage = UIMessage<
 	}
 >;
 
-/** Response header carrying the thread of a thread turn, for clients that read headers. */
-export const THREAD_ID_HEADER = "x-marginalia-thread-id";
+export { THREAD_ID_HEADER };
 
 export interface ChatDeps {
 	db: Database;

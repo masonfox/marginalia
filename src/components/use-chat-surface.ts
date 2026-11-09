@@ -14,6 +14,7 @@ import {
 	toMsg,
 } from "#/components/conversation-messages";
 import type { ThreadAnchor } from "#/lib/composer-draft";
+import { THREAD_ID_HEADER } from "#/lib/new-thread";
 import { attachmentKey, passageContextPart } from "#/lib/passage-ref";
 import { replyContextOf, replyContextPart } from "#/lib/reply-context";
 import type { StoredMessage } from "#/modules/conversation";
@@ -46,6 +47,7 @@ export function useChatSurface({
 	refresh,
 	onSendStart,
 	onThreadCreated,
+	findCreatedThread,
 }: {
 	/** The chat's identity; a new one starts a fresh chat. */
 	chatId: string;
@@ -65,6 +67,12 @@ export function useChatSurface({
 	onSendStart?: () => void;
 	/** The server created the new thread this surface's first message started. */
 	onThreadCreated?: (threadId: string) => void;
+	/**
+	 * For a new thread whose creation was never heard of: the thread the server
+	 * created for this message, if it can be told apart, so a retry continues it
+	 * instead of starting another.
+	 */
+	findCreatedThread?: (snapshot: Msg) => Promise<string | null>;
 }) {
 	// Read when a request is made, so a new thread's later turns go to the thread it created.
 	const targetRef = useRef(target);
@@ -83,13 +91,28 @@ export function useChatSurface({
 			};
 		return {};
 	};
+	const onThreadCreatedRef = useRef(onThreadCreated);
+	onThreadCreatedRef.current = onThreadCreated;
+	/** Records the thread a new-thread surface created, once. */
+	const markCreated = (threadId: string) => {
+		if (created.current || targetRef.current.kind !== "new-thread") return;
+		created.current = threadId;
+		onThreadCreatedRef.current?.(threadId);
+	};
 	const onSendStartRef = useRef(onSendStart);
 	onSendStartRef.current = onSendStart;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: threadFields reads refs only
+	// biome-ignore lint/correctness/useExhaustiveDependencies: threadFields and markCreated read refs only
 	const transport = useMemo(
 		() =>
 			new DefaultChatTransport<Msg>({
 				api: "/api/chat",
+				// The thread's id arrives with the headers, before any stream part.
+				fetch: async (input, init) => {
+					const res = await fetch(input, init);
+					const threadId = res.headers.get(THREAD_ID_HEADER);
+					if (threadId) markCreated(threadId);
+					return res;
+				},
 				prepareSendMessagesRequest: ({ messages, trigger }) => {
 					const thread = threadFields();
 					// The server owns the history: send only the new message, or nothing to retry.
@@ -131,10 +154,7 @@ export function useChatSurface({
 		messages: initialMessages,
 		transport,
 		onData: (part) => {
-			if (part.type !== "data-thread" || created.current) return;
-			if (targetRef.current.kind !== "new-thread") return;
-			created.current = part.data.threadId;
-			onThreadCreated?.(part.data.threadId);
+			if (part.type === "data-thread") markCreated(part.data.threadId);
 		},
 		// Runs after a finish, a stop, and an error alike.
 		onFinish: ({ message }) => {
@@ -202,14 +222,23 @@ export function useChatSurface({
 		textOf({ parts: m.parts as Msg["parts"] }) === textOf(snapshot) &&
 		attachmentKey(m.parts) === attachmentKey(snapshot.parts);
 
+	/** Adopts the thread a lost new-thread request created, so the reload reads it. */
+	const reconcileCreated = async (snapshot: Msg | null | undefined) => {
+		if (!snapshot || !findCreatedThread || created.current) return;
+		if (targetRef.current.kind !== "new-thread") return;
+		const threadId = await findCreatedThread(snapshot);
+		if (threadId) markCreated(threadId);
+	};
+
 	const retry = async () => {
 		setRecoveryError("");
 		try {
-			const saved = await reload();
-			if (!saved) throw new Error("Could not reload conversation. Try again.");
 			const snapshot =
 				submission.current ??
 				[...messages].reverse().find((m) => m.role === "user");
+			await reconcileCreated(snapshot);
+			const saved = await reload();
+			if (!saved) throw new Error("Could not reload conversation. Try again.");
 			const base = snapshot ? submissionBase.current - 1 : -1;
 			const accepted =
 				snapshot && saved.some((m, i) => i > base && sameMessage(m, snapshot));
@@ -244,6 +273,7 @@ export function useChatSurface({
 		}
 		try {
 			const snapshot = submission.current;
+			await reconcileCreated(snapshot);
 			const saved = await reload();
 			if (!saved || !snapshot)
 				throw new Error("Could not reload the submitted message.");

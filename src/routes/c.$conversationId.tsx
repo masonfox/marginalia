@@ -385,6 +385,10 @@ function ConversationPage() {
 				.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`)
 				?.scrollIntoView({ block: "center" }),
 		);
+	const threadIds = useMemo(
+		() => conversation.threads.map((t) => t.id),
+		[conversation.threads],
+	);
 	const threadsByAnchor = useMemo(() => {
 		const map = new Map<string, ThreadSummary[]>();
 		for (const t of conversation.threads)
@@ -751,6 +755,7 @@ function ConversationPage() {
 						chatKey={panel.key}
 						thread={panel.thread}
 						anchor={panel.anchor}
+						threadIds={threadIds}
 						books={conversation.books}
 						aiEnabled={aiEnabled}
 						trailContext={trailContext}

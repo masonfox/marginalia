@@ -1,5 +1,5 @@
 import { ArrowLeft, CornerLeftUp, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { UserMarkdown } from "#/components/chat";
 import { Composer } from "#/components/composer/composer";
 import { useComposer } from "#/components/composer/use-composer";
@@ -14,8 +14,9 @@ import { ReplySelection } from "#/components/reply-selection";
 import type { TrailContext } from "#/components/research-trail";
 import { Button } from "#/components/ui/button";
 import { useChatSurface } from "#/components/use-chat-surface";
-import { getThreadFn } from "#/fns/conversations";
+import { getConversationFn, getThreadFn } from "#/fns/conversations";
 import type { DraftSource, ThreadAnchor } from "#/lib/composer-draft";
+import { adoptableThread, isNewThreadCandidate } from "#/lib/new-thread";
 import type { ReplyContext } from "#/lib/reply-context";
 import { guideSteps } from "#/lib/research-trail";
 import { exactUsage, totalUsageLine } from "#/lib/usage-format";
@@ -42,6 +43,7 @@ export function ThreadPanel({
 	chatKey,
 	thread,
 	anchor,
+	threadIds,
 	books,
 	aiEnabled,
 	trailContext,
@@ -62,6 +64,8 @@ export function ThreadPanel({
 	thread: ThreadWithUsage | null;
 	/** Where the thread starts: its anchor response and quote. */
 	anchor: ThreadAnchor;
+	/** The conversation's threads now; the panel keeps the ones there when it opened. */
+	threadIds: string[];
 	books: ConversationBook[];
 	aiEnabled: boolean;
 	trailContext: TrailContext;
@@ -96,6 +100,8 @@ export function ThreadPanel({
 		aiEnabled,
 	});
 	const createdId = useRef<string | null>(null);
+	// Threads that existed when this panel opened: none of them is the one it creates.
+	const [knownIds] = useState(() => new Set(threadIds));
 	const surface = useChatSurface({
 		chatId: `${conversationId}:thread:${chatKey}`,
 		conversationId,
@@ -118,6 +124,32 @@ export function ThreadPanel({
 		onThreadCreated: (id) => {
 			createdId.current = id;
 			onThreadCreated(id);
+		},
+		// The server may have created the thread though its reply never arrived.
+		findCreatedThread: async (snapshot) => {
+			if (threadId || createdId.current) return null;
+			const conversation = await getConversationFn({
+				data: { conversationId },
+			});
+			if (!conversation) return null;
+			const candidates = conversation.threads.filter((t) =>
+				isNewThreadCandidate(t, knownIds, anchor),
+			);
+			const threads = await Promise.all(
+				candidates.map(async (t) => {
+					const saved = await getThreadFn({
+						data: { conversationId, threadId: t.id },
+					});
+					const first = saved?.messages.find((m) => m.role === "user");
+					return {
+						...t,
+						firstUserText: first
+							? textOf({ parts: first.parts as typeof snapshot.parts })
+							: null,
+					};
+				}),
+			);
+			return adoptableThread(threads, knownIds, anchor, textOf(snapshot));
 		},
 	});
 	const { messages, busy, status, last } = surface;
