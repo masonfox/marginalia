@@ -55,6 +55,8 @@ export interface NewUsage extends TokenUsage {
 	/** Set for `preprocess` rows. */
 	editionId?: string | null;
 	messageId: string | null;
+	/** The side thread of a thread reply's `conversation` row. */
+	threadId?: string | null;
 	provider: string;
 	model: string;
 	steps: number;

@@ -1,4 +1,3 @@
-import { useChat } from "@ai-sdk/react";
 import {
 	createFileRoute,
 	Link,
@@ -6,29 +5,21 @@ import {
 	useRouter,
 	useRouterState,
 } from "@tanstack/react-router";
-import { DefaultChatTransport, type UIMessage } from "ai";
 import { cn } from "cn";
 import { ChevronDown } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { z } from "zod";
 import { coverColors } from "#/components/book-cover";
-import {
-	AiSetupNotice,
-	AssistantText,
-	type ChatMeta,
-	citationIndex,
-	modelInEffect,
-	numberCitations,
-	SourcesList,
-	SourcesScope,
-	UserMarkdown,
-} from "#/components/chat";
+import { AiSetupNotice, modelInEffect, UserMarkdown } from "#/components/chat";
 import { Composer } from "#/components/composer/composer";
-import {
-	type Attachment,
-	attachmentOf,
-	useComposer,
-} from "#/components/composer/use-composer";
+import { useComposer } from "#/components/composer/use-composer";
 import {
 	ConversationActions,
 	ConversationModelControl,
@@ -36,20 +27,25 @@ import {
 	PositionUpdateOffer,
 	useConversationModel,
 } from "#/components/conversation-controls";
+import {
+	AssistantMessage,
+	FailureNotice,
+	textOf,
+	UserMessage,
+} from "#/components/conversation-messages";
 import { replyModelLabel, selectionLabel } from "#/components/model-picker";
-import { PassageQuote } from "#/components/passage-quote";
 import { ScopePill } from "#/components/pieces";
 import {
-	ReplyQuote,
 	ReplySelection,
 	SaveNoteBookDialog,
 } from "#/components/reply-selection";
-import { ResearchTrail, type TrailContext } from "#/components/research-trail";
 import {
 	PromptScopeNotice as ScopeNotice,
 	scopeText,
 	WidenScope,
 } from "#/components/scope";
+import { ThreadMarkers } from "#/components/thread-markers";
+import { ThreadPanel } from "#/components/thread-panel";
 import { Button } from "#/components/ui/button";
 import {
 	Dialog,
@@ -58,63 +54,70 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "#/components/ui/dialog";
-import { getAiStatusFn, getConversationFn } from "#/fns/conversations";
+import { useChatSurface } from "#/components/use-chat-surface";
+import {
+	getAiStatusFn,
+	getConversationFn,
+	getThreadFn,
+} from "#/fns/conversations";
+import { useHydrated } from "#/hooks/use-hydrated";
 import {
 	beginNamingTracking,
 	useNamingMetadata,
 } from "#/hooks/use-naming-metadata";
-import { loadComposerDraft } from "#/lib/composer-draft";
+import {
+	type DraftSource,
+	loadComposerDraft,
+	loadNewThreadDraft,
+	restorableNewThreadDraft,
+	saveNewThreadDraft,
+	type ThreadAnchor,
+} from "#/lib/composer-draft";
 import { excerptNoteDraft } from "#/lib/note-prefill";
-import {
-	attachmentKey,
-	type PassageRef,
-	passageContextOf,
-	passageContextPart,
-	type StoredPassageContext,
-} from "#/lib/passage-ref";
-import {
-	type ReplyContext,
-	replyContextOf,
-	replyContextPart,
-	type StoredReplyContext,
-} from "#/lib/reply-context";
-import { groupParts, guideSteps, type Step } from "#/lib/research-trail";
-import { exactUsage, replyUsageLine, totalUsageLine } from "#/lib/usage-format";
+import type { ReplyContext } from "#/lib/reply-context";
+import { guideSteps } from "#/lib/research-trail";
+import { exactUsage, totalUsageLine } from "#/lib/usage-format";
 import type {
-	CitationRecord,
 	ConversationBook,
 	ConversationWithUsage,
+	ThreadSummary,
 } from "#/modules/conversation";
 
-type Msg = UIMessage<
-	ChatMeta,
-	{
-		citations: CitationRecord[];
-		"reply-context": StoredReplyContext;
-		"passage-context": StoredPassageContext;
-	}
->;
-type ReplyUsage = ConversationWithUsage["usage"][string];
-
-/** How many times to refetch while a finished reply's usage is not stored yet. */
-const USAGE_REFETCHES = 5;
 /** How near the page end still counts as "at the end" for following a reply. */
 const FOLLOW_SLACK_PX = 80;
+/** Below this width a thread opens as a full-screen drawer (Tailwind's `sm`). */
+const NARROW_QUERY = "(max-width: 639px)";
+
+const searchSchema = z.object({
+	// A passage reference handed over from the passage view; removed once attached.
+	ref: z.string().max(100).optional(),
+	hl: z.string().max(20).optional(),
+	/** The open side thread, or "new" for a thread whose first message is not sent yet. */
+	thread: z
+		.union([z.uuid(), z.literal("new")])
+		.optional()
+		.catch(undefined),
+});
+type ConversationSearch = z.infer<typeof searchSchema>;
 
 export const Route = createFileRoute("/c/$conversationId")({
-	// A passage reference handed over from the passage view; removed once attached.
-	validateSearch: z.object({
-		ref: z.string().max(100).optional(),
-		hl: z.string().max(20).optional(),
-	}),
-	loader: async ({ params }) => {
+	validateSearch: searchSchema,
+	loaderDeps: ({ search }) => ({ thread: search.thread }),
+	loader: async ({ params, deps }) => {
 		if (!z.uuid().safeParse(params.conversationId).success) throw notFound();
-		const [conversation, status] = await Promise.all([
-			getConversationFn({ data: { conversationId: params.conversationId } }),
+		const conversationId = params.conversationId;
+		const threadId =
+			deps.thread && deps.thread !== "new" ? deps.thread : undefined;
+		const [conversation, status, thread] = await Promise.all([
+			getConversationFn({ data: { conversationId } }),
 			getAiStatusFn(),
+			// An unknown or foreign thread loads as null and opens no panel.
+			threadId
+				? getThreadFn({ data: { conversationId, threadId } })
+				: Promise.resolve(null),
 		]);
 		if (!conversation) throw notFound();
-		return { conversation, status };
+		return { conversation, status, thread };
 	},
 	head: ({ loaderData }) => ({
 		meta: [
@@ -128,16 +131,22 @@ export const Route = createFileRoute("/c/$conversationId")({
 	component: ConversationPage,
 });
 
-const FINISH_NOTES: Record<string, string> = {
-	aborted: "Stopped before finishing, so this reply is incomplete.",
-	"tool-calls":
-		"Stopped at the step limit before finishing, so this reply is incomplete.",
-	length: "Cut off at the model's length limit, so this reply is incomplete.",
-};
+/** The search without the open thread. */
+const withoutThread = ({ thread: _, ...rest }: ConversationSearch) => rest;
+
+/** The new thread this page started (or restored), and the thread it became once sent. */
+interface NewThread {
+	key: string;
+	anchor: ThreadAnchor;
+	createdId?: string;
+}
 
 function ConversationPage() {
-	const { conversation: loadedConversation, status: aiStatus } =
-		Route.useLoaderData();
+	const {
+		conversation: loadedConversation,
+		status: aiStatus,
+		thread: loadedThread,
+	} = Route.useLoaderData();
 	const conversation = useNamingMetadata(loadedConversation);
 	const router = useRouter();
 	const conversationId = conversation.id;
@@ -153,79 +162,25 @@ function ConversationPage() {
 	const controlsId = useId();
 	const collapsed = controlsOpen ? undefined : "max-sm:hidden";
 	const conversationModel = useConversationModel(conversationId);
+	const hydrated = useHydrated();
 
-	const initial = useMemo<Msg[]>(
-		() =>
-			conversation.messages.map((m) => ({
-				id: m.id,
-				role: m.role,
-				parts: m.parts as Msg["parts"],
-				metadata: {
-					citations: m.citations,
-					finishReason: m.finishReason,
-					error: m.error,
-				},
-			})),
-		// Only the first render seeds the chat; later updates come from the stream.
-		[conversation.messages],
-	);
-	const transport = useMemo(
-		() =>
-			new DefaultChatTransport<Msg>({
-				api: "/api/chat",
-				prepareSendMessagesRequest: ({ messages, trigger }) => {
-					// The server owns the history: send only the new message, or nothing to retry.
-					if (trigger === "regenerate-message") {
-						return { body: { conversationId } };
-					}
-					beginNamingTracking(conversationId);
-					return {
-						body: {
-							conversationId,
-							message: textOf(messages.at(-1)),
-							replyContext: replyContextOf(messages.at(-1)?.parts ?? []),
-							passageRef: refOf(messages.at(-1)?.parts ?? []),
-						},
-					};
-				},
-			}),
-		[conversationId],
-	);
-	// After a stop the server saves the reply (and its usage) after the client
-	// is done, so the first refetch can miss it. Retry a few times.
-	const [awaitingUsage, setAwaitingUsage] = useState<{
-		id: string;
-		tries: number;
-	} | null>(null);
-	const chat = useChat<Msg>({
-		id: conversationId,
-		messages: initial,
-		transport,
-		// Runs after a finish, a stop, and an error alike.
-		onFinish: ({ message }) => {
-			setAwaitingUsage({ id: message.id, tries: 0 });
-			void router.invalidate();
-		},
+	const refresh = useCallback(() => router.invalidate(), [router]);
+	const main = useChatSurface({
+		chatId: conversationId,
+		conversationId,
+		target: { kind: "main" },
+		initial: conversation.messages,
+		savedCount: conversation.messages.length,
+		usage: conversation.usage,
+		reload: async () =>
+			(await getConversationFn({ data: { conversationId } }))?.messages ?? null,
+		refresh,
+		onSendStart: () => beginNamingTracking(conversationId),
 	});
-	useEffect(() => {
-		if (!awaitingUsage) return;
-		if (
-			conversation.usage[awaitingUsage.id] ||
-			awaitingUsage.tries >= USAGE_REFETCHES
-		) {
-			setAwaitingUsage(null);
-			return;
-		}
-		const timer = setTimeout(() => {
-			setAwaitingUsage({ ...awaitingUsage, tries: awaitingUsage.tries + 1 });
-			void router.invalidate();
-		}, 600);
-		return () => clearTimeout(timer);
-	}, [awaitingUsage, conversation.usage, router]);
-	const { messages, status, error } = chat;
-	const busy = status === "submitted" || status === "streaming";
-	// The reply the reader stopped, so it can be marked incomplete before it is reloaded.
-	const [stoppedId, setStoppedId] = useState<string | null>(null);
+	const { messages, status, busy, last } = main;
+	// One generation at a time across the conversation and its threads.
+	const [threadBusy, setThreadBusy] = useState(false);
+	const anyBusy = busy || threadBusy;
 	const remainingBookIds = useMemo(
 		() => new Set(conversation.books.map((b) => b.editionId)),
 		[conversation.books],
@@ -239,40 +194,34 @@ function ConversationPage() {
 			),
 		[conversation.messages],
 	);
+	/** Saved replies a quote or a new thread's anchor may come from, with their threads. */
+	const sources = useMemo(() => {
+		const map = new Map<string, DraftSource>();
+		for (const m of conversation.messages)
+			if (m.role === "assistant") map.set(m.id, { threadId: null });
+		for (const [id, threadId] of Object.entries(conversation.threadReplies))
+			map.set(id, { threadId });
+		for (const m of loadedThread?.messages ?? [])
+			if (m.role === "assistant" && m.finishReason !== "error")
+				map.set(m.id, { threadId: m.threadId });
+		return map;
+	}, [conversation.messages, conversation.threadReplies, loadedThread]);
 
-	const [recoveryError, setRecoveryError] = useState("");
-	const submission = useRef<Msg | null>(null);
-	const submissionBase = useRef(0);
 	const search = Route.useSearch();
 	const navigate = Route.useNavigate();
 	const composer = useComposer(conversationId, {
-		savedAssistantIds,
+		target: { kind: "main" },
+		sources,
 		books: conversation.books,
 		aiEnabled,
 		handoff: search,
-		clearHandoff: () => void navigate({ search: {}, replace: true }),
+		clearHandoff: () =>
+			void navigate({
+				search: (s) => ({ thread: s.thread }),
+				replace: true,
+				resetScroll: false,
+			}),
 	});
-	// biome-ignore lint/correctness/useExhaustiveDependencies: a new conversation has no submission
-	useEffect(() => {
-		submission.current = null;
-	}, [conversationId]);
-
-	/** Sends a message and empties the composer and its saved draft. */
-	const send = (text: string, attachment: Attachment | null) => {
-		const parts: Msg["parts"] = [
-			...(attachment?.kind === "quote"
-				? [replyContextPart(attachment.quote)]
-				: []),
-			...(attachment?.kind === "passage"
-				? [passageContextPart(attachment.snapshot)]
-				: []),
-			{ type: "text", text },
-		];
-		submissionBase.current = conversation.messages.length;
-		submission.current = { id: crypto.randomUUID(), role: "user", parts };
-		composer.clear();
-		void chat.sendMessage({ id: submission.current.id, parts });
-	};
 
 	// The book page created this conversation and saved its first message as
 	// the draft: send it once. The flag is dropped from history first, so a
@@ -295,7 +244,7 @@ function ConversationPage() {
 				saved?.text.trim() &&
 				!saved.attachment
 			)
-				send(saved.text, null);
+				main.send(saved.text, null, composer);
 		});
 		return () => clearTimeout(timer);
 	}, [autoSend, conversationId]);
@@ -334,65 +283,125 @@ function ConversationPage() {
 		});
 	}, [messages, status]);
 
-	const last = messages.at(-1);
-	const lastStoredError =
-		last?.role === "assistant" && last.metadata?.finishReason === "error";
-	const failed = status === "error" || lastStoredError;
-	const failureText =
-		error?.message ??
-		(lastStoredError ? last?.metadata?.error : null) ??
-		"Something went wrong.";
+	// --- Side threads -------------------------------------------------------
 
-	const retry = async () => {
-		setRecoveryError("");
-		try {
-			const saved = await getConversationFn({ data: { conversationId } });
-			if (!saved) throw new Error("Could not reload conversation. Try again.");
-			const snapshot =
-				submission.current ??
-				[...messages].reverse().find((m) => m.role === "user");
-			const base = snapshot ? submissionBase.current - 1 : -1;
-			const accepted =
-				snapshot &&
-				saved.messages.some(
-					(m, i) =>
-						i > base &&
-						m.role === "user" &&
-						textOf({ ...m, parts: m.parts as Msg["parts"] } as Msg) ===
-							textOf(snapshot) &&
-						attachmentKey(m.parts) === attachmentKey(snapshot.parts),
-				);
-			chat.clearError();
-			if (accepted || (!submission.current && last?.role === "assistant")) {
-				chat.setMessages(
-					saved.messages.map((m) => ({
-						id: m.id,
-						role: m.role,
-						parts: m.parts as Msg["parts"],
-						metadata: {
-							citations: m.citations,
-							finishReason: m.finishReason,
-							error: m.error,
-						},
-					})),
-				);
-				const tail = saved.messages.at(-1);
-				if (tail?.role === "assistant" && tail.finishReason !== "error") {
-					submission.current = null;
-					await router.invalidate();
-				} else await chat.regenerate();
-			} else if (snapshot) {
-				chat.setMessages(messages.filter((m) => m.id !== snapshot.id));
-				await chat.sendMessage({ id: snapshot.id, parts: snapshot.parts });
-			}
-		} catch (err) {
-			setRecoveryError(
-				err instanceof Error
-					? err.message
-					: "Could not reconcile the submitted message.",
-			);
-		}
+	const [newThread, setNewThread] = useState<NewThread | null>(null);
+	// A reload with the new thread open reopens it from its draft, if its anchor is still here.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: once per opened new thread
+	useEffect(() => {
+		if (search.thread !== "new" || newThread) return;
+		const draft = restorableNewThreadDraft(
+			loadNewThreadDraft(conversationId),
+			sources,
+		);
+		if (draft)
+			setNewThread({ key: `new:${crypto.randomUUID()}`, anchor: draft.anchor });
+	}, [search.thread, conversationId]);
+	/** The panel's thread, when one is open. */
+	const panel = useMemo(() => {
+		if (search.thread === "new")
+			return hydrated && newThread
+				? { key: newThread.key, thread: null, anchor: newThread.anchor }
+				: null;
+		if (!search.thread) return null;
+		if (loadedThread?.thread.id !== search.thread)
+			// Just created and not loaded yet: keep the same chat open meanwhile.
+			return newThread?.createdId === search.thread
+				? { key: newThread.key, thread: null, anchor: newThread.anchor }
+				: null;
+		const t = loadedThread.thread;
+		return {
+			key: newThread?.createdId === t.id ? newThread.key : t.id,
+			thread: loadedThread,
+			anchor: { anchorMessageId: t.anchorMessageId, quote: t.anchorQuote },
+		};
+	}, [search.thread, loadedThread, newThread, hydrated]);
+	const panelOpen = panel !== null;
+
+	/** This page pushed the history entry that opened the panel, so closing can go back. */
+	const pushedPanel = useRef(false);
+	useEffect(() => {
+		if (!search.thread) pushedPanel.current = false;
+	}, [search.thread]);
+	/** Opens a thread (or the new thread), replacing an open one in place. */
+	const showThread = (thread: string) => {
+		const replace = Boolean(search.thread);
+		if (!replace) pushedPanel.current = true;
+		void navigate({
+			search: (s) => ({ ...s, thread }),
+			replace,
+			resetScroll: false,
+		});
 	};
+	const closePanel = () => {
+		if (pushedPanel.current) {
+			pushedPanel.current = false;
+			router.history.back();
+			return;
+		}
+		void navigate({ search: withoutThread, replace: true, resetScroll: false });
+	};
+	/** Work waiting for the drawer to close: focusing the composer or showing the anchor. */
+	const afterClose = useRef<(() => void) | null>(null);
+	useEffect(() => {
+		if (panelOpen || !afterClose.current) return;
+		const run = afterClose.current;
+		afterClose.current = null;
+		// After the navigation's own scroll restoration.
+		requestAnimationFrame(() => requestAnimationFrame(run));
+	}, [panelOpen]);
+	const narrow = () => window.matchMedia(NARROW_QUERY).matches;
+	/** Runs now beside a side panel, or once the phone drawer has closed. */
+	const inMainConversation = (run: () => void) => {
+		if (panelOpen && narrow()) {
+			afterClose.current = run;
+			closePanel();
+		} else run();
+	};
+
+	const startThread = (quote: ReplyContext) => {
+		const anchor = { anchorMessageId: quote.messageId, quote: quote.text };
+		// One new thread per conversation: a new selection replaces the last.
+		saveNewThreadDraft(conversationId, { text: "", attachment: null, anchor });
+		setNewThread({ key: `new:${crypto.randomUUID()}`, anchor });
+		showThread("new");
+	};
+	const onThreadCreated = (threadId: string) => {
+		setNewThread((current) => current && { ...current, createdId: threadId });
+		// The loader reruns for the new address, refreshing the markers.
+		void navigate({
+			search: (s) => ({ ...s, thread: threadId }),
+			replace: true,
+			resetScroll: false,
+		});
+	};
+	const bringToMain = (quote: ReplyContext) => {
+		composer.attachQuote(quote);
+		inMainConversation(() => composer.inputRef.current?.focus());
+	};
+	const jumpToAnchor = (messageId: string) =>
+		inMainConversation(() =>
+			document
+				.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`)
+				?.scrollIntoView({ block: "center" }),
+		);
+	const threadIds = useMemo(
+		() => conversation.threads.map((t) => t.id),
+		[conversation.threads],
+	);
+	const threadsByAnchor = useMemo(() => {
+		const map = new Map<string, ThreadSummary[]>();
+		for (const t of conversation.threads)
+			map.set(t.anchorMessageId, [...(map.get(t.anchorMessageId) ?? []), t]);
+		return map;
+	}, [conversation.threads]);
+	/** The thread holding a quoted reply, for "from a thread" labels. */
+	const threadOf = (messageId: string) =>
+		conversation.quoteSourceThreads[messageId] ??
+		conversation.threadReplies[messageId];
+
+	/** The main conversation, where its selection actions apply. */
+	const surface = useRef<HTMLElement>(null);
 
 	// "Save as note": the excerpt waiting for the reader to choose its book.
 	const [noteExcerpt, setNoteExcerpt] = useState<string | null>(null);
@@ -448,477 +457,323 @@ function ConversationPage() {
 
 	return (
 		<PositionOfferProvider>
-			<main className="mx-auto flex min-h-[calc(100dvh-4rem)] max-w-[960px] flex-col px-4 py-8 sm:px-8 sm:py-12 max-sm:pt-5">
-				<ReplySelection
-					key={conversationId}
-					onAttach={aiEnabled ? composer.attachQuote : undefined}
-					onTooLong={composer.rejectLongQuote}
-					onSaveAsNote={conversation.books.length > 0 ? saveAsNote : undefined}
-				/>
-				<SaveNoteBookDialog
-					books={noteExcerpt === null ? null : conversation.books}
-					onChoose={(editionId) => {
-						if (noteExcerpt) openNoteDraft(noteExcerpt, editionId);
-						setNoteExcerpt(null);
-					}}
-					onCancel={() => setNoteExcerpt(null)}
-				/>
-				<header className="border-b pb-6 max-sm:pb-3" data-testid="chat-header">
-					{/* With no books left, the header's navigation is the way out. */}
-					{/* Several books: the conversations page, where it is listed with every other. */}
-					{conversation.books.length > 1 ? (
-						<p className="text-sm">
-							<Link
-								to="/conversations"
-								className="text-muted-foreground hover:underline"
-							>
-								← Conversations
-							</Link>
-						</p>
-					) : (
-						conversation.books[0] && (
+			<div className="flex items-start">
+				<main
+					ref={surface}
+					data-selection-scope
+					className="mx-auto flex min-h-[calc(100dvh-4rem)] max-w-[960px] min-w-0 flex-1 flex-col px-4 py-8 sm:px-8 sm:py-12 max-sm:pt-5"
+				>
+					<ReplySelection
+						key={conversationId}
+						container={surface}
+						onAttach={aiEnabled ? composer.attachQuote : undefined}
+						onThread={aiEnabled ? startThread : undefined}
+						onTooLong={composer.rejectLongQuote}
+						onSaveAsNote={
+							conversation.books.length > 0 ? saveAsNote : undefined
+						}
+					/>
+					<SaveNoteBookDialog
+						books={noteExcerpt === null ? null : conversation.books}
+						onChoose={(editionId) => {
+							if (noteExcerpt) openNoteDraft(noteExcerpt, editionId);
+							setNoteExcerpt(null);
+						}}
+						onCancel={() => setNoteExcerpt(null)}
+					/>
+					<header
+						className="border-b pb-6 max-sm:pb-3"
+						data-testid="chat-header"
+					>
+						{/* With no books left, the header's navigation is the way out. */}
+						{/* Several books: the conversations page, where it is listed with every other. */}
+						{conversation.books.length > 1 ? (
 							<p className="text-sm">
 								<Link
-									to="/books/$editionId"
-									params={{ editionId: conversation.books[0].editionId }}
+									to="/conversations"
 									className="text-muted-foreground hover:underline"
 								>
 									← Conversations
 								</Link>
 							</p>
-						)
-					)}
-					<div className="mt-3 flex items-start gap-3 max-sm:mt-2">
-						{/* Below sm: the title and the books take one line each. */}
-						<h1
-							className="min-w-0 flex-1 font-serif text-[clamp(36px,4vw,52px)] leading-[1.06] font-semibold tracking-[-0.015em] max-sm:truncate"
-							title={conversation.title}
-						>
-							{conversation.title}
-						</h1>
-						<ConversationActions
-							conversationId={conversationId}
-							title={conversation.title}
-							className="mt-1 -mr-2 sm:mt-2"
-							onDeleted={() => {
-								composer.clear();
-								const book = conversation.books[0];
-								return book
-									? router.navigate({
-											to: "/books/$editionId",
-											params: { editionId: book.editionId },
-										})
-									: router.navigate({ to: "/" });
-							}}
-						/>
-					</div>
-					<div className="mt-5 flex flex-wrap items-center gap-2 max-sm:mt-3">
-						<div
-							className="flex min-w-0 items-center gap-2 max-sm:flex-1 max-sm:overflow-hidden sm:flex-wrap"
-							data-testid="conversation-books"
-						>
-							{conversation.books.length === 0 ? (
-								<span className="text-sm text-muted-foreground">No book</span>
-							) : (
-								conversation.books.map((b) => (
-									<BookChip key={b.editionId} book={b} />
-								))
-							)}
-						</div>
-						{(conversation.books.length > 0 ||
-							effect.status !== "disabled") && (
-							<Button
-								type="button"
-								variant="ghost"
-								size="sm"
-								className="shrink-0 text-foreground sm:hidden pointer-coarse:h-11"
-								aria-expanded={controlsOpen}
-								aria-controls={`${controlsId}-model ${controlsId}-scope`}
-								onClick={() => setControlsOpen((open) => !open)}
-							>
-								Scope and model
-								<ChevronDown
-									aria-hidden
-									className={cn(
-										"transition-transform",
-										controlsOpen && "rotate-180",
-									)}
-								/>
-							</Button>
+						) : (
+							conversation.books[0] && (
+								<p className="text-sm">
+									<Link
+										to="/books/$editionId"
+										params={{ editionId: conversation.books[0].editionId }}
+										className="text-muted-foreground hover:underline"
+									>
+										← Conversations
+									</Link>
+								</p>
+							)
 						)}
-						{conversation.books.length > 0 && (
-							<ul
-								id={`${controlsId}-scope`}
+						<div className="mt-3 flex items-start gap-3 max-sm:mt-2">
+							{/* Below sm: the title and the books take one line each. */}
+							<h1
+								className="min-w-0 flex-1 font-serif text-[clamp(36px,4vw,52px)] leading-[1.06] font-semibold tracking-[-0.015em] max-sm:truncate"
+								title={conversation.title}
+							>
+								{conversation.title}
+							</h1>
+							<ConversationActions
+								conversationId={conversationId}
+								title={conversation.title}
+								className="mt-1 -mr-2 sm:mt-2"
+								onDeleted={() => {
+									composer.clear();
+									const book = conversation.books[0];
+									return book
+										? router.navigate({
+												to: "/books/$editionId",
+												params: { editionId: book.editionId },
+											})
+										: router.navigate({ to: "/" });
+								}}
+							/>
+						</div>
+						<div className="mt-5 flex flex-wrap items-center gap-2 max-sm:mt-3">
+							<div
+								className="flex min-w-0 items-center gap-2 max-sm:flex-1 max-sm:overflow-hidden sm:flex-wrap"
+								data-testid="conversation-books"
+							>
+								{conversation.books.length === 0 ? (
+									<span className="text-sm text-muted-foreground">No book</span>
+								) : (
+									conversation.books.map((b) => (
+										<BookChip key={b.editionId} book={b} />
+									))
+								)}
+							</div>
+							{(conversation.books.length > 0 ||
+								effect.status !== "disabled") && (
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									className="shrink-0 text-foreground sm:hidden pointer-coarse:h-11"
+									aria-expanded={controlsOpen}
+									aria-controls={`${controlsId}-model ${controlsId}-scope`}
+									onClick={() => setControlsOpen((open) => !open)}
+								>
+									Scope and model
+									<ChevronDown
+										aria-hidden
+										className={cn(
+											"transition-transform",
+											controlsOpen && "rotate-180",
+										)}
+									/>
+								</Button>
+							)}
+							{conversation.books.length > 0 && (
+								<ul
+									id={`${controlsId}-scope`}
+									className={cn(
+										"flex flex-wrap items-center gap-2 max-sm:w-full",
+										collapsed,
+									)}
+								>
+									{conversation.books.map((b) => (
+										<li key={b.editionId} className="flex items-center gap-2">
+											<ScopePill
+												data-testid="scope-chip"
+												className="min-h-9 px-4 pointer-coarse:min-h-11"
+											>
+												{conversation.books.length > 1 && `${b.title}: `}
+												{scopeText(b.scopeLabel)}
+											</ScopePill>
+											<WidenScope
+												conversationId={conversationId}
+												book={b}
+												disabled={anyBusy}
+												variant="outline"
+												className="h-9 rounded-full px-4 font-medium pointer-coarse:h-11"
+											/>
+										</li>
+									))}
+								</ul>
+							)}
+							<div
+								id={`${controlsId}-model`}
 								className={cn(
-									"flex flex-wrap items-center gap-2 max-sm:w-full",
+									"flex min-w-0 items-center gap-3 max-sm:w-full sm:ml-auto",
 									collapsed,
 								)}
 							>
-								{conversation.books.map((b) => (
-									<li key={b.editionId} className="flex items-center gap-2">
-										<ScopePill
-											data-testid="scope-chip"
-											className="min-h-9 px-4 pointer-coarse:min-h-11"
-										>
-											{conversation.books.length > 1 && `${b.title}: `}
-											{scopeText(b.scopeLabel)}
-										</ScopePill>
-										<WidenScope
-											conversationId={conversationId}
-											book={b}
-											disabled={busy}
-											variant="outline"
-											className="h-9 rounded-full px-4 font-medium pointer-coarse:h-11"
-										/>
-									</li>
-								))}
-							</ul>
-						)}
-						<div
-							id={`${controlsId}-model`}
-							className={cn(
-								"flex min-w-0 items-center gap-3 max-sm:w-full sm:ml-auto",
-								collapsed,
-							)}
-						>
-							<ConversationModelControl
-								conversationId={conversationId}
-								status={aiStatus}
-								own={conversation.model}
-								effect={effect}
-								disabled={busy}
-								open={modelPickerOpen}
-								onOpenChange={setModelPickerOpen}
-							/>
-							<UsageSummary
-								total={conversation.usageTotal}
-								naming={conversation.namingUsage}
+								<ConversationModelControl
+									conversationId={conversationId}
+									status={aiStatus}
+									own={conversation.model}
+									effect={effect}
+									disabled={anyBusy}
+									open={modelPickerOpen}
+									onOpenChange={setModelPickerOpen}
+								/>
+								<UsageSummary
+									total={conversation.usageTotal}
+									naming={conversation.namingUsage}
+								/>
+							</div>
+						</div>
+						<div className={cn("mt-4", collapsed)}>
+							<ScopeNotice
+								plain
+								labels={conversation.books.map((b) => b.scopeLabel)}
+								titles={conversation.books.map((b) => b.title)}
 							/>
 						</div>
-					</div>
-					<div className={cn("mt-4", collapsed)}>
-						<ScopeNotice
-							plain
-							labels={conversation.books.map((b) => b.scopeLabel)}
-							titles={conversation.books.map((b) => b.title)}
-						/>
-					</div>
-					<PositionUpdateOffer />
-				</header>
+						<PositionUpdateOffer />
+					</header>
 
-				<ol className="min-w-0 flex-1 space-y-8 py-8" aria-live="polite">
-					{messages.length === 0 && (
-						<li className="space-y-3 text-sm text-muted-foreground">
-							{effect.status === "ok" && (
-								<p data-testid="provider-notice">
-									Your messages and the passages the assistant reads are sent to{" "}
-									{selectionLabel(effect.selection)}.
+					<ol className="min-w-0 flex-1 space-y-8 py-8" aria-live="polite">
+						{messages.length === 0 && (
+							<li className="space-y-3 text-sm text-muted-foreground">
+								{effect.status === "ok" && (
+									<p data-testid="provider-notice">
+										Your messages and the passages the assistant reads are sent
+										to {selectionLabel(effect.selection)}.
+									</p>
+								)}
+								<p>
+									Ask about a scene, a character, or a theory you are forming.
+									The assistant will search the book and push back where the
+									text does not support you.
 								</p>
-							)}
-							<p>
-								Ask about a scene, a character, or a theory you are forming. The
-								assistant will search the book and push back where the text does
-								not support you.
-							</p>
-						</li>
-					)}
-					{messages.map((m) => (
-						<li key={m.id}>
-							{m.role === "user" ? (
-								<div className="ml-auto w-fit max-w-[90%] break-words rounded-[20px_20px_6px_20px] border bg-secondary px-5 py-4 text-[15.5px] leading-relaxed sm:max-w-[80%]">
-									<AttachmentPreview attachment={attachmentOf(m.parts)} />
-									<UserMarkdown text={textOf(m)} />
-								</div>
-							) : (
-								<AssistantMessage
-									message={m}
-									eligible={
-										savedAssistantIds.has(m.id) && !(busy && m.id === last?.id)
-									}
-									guideSteps={guideSteps(
-										guideContexts.get(m.id),
-										conversation.books,
-									)}
-									trailContext={trailContext}
-									remainingBookIds={remainingBookIds}
-									stopped={m.id === stoppedId}
-									streaming={busy && m.id === last?.id}
-									usage={conversation.usage[m.id]}
-									producedBy={producers.get(m.id) ?? null}
-								/>
-							)}
-						</li>
-					))}
-					{status === "submitted" && (
-						<li className="text-sm text-muted-foreground">Thinking…</li>
-					)}
-					{failed && (
-						<li
-							role="alert"
-							className="rounded-md border border-destructive-foreground/40 px-3 py-2 text-sm"
-						>
-							<p className="text-destructive-foreground">{failureText}</p>
-							{recoveryError && <p>{recoveryError}</p>}
-							{submission.current && (
-								<Button
-									type="button"
-									onClick={async () => {
-										if (composer.draft || composer.attachment) {
-											setRecoveryError(
-												"Your newer draft is preserved. Clear it before editing the failed message.",
-											);
-											return;
-										}
-										try {
-											const snapshot = submission.current;
-											const saved = await getConversationFn({
-												data: { conversationId },
-											});
-											if (!saved || !snapshot)
-												throw new Error(
-													"Could not reload the submitted message.",
-												);
-											if (
-												saved.messages.slice(submissionBase.current).some(
-													(m) =>
-														m.role === "user" &&
-														textOf({
-															...m,
-															parts: m.parts as Msg["parts"],
-														} as Msg) === textOf(snapshot) &&
-														attachmentKey(m.parts) ===
-															attachmentKey(snapshot.parts),
-												)
-											) {
-												setRecoveryError(
-													"This message is already saved. Use Retry to continue its reply.",
-												);
-												return;
+							</li>
+						)}
+						{messages.map((m) => {
+							const anchored = threadsByAnchor.get(m.id);
+							return (
+								<li key={m.id}>
+									{m.role === "user" ? (
+										<UserMessage
+											message={m}
+											threadOf={threadOf}
+											onOpenThread={showThread}
+										>
+											<UserMarkdown text={textOf(m)} />
+										</UserMessage>
+									) : (
+										<AssistantMessage
+											message={m}
+											eligible={
+												savedAssistantIds.has(m.id) &&
+												!(busy && m.id === last?.id)
 											}
-											chat.setMessages(
-												messages.filter((m) => m.id !== snapshot.id),
-											);
-											chat.clearError();
-											composer.restore(
-												textOf(snapshot),
-												attachmentOf(snapshot.parts),
-											);
-										} catch (err) {
-											setRecoveryError(
-												err instanceof Error
-													? err.message
-													: "Could not recover the message.",
-											);
-										}
-									}}
-								>
-									Edit failed message
-								</Button>
-							)}
-							<Button
-								type="button"
-								size="sm"
-								variant="outline"
-								className="mt-2"
-								onClick={retry}
-							>
-								Retry
-							</Button>
-						</li>
-					)}
-				</ol>
+											guideSteps={guideSteps(
+												guideContexts.get(m.id),
+												conversation.books,
+											)}
+											trailContext={trailContext}
+											remainingBookIds={remainingBookIds}
+											stopped={m.id === main.stoppedId}
+											streaming={busy && m.id === last?.id}
+											usage={conversation.usage[m.id]}
+											producedBy={producers.get(m.id) ?? null}
+										>
+											{anchored && (
+												<ThreadMarkers
+													messageId={m.id}
+													threads={anchored}
+													revision={m}
+													onOpen={showThread}
+												/>
+											)}
+										</AssistantMessage>
+									)}
+								</li>
+							);
+						})}
+						{status === "submitted" && (
+							<li className="text-sm text-muted-foreground">Thinking…</li>
+						)}
+						{main.failed && (
+							<FailureNotice surface={main} composer={composer} />
+						)}
+					</ol>
 
-				{effect.status === "ok" ? (
-					// The page background below the card and a fade above it, so messages
-					// scroll under the composer. Only the card itself takes the pointer.
-					<div className="pointer-events-none sticky bottom-0 z-10 -mx-2 bg-gradient-to-t from-background from-75% to-transparent px-2 pt-8 pb-3 *:pointer-events-auto">
-						<Composer
-							composer={composer}
-							conversationId={conversationId}
-							books={conversation.books}
-							busy={busy}
-							onStop={() => {
-								setStoppedId(messages.at(-1)?.id ?? null);
-								void chat.stop();
-							}}
-							onSend={() => send(composer.draft, composer.attachment)}
+					{effect.status === "ok" ? (
+						// The page background below the card and a fade above it, so messages
+						// scroll under the composer. Only the card itself takes the pointer.
+						<div className="pointer-events-none sticky bottom-0 z-10 -mx-2 bg-gradient-to-t from-background from-75% to-transparent px-2 pt-8 pb-3 *:pointer-events-auto">
+							<Composer
+								composer={composer}
+								conversationId={conversationId}
+								books={conversation.books}
+								busy={busy}
+								elsewhere={threadBusy}
+								onStop={main.stop}
+								onSend={() =>
+									main.send(composer.draft, composer.attachment, composer)
+								}
+							/>
+						</div>
+					) : (
+						<AiSetupNotice
+							effect={effect}
+							actions={
+								effect.status !== "disabled" && (
+									<>
+										{aiStatus.providers.length > 0 && (
+											<Button
+												type="button"
+												size="sm"
+												disabled={anyBusy}
+												onClick={() => setModelPickerOpen(true)}
+											>
+												Choose a model
+											</Button>
+										)}
+										{effect.status === "unavailable" && effect.own && (
+											<Button
+												type="button"
+												size="sm"
+												variant="outline"
+												disabled={anyBusy || conversationModel.busy}
+												onClick={() => void conversationModel.save(null)}
+											>
+												Use the default
+											</Button>
+										)}
+										{conversationModel.error && (
+											<p role="alert" className="text-destructive-foreground">
+												{conversationModel.error}
+											</p>
+										)}
+									</>
+								)
+							}
 						/>
-					</div>
-				) : (
-					<AiSetupNotice
-						effect={effect}
-						actions={
-							effect.status !== "disabled" && (
-								<>
-									{aiStatus.providers.length > 0 && (
-										<Button
-											type="button"
-											size="sm"
-											disabled={busy}
-											onClick={() => setModelPickerOpen(true)}
-										>
-											Choose a model
-										</Button>
-									)}
-									{effect.status === "unavailable" && effect.own && (
-										<Button
-											type="button"
-											size="sm"
-											variant="outline"
-											disabled={busy || conversationModel.busy}
-											onClick={() => void conversationModel.save(null)}
-										>
-											Use the default
-										</Button>
-									)}
-									{conversationModel.error && (
-										<p role="alert" className="text-destructive-foreground">
-											{conversationModel.error}
-										</p>
-									)}
-								</>
-							)
+					)}
+				</main>
+				{panel && (
+					<ThreadPanel
+						key={panel.key}
+						conversationId={conversationId}
+						chatKey={panel.key}
+						thread={panel.thread}
+						anchor={panel.anchor}
+						threadIds={threadIds}
+						books={conversation.books}
+						aiEnabled={aiEnabled}
+						trailContext={trailContext}
+						remainingBookIds={remainingBookIds}
+						elsewhere={busy}
+						onBusyChange={setThreadBusy}
+						onClose={closePanel}
+						onJumpToAnchor={jumpToAnchor}
+						onBringToMain={bringToMain}
+						onSaveAsNote={
+							conversation.books.length > 0 ? saveAsNote : undefined
 						}
+						onThreadCreated={onThreadCreated}
+						refresh={refresh}
 					/>
 				)}
-			</main>
-		</PositionOfferProvider>
-	);
-}
-
-function AttachmentPreview({ attachment }: { attachment: Attachment | null }) {
-	if (attachment?.kind === "quote")
-		return <ReplyQuote quote={attachment.quote} />;
-	if (attachment?.kind === "passage")
-		return <PassageQuote snapshot={attachment.snapshot} />;
-	return null;
-}
-
-/** The reference a message's passage attachment was made from. */
-function refOf(parts: unknown[]): PassageRef | undefined {
-	const passage = passageContextOf(parts);
-	return passage
-		? {
-				locator: passage.locator,
-				...(passage.range && { range: passage.range }),
-			}
-		: undefined;
-}
-
-function textOf(message: Msg | undefined): string {
-	return (message?.parts ?? [])
-		.map((p) => (p.type === "text" ? p.text : ""))
-		.join("");
-}
-
-function citationsOf(message: Msg): CitationRecord[] {
-	const stored = message.metadata?.citations;
-	if (stored && stored.length > 0) return stored;
-	for (const part of message.parts) {
-		if (part.type === "data-citations") return part.data;
-	}
-	return [];
-}
-
-function AssistantMessage({
-	message,
-	eligible,
-	guideSteps,
-	trailContext,
-	remainingBookIds,
-	stopped,
-	streaming,
-	usage,
-	producedBy,
-}: {
-	message: Msg;
-	/** Whether the reader can select from the reply to quote or save it. */
-	eligible: boolean;
-	/** The guide steps its trail starts with; none for older replies. */
-	guideSteps: Step[];
-	trailContext: TrailContext;
-	remainingBookIds: Set<string>;
-	stopped: boolean;
-	streaming: boolean;
-	usage: ReplyUsage | undefined;
-	/** The stored reply's provider and model; null for a reply not reloaded yet. */
-	producedBy: string | null;
-}) {
-	const model = producedBy ?? usage?.model ?? null;
-	const citations = useMemo(
-		() => citationIndex(citationsOf(message)),
-		[message],
-	);
-	const { numbers, sources } = useMemo(
-		() =>
-			numberCitations(
-				message.parts.map((part) => (part.type === "text" ? part.text : "")),
-				citations,
-				remainingBookIds,
-			),
-		[message, citations, remainingBookIds],
-	);
-	const note = stopped
-		? FINISH_NOTES.aborted
-		: message.metadata?.finishReason
-			? FINISH_NOTES[message.metadata.finishReason]
-			: undefined;
-	const blocks = groupParts(message.parts);
-	const hasReply = blocks.some((b) => b.type === "text");
-	// The guide steps start the reply's trail: the first run of tool calls, or one of their own.
-	const ownGuideTrail = guideSteps.length > 0 && blocks[0]?.type !== "trail";
-	return (
-		<SourcesScope>
-			<div className="space-y-2">
-				{ownGuideTrail && (
-					<div data-reply-excluded>
-						<ResearchTrail
-							parts={[]}
-							leading={guideSteps}
-							context={trailContext}
-							hasReply={hasReply}
-							streaming={streaming}
-						/>
-					</div>
-				)}
-				{blocks.map((block, i) =>
-					block.type === "text" ? (
-						<AssistantText
-							sourceMessageId={eligible ? message.id : undefined}
-							key={block.index}
-							text={block.part.text}
-							citations={citations}
-							numbers={numbers}
-							remainingBookIds={remainingBookIds}
-						/>
-					) : (
-						<div key={block.index} data-reply-excluded>
-							<ResearchTrail
-								parts={block.parts}
-								leading={i === 0 ? guideSteps : []}
-								context={trailContext}
-								hasReply={hasReply}
-								streaming={streaming}
-							/>
-						</div>
-					),
-				)}
-				<SourcesList sources={sources} />
-				{note && <p className="text-xs text-muted-foreground">{note}</p>}
-				{(usage || model) && !streaming && (
-					<p
-						className="text-xs text-faint-foreground tabular-nums"
-						title={usage && exactUsage(usage)}
-						data-testid="reply-usage"
-					>
-						{model && <span data-testid="reply-model">{model}</span>}
-						{model && usage && " · "}
-						{usage && replyUsageLine(usage)}
-						{usage && !usage.complete && " · partial"}
-					</p>
-				)}
 			</div>
-		</SourcesScope>
+		</PositionOfferProvider>
 	);
 }
 

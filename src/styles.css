@@ -232,3 +232,12 @@
 		content: none;
 	}
 }
+
+/* Thread anchors in a response: a subtle underline that leaves the text selectable. */
+::highlight(thread-anchor) {
+	text-decoration-line: underline;
+	text-decoration-style: dotted;
+	text-decoration-color: var(--amber);
+	text-decoration-thickness: 2px;
+	text-underline-offset: 4px;
+}

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+	type AnyPgColumn,
 	boolean,
 	check,
 	index,
@@ -156,6 +157,41 @@ export interface GuideContextEntry {
 	mapFingerprint: string;
 }
 
+/**
+ * A side thread anchored to text in an assistant reply of the main
+ * conversation. Created together with its first message.
+ */
+export const conversationThreads = pgTable(
+	"conversation_threads",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		conversationId: uuid("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		/** A main-conversation assistant message. */
+		anchorMessageId: uuid("anchor_message_id")
+			.notNull()
+			.references((): AnyPgColumn => messages.id, { onDelete: "cascade" }),
+		/** The selected reply text, 1 to 2,000 characters after trimming. */
+		anchorQuote: text("anchor_quote").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		/** Bumped by every message appended to the thread. */
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [
+		index("conversation_threads_conversation_idx").on(t.conversationId),
+		index("conversation_threads_anchor_idx").on(t.anchorMessageId),
+		check(
+			"conversation_threads_anchor_quote_check",
+			sql`char_length(${t.anchorQuote}) between 1 and 2000`,
+		),
+	],
+);
+
 export const messages = pgTable(
 	"messages",
 	{
@@ -163,6 +199,12 @@ export const messages = pgTable(
 		conversationId: uuid("conversation_id")
 			.notNull()
 			.references(() => conversations.id, { onDelete: "cascade" }),
+		/** The side thread holding the message; null for the main conversation. */
+		threadId: uuid("thread_id").references(
+			(): AnyPgColumn => conversationThreads.id,
+			{ onDelete: "cascade" },
+		),
+		/** One gap-free sequence per conversation, shared by the main conversation and its threads. */
 		seq: integer("seq").notNull(),
 		role: text("role", { enum: ["user", "assistant"] }).notNull(),
 		/**
@@ -192,6 +234,11 @@ export const messages = pgTable(
 	},
 	(t) => [
 		unique().on(t.conversationId, t.seq),
+		index("messages_conversation_thread_seq_idx").on(
+			t.conversationId,
+			t.threadId,
+			t.seq,
+		),
 		check("messages_role_check", sql`${t.role} in ('user', 'assistant')`),
 	],
 );

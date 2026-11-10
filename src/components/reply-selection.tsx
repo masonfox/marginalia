@@ -1,5 +1,5 @@
-import { NotebookPen, Reply } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { CornerUpLeft, MessagesSquare, NotebookPen, Reply } from "lucide-react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
 	Dialog,
@@ -57,34 +57,52 @@ function selectedText(range: Range): string {
 		.trim();
 }
 
-/** Inspect every intersected subtree, including controls between text endpoints. */
+/**
+ * Marks a chat surface's container (the main conversation or a thread panel).
+ * Selection capture belongs to the nearest marked container, so a nested
+ * surface's selections never reach the one around it.
+ */
+export const SELECTION_SCOPE_ATTRIBUTE = "data-selection-scope";
+
+/**
+ * The selected text of one saved assistant response inside `container`.
+ * Inspects every intersected subtree, including controls between text
+ * endpoints. A selection reaching outside the container, or into another
+ * surface nested in it, is ineligible.
+ */
 export function captureReplySelection(
 	selection: Selection | null,
+	container: Element | null,
 ): ReplyContext | null {
 	if (!selection || selection.isCollapsed || selection.rangeCount !== 1)
 		return null;
+	if (!container) return null;
 	const range = selection.getRangeAt(0);
-	const rootOf = (node: Node) =>
-		(node.nodeType === Node.ELEMENT_NODE
+	const ancestor = range.commonAncestorContainer;
+	if (!container.contains(ancestor)) return null;
+	const elementOf = (node: Node) =>
+		node.nodeType === Node.ELEMENT_NODE
 			? (node as Element)
-			: node.parentElement
-		)?.closest<HTMLElement>("[data-reply-source]");
+			: node.parentElement;
+	const scope = `[${SELECTION_SCOPE_ATTRIBUTE}]`;
+	// The nearest surface around the selection must be this one.
+	const nearest = elementOf(ancestor)?.closest(scope);
+	if (nearest && nearest !== container && container.contains(nearest))
+		return null;
+	const rootOf = (node: Node) =>
+		elementOf(node)?.closest<HTMLElement>("[data-reply-source]");
 	const first = rootOf(range.startContainer);
 	const last = rootOf(range.endContainer);
 	const messageId = first?.dataset.replySource;
 	if (!messageId || messageId !== last?.dataset.replySource) return null;
-	const ancestor = range.commonAncestorContainer;
 	const walker = document.createTreeWalker(
 		ancestor,
 		NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
 	);
 	const valid = (node: Node) => {
 		if (!range.intersectsNode(node)) return true;
-		const element =
-			node.nodeType === Node.ELEMENT_NODE
-				? (node as Element)
-				: node.parentElement;
-		if (element?.closest("[data-reply-excluded],input,textarea")) return false;
+		if (elementOf(node)?.closest("[data-reply-excluded],input,textarea"))
+			return false;
 		if (
 			node.nodeType === Node.TEXT_NODE &&
 			node.textContent?.trim() &&
@@ -99,13 +117,36 @@ export function captureReplySelection(
 	return text ? { messageId, text } : null;
 }
 
+/** One selection action, in toolbar order. */
+interface SelectionAction {
+	label: string;
+	icon: typeof Reply;
+	testId: string;
+	/** Over-limit selections show the quote-limit explanation instead. */
+	limited: boolean;
+	run: (quote: ReplyContext) => void;
+}
+
 export function ReplySelection({
+	container,
 	onAttach,
+	onThread,
+	onBringToMain,
 	onTooLong,
 	onSaveAsNote,
 }: {
+	/**
+	 * This surface's container, marked with `data-selection-scope`. Only
+	 * selections wholly inside it, and not inside a surface nested in it, are
+	 * offered actions.
+	 */
+	container: RefObject<Element | null>;
 	/** Replies to the selection; absent when replies cannot be sent. */
 	onAttach?: (quote: ReplyContext) => void;
+	/** Starts a side thread on the selection; offered only in the main conversation. */
+	onThread?: (quote: ReplyContext) => void;
+	/** Quotes the selection in the main composer; offered only inside a thread. */
+	onBringToMain?: (quote: ReplyContext) => void;
 	/** The selection is over the quote limit, so nothing was attached. */
 	onTooLong: () => void;
 	/** Starts a note from the selection; nothing is saved until the reader saves it. */
@@ -116,7 +157,40 @@ export function ReplySelection({
 	>(null);
 	const button = useRef<HTMLButtonElement>(null);
 	const toolbar = useRef<HTMLDivElement>(null);
-	const width = onAttach && onSaveAsNote ? 340 : 180;
+	const actions: SelectionAction[] = [];
+	if (onAttach)
+		actions.push({
+			label: "Reply to selection",
+			icon: Reply,
+			testId: "reply-to-selection",
+			limited: true,
+			run: onAttach,
+		});
+	if (onThread)
+		actions.push({
+			label: "Thread",
+			icon: MessagesSquare,
+			testId: "thread-selection",
+			limited: true,
+			run: onThread,
+		});
+	if (onBringToMain)
+		actions.push({
+			label: "Bring to main",
+			icon: CornerUpLeft,
+			testId: "bring-to-main",
+			limited: true,
+			run: onBringToMain,
+		});
+	if (onSaveAsNote)
+		actions.push({
+			label: "Save as note",
+			icon: NotebookPen,
+			testId: "save-as-note",
+			limited: false,
+			run: onSaveAsNote,
+		});
+	const width = Math.max(180, actions.length * 170);
 	useEffect(() => {
 		const update = (event?: Event) => {
 			if (
@@ -125,7 +199,7 @@ export function ReplySelection({
 			)
 				return;
 			const selection = window.getSelection();
-			const quote = captureReplySelection(selection);
+			const quote = captureReplySelection(selection, container.current);
 			if (!quote || !selection) {
 				setSnapshot(null);
 				return;
@@ -148,7 +222,7 @@ export function ReplySelection({
 				event.key === "Tab" &&
 				document.activeElement !== button.current &&
 				button.current &&
-				captureReplySelection(window.getSelection())
+				captureReplySelection(window.getSelection(), container.current)
 			) {
 				event.preventDefault();
 				button.current.focus();
@@ -168,14 +242,14 @@ export function ReplySelection({
 			window.removeEventListener("scroll", update, true);
 			window.removeEventListener("resize", update);
 		};
-	}, [width]);
-	if (!snapshot || (!onAttach && !onSaveAsNote)) return null;
+	}, [width, container]);
+	if (!snapshot || actions.length === 0) return null;
 	const quote = { messageId: snapshot.messageId, text: snapshot.text };
 	const done = () => {
 		setSnapshot(null);
 		window.getSelection()?.removeAllRanges();
 	};
-	const action =
+	const style =
 		"inline-flex cursor-pointer items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg ring-2 ring-background hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 	return (
 		<div
@@ -188,39 +262,26 @@ export function ReplySelection({
 				if (event.pointerType !== "touch") event.preventDefault();
 			}}
 		>
-			{onAttach && (
+			{actions.map(({ label, icon: Icon, testId, limited, run }, index) => (
 				<button
-					ref={button}
+					key={testId}
+					ref={index === 0 ? button : undefined}
 					type="button"
-					className={action}
+					className={style}
 					onClick={() => {
-						if (snapshot.text.length > REPLY_CONTEXT_LIMIT) {
+						if (limited && snapshot.text.length > REPLY_CONTEXT_LIMIT) {
 							onTooLong();
 							return;
 						}
-						onAttach(quote);
+						run(quote);
 						done();
 					}}
+					data-testid={testId}
 				>
-					<Reply className="size-4" aria-hidden />
-					Reply to selection
+					<Icon className="size-4" aria-hidden />
+					{label}
 				</button>
-			)}
-			{onSaveAsNote && (
-				<button
-					ref={onAttach ? undefined : button}
-					type="button"
-					className={action}
-					onClick={() => {
-						onSaveAsNote(quote);
-						done();
-					}}
-					data-testid="save-as-note"
-				>
-					<NotebookPen className="size-4" aria-hidden />
-					Save as note
-				</button>
-			)}
+			))}
 		</div>
 	);
 }
@@ -272,10 +333,37 @@ export function SaveNoteBookDialog({
 	);
 }
 
-export function ReplyQuote({ quote }: { quote: ReplyContext }) {
+/**
+ * A sent message's quote of an assistant response. A quote brought from a
+ * thread says so, with a control that opens the thread.
+ */
+export function ReplyQuote({
+	quote,
+	onOpenThread,
+}: {
+	quote: ReplyContext;
+	/** Present when the quoted reply is in a thread: opens that thread. */
+	onOpenThread?: () => void;
+}) {
 	return (
 		<aside className="mb-2 border-l-2 pl-3 text-sm" data-testid="reply-quote">
-			<p className="font-medium">Replying to assistant</p>
+			<p className="font-medium">
+				{onOpenThread ? (
+					<>
+						Replying to assistant{" "}
+						<span data-testid="quote-from-thread">from a thread</span> ·{" "}
+						<button
+							type="button"
+							className="cursor-pointer rounded-sm font-medium text-amber-foreground underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring"
+							onClick={onOpenThread}
+						>
+							Open thread
+						</button>
+					</>
+				) : (
+					"Replying to assistant"
+				)}
+			</p>
 			<p className="whitespace-pre-wrap">{quote.text}</p>
 		</aside>
 	);

@@ -13,6 +13,9 @@ import { ComposerNotice } from "./composer-notice";
 import { SendButton } from "./send-button";
 import type { Attachment, ComposerState } from "./use-composer";
 
+/** Why Send waits while another part of the conversation is replying. */
+const IN_PROGRESS = "A reply is in progress";
+
 /** The remaining-character count appears from here on. */
 const COUNTER_FROM = 7200;
 
@@ -34,21 +37,40 @@ export function Composer({
 	conversationId,
 	books,
 	busy,
+	elsewhere = false,
+	label = "Message",
 	onSend,
 	onStop,
 }: {
 	composer: ComposerState;
 	conversationId: string;
 	books: ConversationBook[];
+	/** This composer's own reply is generating; Send becomes Stop. */
 	busy: boolean;
+	/**
+	 * A reply is generating in another part of the conversation (the main
+	 * conversation or a thread), so sending waits; the draft stays editable.
+	 */
+	elsewhere?: boolean;
+	/** The message input's accessible name. */
+	label?: string;
 	onSend: () => void;
 	onStop: () => void;
 }) {
 	const coarse = useCoarsePointer();
-	const { draft, attachment, notice, blockedReason } = composer;
+	const { draft, attachment, notice } = composer;
+	const blockedReason = elsewhere ? IN_PROGRESS : composer.blockedReason;
 	const remaining = MESSAGE_LIMIT - draft.length;
 	return (
 		<>
+			{elsewhere && !busy && (
+				<output
+					className="mb-2 block text-center text-xs text-muted-foreground"
+					data-testid="reply-in-progress"
+				>
+					{IN_PROGRESS}. You can keep typing.
+				</output>
+			)}
 			<form
 				className="overflow-hidden rounded-2xl border border-input bg-card p-3 shadow-pop focus-within:border-ring/60 sm:p-4"
 				onSubmit={(e) => {
@@ -122,7 +144,7 @@ export function Composer({
 						}}
 						name="message"
 						maxLength={MESSAGE_LIMIT}
-						aria-label="Message"
+						aria-label={label}
 						placeholder="Say what you think…"
 						containerClassName="min-w-0 flex-1"
 						className="px-2 py-2 text-base leading-relaxed"

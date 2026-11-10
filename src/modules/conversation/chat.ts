@@ -7,7 +7,8 @@ import {
 	streamText,
 	type UIMessage,
 } from "ai";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
+import { THREAD_ID_HEADER } from "#/lib/new-thread";
 import {
 	type PassageRef,
 	type PassageSnapshot,
@@ -17,6 +18,7 @@ import {
 } from "#/lib/passage-ref";
 import {
 	projectReplyContext,
+	REPLY_CONTEXT_LIMIT,
 	type ReplyContext,
 	replyContextPart,
 	replyContextSchema,
@@ -50,8 +52,12 @@ import {
 import {
 	appendMessage,
 	type ConversationDetail,
+	createThreadWithMessage,
 	getConversation,
+	getMessages,
+	getThread,
 	type StoredMessage,
+	type ThreadSummary,
 	updateConversationModel,
 } from "./repository";
 import {
@@ -60,6 +66,7 @@ import {
 	type Json,
 	messages,
 } from "./schema";
+import { projectThreadAnchor, type ThreadAnchor } from "./thread-context";
 import { createConversationTools } from "./tools";
 import { verifyCitations } from "./verify";
 
@@ -70,8 +77,12 @@ export type ChatUIMessage = UIMessage<
 		citations: CitationRecord[];
 		"reply-context": StoredReplyContext;
 		"passage-context": StoredPassageContext;
+		/** Sent first, and transient, on every thread turn: the thread the reply belongs to (new or existing). */
+		thread: { threadId: string };
 	}
 >;
+
+export { THREAD_ID_HEADER };
 
 export interface ChatDeps {
 	db: Database;
@@ -87,11 +98,28 @@ export type ChatInput = {
 	replyContext?: ReplyContext;
 	/** A passage the message refers to; never together with `replyContext`. */
 	passageRef?: PassageRef;
+	/** An existing side thread of the conversation to send (or retry) in. */
+	threadId?: string;
+	/**
+	 * Starts a side thread with this message; never together with `threadId`,
+	 * and never for a retry. Neither means the main conversation.
+	 */
+	newThread?: NewThreadAnchor;
 	abortSignal?: AbortSignal;
 };
 
+/** Where a new thread is anchored: a main-conversation reply and the selected text. */
+export interface NewThreadAnchor {
+	anchorMessageId: string;
+	quote: string;
+}
+
 export type ChatStart =
 	| { status: "invalid_context" }
+	/** `threadId` names no thread of the conversation, or the thread fields conflict. */
+	| { status: "invalid_thread" }
+	/** The new thread's anchor reply or quote is not acceptable. */
+	| { status: "invalid_anchor" }
 	| { status: "invalid_passage"; reason: PassageRefInvalid | "no_message" }
 	| { status: "passage_out_of_scope"; unitLabel: string | null }
 	| { status: "disabled" }
@@ -126,6 +154,31 @@ export async function startChat(
 	if (!selection) return { status: "missing_model" };
 	const resolved = await ai.resolve(selection);
 	if (!resolved.ok) return { status: "model_unavailable", selection };
+	let branch: Branch = { kind: "main" };
+	if (input.threadId !== undefined && input.newThread !== undefined)
+		return { status: "invalid_thread" };
+	if (input.threadId !== undefined) {
+		const thread = await getThread(db, conversation.id, input.threadId);
+		if (!thread) return { status: "invalid_thread" };
+		branch = { kind: "thread", thread };
+	} else if (input.newThread !== undefined) {
+		// A new thread starts with a message; there is nothing in it to retry.
+		if (!input.message?.trim()) return { status: "invalid_anchor" };
+		const quote = input.newThread.quote.trim();
+		const anchor = conversation.messages.find(
+			(m) => m.id === input.newThread?.anchorMessageId,
+		);
+		// Checked again, under the conversation lock, when the thread is stored.
+		if (
+			!quote ||
+			quote.length > REPLY_CONTEXT_LIMIT ||
+			!anchor ||
+			anchor.role !== "assistant" ||
+			anchor.finishReason === "error"
+		)
+			return { status: "invalid_anchor" };
+		branch = { kind: "new", anchorMessageId: anchor.id, quote };
+	}
 	if (input.replyContext && input.passageRef)
 		return { status: "invalid_context" };
 	// Re-checked here whatever the composer saw: the snapshot is replayed as book evidence.
@@ -140,22 +193,27 @@ export async function startChat(
 			return { status: "passage_out_of_scope", unitLabel: check.unitLabel };
 		passage = check.snapshot;
 	}
-	if (inFlight.has(conversation.id)) return { status: "busy" };
 	if (input.replyContext) {
 		const context = replyContextSchema.safeParse(input.replyContext);
 		if (
 			!input.message?.trim() ||
 			!context.success ||
-			!conversation.messages.some(
-				(m) => m.id === context.data.messageId && m.role === "assistant",
-			)
+			!(await isQuoteSource(
+				db,
+				conversation.id,
+				context.data.messageId,
+				branch,
+			))
 		)
 			return { status: "invalid_context" };
 		input = { ...input, replyContext: context.data };
 	}
+	// No await between the check and the add, so concurrent sends cannot both pass.
+	if (inFlight.has(conversation.id)) return { status: "busy" };
 	inFlight.add(conversation.id);
 	try {
-		const history = await prepareHistory(db, conversation, input.message, {
+		const prepared = await prepareHistory(db, conversation, input.message, {
+			branch,
 			replyContext: input.replyContext,
 			passage,
 			selection,
@@ -176,16 +234,18 @@ export async function startChat(
 						);
 			},
 		});
-		if (!history) {
+		if (prepared === "invalid_anchor" || prepared === null) {
 			inFlight.delete(conversation.id);
-			return { status: "nothing_to_retry" };
+			return {
+				status: prepared === null ? "nothing_to_retry" : "invalid_anchor",
+			};
 		}
 		const discussionPrompt = await getDiscussionPromptOverride(db);
 		const response = generate(
 			deps,
 			resolved,
 			conversation,
-			history,
+			prepared,
 			discussionPrompt,
 			input.abortSignal,
 		);
@@ -226,25 +286,102 @@ export async function setConversationModel(
 	return updated ? { status: "ok", selection } : { status: "not_found" };
 }
 
-/** Appends the new user message (or prepares a retry) and returns the messages to send the model. */
+/** Which part of the conversation a turn belongs to. */
+type Branch =
+	| { kind: "main" }
+	| { kind: "thread"; thread: ThreadSummary }
+	| { kind: "new"; anchorMessageId: string; quote: string };
+
+/** A turn's model history, and the thread it is in. */
+interface PreparedTurn {
+	/** For a thread: the main conversation through the anchor reply, then the thread's messages. */
+	history: StoredMessage[];
+	thread: {
+		id: string;
+		anchor: ThreadAnchor;
+		/** The thread's first reader message, which carries the anchor projection. */
+		firstMessageId: string;
+	} | null;
+}
+
+/**
+ * Whether a quoted reply may be attached in this branch: any assistant reply
+ * of the conversation in the main conversation (so thread text can be brought
+ * to main), and only a reply of the same thread inside a thread.
+ */
+async function isQuoteSource(
+	db: Database,
+	conversationId: string,
+	messageId: string,
+	branch: Branch,
+): Promise<boolean> {
+	if (branch.kind === "new") return false;
+	const [row] = await db
+		.select({ id: messages.id })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.id, messageId),
+				eq(messages.conversationId, conversationId),
+				eq(messages.role, "assistant"),
+				branch.kind === "thread"
+					? eq(messages.threadId, branch.thread.id)
+					: undefined,
+			),
+		);
+	return !!row;
+}
+
+/**
+ * Appends the new user message (or prepares a retry) and returns the messages
+ * to send the model. Retries look only within the turn's own branch.
+ */
 async function prepareHistory(
 	db: Database,
 	conversation: ConversationDetail,
 	text: string | undefined,
 	{
+		branch,
 		replyContext,
 		passage,
 		selection,
 		onEnrolled,
 	}: {
+		branch: Branch;
 		replyContext?: ReplyContext;
 		passage?: PassageSnapshot;
 		selection?: AiSelection;
 		onEnrolled?: () => void;
-	} = {},
-): Promise<StoredMessage[] | null> {
-	const stored = [...conversation.messages];
+	},
+): Promise<PreparedTurn | "invalid_anchor" | null> {
+	const main = conversation.messages;
+	let threadId: string | null = null;
+	let anchor: ThreadAnchor | null = null;
+	let stored: StoredMessage[];
+	if (branch.kind === "main") stored = [...main];
+	else if (branch.kind === "thread") {
+		threadId = branch.thread.id;
+		anchor = {
+			messageId: branch.thread.anchorMessageId,
+			quote: branch.thread.anchorQuote,
+		};
+		stored = await getMessages(db, conversation.id, { threadId });
+	} else {
+		anchor = { messageId: branch.anchorMessageId, quote: branch.quote };
+		stored = [];
+	}
+	const finish = (): PreparedTurn | "invalid_anchor" => {
+		if (!anchor) return { history: stored, thread: null };
+		const anchorSeq = main.find((m) => m.id === anchor.messageId)?.seq;
+		const first = stored[0];
+		if (anchorSeq === undefined || !first || !threadId) return "invalid_anchor";
+		return {
+			history: [...main.filter((m) => m.seq <= anchorSeq), ...stored],
+			thread: { id: threadId, anchor, firstMessageId: first.id },
+		};
+	};
 	if (text === undefined) {
+		if (branch.kind === "new") return null;
 		const last = stored.at(-1);
 		if (last?.role === "assistant" && last.finishReason === "error") {
 			await db
@@ -253,26 +390,45 @@ async function prepareHistory(
 					and(
 						eq(messages.conversationId, conversation.id),
 						eq(messages.id, last.id),
+						threadId === null
+							? isNull(messages.threadId)
+							: eq(messages.threadId, threadId),
 					),
 				);
 			stored.pop();
 		}
-		return stored.at(-1)?.role === "user" ? stored : null;
+		if (stored.at(-1)?.role !== "user") return null;
+		return finish();
 	}
 	const parts: Json[] = [
 		...(replyContext ? [replyContextPart(replyContext)] : []),
 		...(passage ? [passageContextPart(passage)] : []),
 		{ type: "text", text },
 	];
-	const saved = await appendMessage(db, {
-		conversationId: conversation.id,
-		role: "user",
-		parts,
-		namingSelection: selection,
-	});
+	let saved: { id: string; seq: number; namingPending: boolean };
+	if (branch.kind === "new") {
+		const created = await createThreadWithMessage(db, {
+			conversationId: conversation.id,
+			anchorMessageId: branch.anchorMessageId,
+			quote: branch.quote,
+			message: { role: "user", parts, namingSelection: selection },
+		});
+		if (created.status !== "ok") return "invalid_anchor";
+		threadId = created.threadId;
+		saved = created;
+	} else {
+		saved = await appendMessage(db, {
+			conversationId: conversation.id,
+			threadId,
+			role: "user",
+			parts,
+			namingSelection: selection,
+		});
+	}
 	if (saved.namingPending) onEnrolled?.();
 	stored.push({
 		id: saved.id,
+		threadId,
 		seq: saved.seq,
 		role: "user",
 		parts,
@@ -285,14 +441,14 @@ async function prepareHistory(
 		guideContext: null,
 		createdAt: new Date(),
 	});
-	return stored;
+	return finish();
 }
 
 function generate(
 	deps: ChatDeps,
 	{ model, providerOptions, selection }: Extract<ResolvedModel, { ok: true }>,
 	conversation: ConversationDetail,
-	history: StoredMessage[],
+	{ history, thread }: PreparedTurn,
 	discussionPrompt: string | null,
 	abortSignal: AbortSignal | undefined,
 ): Response {
@@ -329,6 +485,13 @@ function generate(
 	const stream = createUIMessageStream<ChatUIMessage>({
 		onError: describeError,
 		execute: async ({ writer }) => {
+			// First, so a client that sent a new thread learns its id before the reply.
+			if (thread)
+				writer.write({
+					type: "data-thread",
+					data: { threadId: thread.id },
+					transient: true,
+				});
 			// Load once per turn; scope, stored summaries and the summary
 			// corrections within scope alone determine the cached prefix.
 			const bookMaps = await loadBookMaps(db, conversation.books);
@@ -340,9 +503,17 @@ function generate(
 				system,
 				messages: [
 					...(map === null ? [] : [{ role: "user" as const, content: map }]),
-					...(await convertToModelMessages(history.map(toUIMessage), {
-						tools,
-					})),
+					...(await convertToModelMessages(
+						history.map((m) =>
+							toUIMessage(
+								m,
+								thread && m.id === thread.firstMessageId
+									? thread.anchor
+									: undefined,
+							),
+						),
+						{ tools },
+					)),
 				],
 				tools,
 				stopWhen: stepCountIs(ai.maxSteps),
@@ -404,6 +575,7 @@ function generate(
 				const saved = await appendMessage(db, {
 					id: replyId,
 					conversationId: conversation.id,
+					threadId: thread?.id ?? null,
 					role: "assistant",
 					parts: message.parts.filter(
 						(p) => p.type !== "data-citations",
@@ -426,6 +598,7 @@ function generate(
 						purpose: "conversation",
 						conversationId: conversation.id,
 						messageId: saved.id,
+						threadId: thread?.id ?? null,
 						provider: selection.provider,
 						model: modelName,
 						steps,
@@ -448,16 +621,24 @@ function generate(
 			}
 		},
 	});
-	return createUIMessageStreamResponse({ stream });
+	return createUIMessageStreamResponse({
+		stream,
+		headers: thread ? { [THREAD_ID_HEADER]: thread.id } : undefined,
+	});
 }
 
-function toUIMessage(m: StoredMessage): Omit<ChatUIMessage, "id"> {
+function toUIMessage(
+	m: StoredMessage,
+	anchor?: ThreadAnchor,
+): Omit<ChatUIMessage, "id"> {
 	return {
 		role: m.role,
 		parts: replayableParts(
-			m.role === "user"
-				? projectReplyContext(projectPassageContext(m.parts))
-				: m.parts,
+			m.role !== "user"
+				? m.parts
+				: anchor
+					? projectThreadAnchor(m.parts, anchor)
+					: projectReplyContext(projectPassageContext(m.parts)),
 		),
 	};
 }

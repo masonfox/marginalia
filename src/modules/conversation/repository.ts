@@ -5,8 +5,11 @@ import {
 	eq,
 	inArray,
 	isNotNull,
+	isNull,
 	lt,
+	ne,
 	notExists,
+	or,
 	type SQL,
 	type SQLWrapper,
 	sql,
@@ -20,6 +23,7 @@ import {
 	encodeConversationCursor,
 } from "#/lib/conversation-cursor";
 import { previewText } from "#/lib/preview-text";
+import { REPLY_CONTEXT_LIMIT, replyContextOf } from "#/lib/reply-context";
 import { getReadingUnits } from "#/modules/catalog";
 import { editions } from "#/modules/library";
 import type { AiSelection } from "#/server/config";
@@ -28,6 +32,7 @@ import {
 	type CitationRecord,
 	conversationEditions,
 	conversations,
+	conversationThreads,
 	type GuideContextEntry,
 	type Json,
 	messages,
@@ -97,6 +102,8 @@ export interface ConversationSummary {
 
 export interface StoredMessage {
 	id: string;
+	/** The side thread holding the message; null for the main conversation. */
+	threadId: string | null;
 	seq: number;
 	role: "user" | "assistant";
 	parts: Json[];
@@ -121,7 +128,32 @@ export interface ConversationDetail {
 	/** The conversation's own model; null when it follows the chat default. */
 	model: AiSelection | null;
 	books: ConversationBook[];
+	/** Main-conversation messages only; a thread's messages load with the thread. */
 	messages: StoredMessage[];
+	/** The conversation's side threads, oldest first. */
+	threads: ThreadSummary[];
+	/**
+	 * For assistant-response quotes in main messages whose source reply is in a
+	 * thread (Bring to main): the source message id mapped to its thread id.
+	 */
+	quoteSourceThreads: Record<string, string>;
+	/**
+	 * Every saved, non-errored assistant reply inside a thread, mapped to its
+	 * thread id: the replies a pending Bring to main quote may come from.
+	 */
+	threadReplies: Record<string, string>;
+}
+
+/** A side thread as the conversation view lists it. */
+export interface ThreadSummary {
+	id: string;
+	/** The main-conversation assistant reply the thread is anchored to. */
+	anchorMessageId: string;
+	/** The selected reply text the thread is about. */
+	anchorQuote: string;
+	createdAt: Date;
+	/** When a message was last appended to the thread. */
+	updatedAt: Date;
 }
 
 /**
@@ -188,6 +220,8 @@ function listColumns(db: Executor) {
 		.where(
 			and(
 				eq(messages.conversationId, conversations.id),
+				// Previews show the main conversation; thread activity only bumps updatedAt.
+				isNull(messages.threadId),
 				sql`exists (select 1 from json_array_elements(${messages.parts}) as p where p->>'type' = 'text' and p->>'text' ~ '\\S')`,
 			),
 		)
@@ -365,13 +399,19 @@ export async function getConversationBooks(
 		.orderBy(asc(conversationEditions.ordinal));
 }
 
+/**
+ * A conversation's messages in order: the main conversation's by default, or
+ * one thread's own messages when `threadId` is given.
+ */
 export async function getMessages(
 	db: Executor,
 	conversationId: string,
+	{ threadId = null }: { threadId?: string | null } = {},
 ): Promise<StoredMessage[]> {
 	return db
 		.select({
 			id: messages.id,
+			threadId: messages.threadId,
 			seq: messages.seq,
 			role: messages.role,
 			parts: messages.parts,
@@ -385,8 +425,119 @@ export async function getMessages(
 			createdAt: messages.createdAt,
 		})
 		.from(messages)
-		.where(eq(messages.conversationId, conversationId))
+		.where(
+			and(
+				eq(messages.conversationId, conversationId),
+				threadId === null
+					? isNull(messages.threadId)
+					: eq(messages.threadId, threadId),
+			),
+		)
 		.orderBy(asc(messages.seq));
+}
+
+const threadSummaryColumns = {
+	id: conversationThreads.id,
+	anchorMessageId: conversationThreads.anchorMessageId,
+	anchorQuote: conversationThreads.anchorQuote,
+	createdAt: conversationThreads.createdAt,
+	updatedAt: conversationThreads.updatedAt,
+};
+
+/** A conversation's side threads, oldest first. */
+export async function listThreads(
+	db: Executor,
+	conversationId: string,
+): Promise<ThreadSummary[]> {
+	return db
+		.select(threadSummaryColumns)
+		.from(conversationThreads)
+		.where(eq(conversationThreads.conversationId, conversationId))
+		.orderBy(asc(conversationThreads.createdAt), asc(conversationThreads.id));
+}
+
+/** One thread of a conversation, or null when the conversation has no such thread. */
+export async function getThread(
+	db: Executor,
+	conversationId: string,
+	threadId: string,
+): Promise<ThreadSummary | null> {
+	const [row] = await db
+		.select(threadSummaryColumns)
+		.from(conversationThreads)
+		.where(
+			and(
+				eq(conversationThreads.conversationId, conversationId),
+				eq(conversationThreads.id, threadId),
+			),
+		);
+	return row ?? null;
+}
+
+export interface ThreadDetail {
+	thread: ThreadSummary;
+	/** The thread's own messages in order (not the main-conversation prefix). */
+	messages: StoredMessage[];
+}
+
+/** A thread with its own messages, or null when the conversation has no such thread. */
+export async function getThreadMessages(
+	db: Executor,
+	conversationId: string,
+	threadId: string,
+): Promise<ThreadDetail | null> {
+	const [thread, msgs] = await Promise.all([
+		getThread(db, conversationId, threadId),
+		getMessages(db, conversationId, { threadId }),
+	]);
+	return thread ? { thread, messages: msgs } : null;
+}
+
+/** Quoted source replies of main messages that live in a thread, by source message id. */
+async function quoteSourceThreadsOf(
+	db: Executor,
+	conversationId: string,
+	main: StoredMessage[],
+): Promise<Record<string, string>> {
+	const ids = [
+		...new Set(
+			main.flatMap((m) => {
+				const quote = m.role === "user" ? replyContextOf(m.parts) : undefined;
+				return quote ? [quote.messageId] : [];
+			}),
+		),
+	];
+	if (ids.length === 0) return {};
+	const rows = await db
+		.select({ id: messages.id, threadId: messages.threadId })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, conversationId),
+				inArray(messages.id, ids),
+				isNotNull(messages.threadId),
+			),
+		);
+	return Object.fromEntries(rows.map((r) => [r.id, r.threadId as string]));
+}
+
+/** Saved, non-errored assistant replies inside the conversation's threads, by message id. */
+async function threadRepliesOf(
+	db: Executor,
+	conversationId: string,
+): Promise<Record<string, string>> {
+	const rows = await db
+		.select({ id: messages.id, threadId: messages.threadId })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, conversationId),
+				isNotNull(messages.threadId),
+				eq(messages.role, "assistant"),
+				or(isNull(messages.finishReason), ne(messages.finishReason, "error")),
+			),
+		);
+	return Object.fromEntries(rows.map((r) => [r.id, r.threadId as string]));
 }
 
 /** A conversation with its books and messages, or null when it does not exist. */
@@ -399,9 +550,11 @@ export async function getConversation(
 		.from(conversations)
 		.where(eq(conversations.id, conversationId));
 	if (!row) return null;
-	const [books, msgs] = await Promise.all([
+	const [books, msgs, threads, threadReplies] = await Promise.all([
 		getConversationBooks(db, conversationId),
 		getMessages(db, conversationId),
+		listThreads(db, conversationId),
+		threadRepliesOf(db, conversationId),
 	]);
 	return {
 		id: row.id,
@@ -421,6 +574,9 @@ export async function getConversation(
 				: null,
 		books,
 		messages: msgs,
+		threads,
+		quoteSourceThreads: await quoteSourceThreadsOf(db, conversationId, msgs),
+		threadReplies,
 	};
 }
 
@@ -534,85 +690,186 @@ export interface NewMessage {
 	guideContext?: GuideContextEntry[] | null;
 	/** Present only for a new user turn, never a retry. */
 	namingSelection?: AiSelection;
+	/** The side thread to append to; omit or null for the main conversation. */
+	threadId?: string | null;
 }
 
-/** Appends a message with the next sequence number and bumps the conversation's activity time. */
+export interface AppendedMessage {
+	id: string;
+	seq: number;
+	namingPending: boolean;
+}
+
+/**
+ * Appends a message with the next sequence number and bumps the
+ * conversation's activity time (and the thread's, for a thread message).
+ */
 export async function appendMessage(
 	db: Database,
 	m: NewMessage,
-): Promise<{ id: string; seq: number; namingPending: boolean }> {
+): Promise<AppendedMessage> {
 	return db.transaction(async (tx) => {
-		// Serialize appends per conversation so `seq` stays gap-free.
-		const [parent] = await tx
-			.select()
-			.from(conversations)
-			.where(eq(conversations.id, m.conversationId))
-			.for("update");
+		const parent = await lockConversation(tx, m.conversationId);
 		if (!parent) throw new Error("conversation not found");
-		const [{ next }] = await tx
-			.select({ next: sql<number>`coalesce(max(${messages.seq}), 0) + 1` })
-			.from(messages)
-			.where(eq(messages.conversationId, m.conversationId))
-			.then((r) => r as [{ next: number }]);
-		const [row] = await tx
-			.insert(messages)
-			.values({
-				id: m.id,
-				conversationId: m.conversationId,
-				seq: next,
-				role: m.role,
-				parts: m.parts,
-				citations: m.citations ?? [],
-				finishReason: m.finishReason ?? null,
-				provider: m.provider ?? null,
-				model: m.model ?? null,
-				promptVersion: m.promptVersion ?? null,
-				error: m.error ?? null,
-				guideContext: m.guideContext ?? null,
-			})
-			.returning({ id: messages.id, seq: messages.seq });
-		if (!row) throw new Error("could not append message");
-		if (next === 1 && m.role === "user") {
-			const text = m.parts
-				.flatMap((p) =>
-					p &&
-					typeof p === "object" &&
-					!Array.isArray(p) &&
-					p.type === "text" &&
-					typeof p.text === "string"
-						? [p.text]
-						: [],
-				)
-				.join("\n");
-			await setProvisionalTitle(tx, m.conversationId, text);
-			if (parent.namingState === "eligible" && m.namingSelection) {
-				await tx
-					.update(conversations)
-					.set({
-						namingState: parent.titleLocked ? "skipped" : "pending",
-						namingMessageId: row.id,
-						namingProvider: m.namingSelection.provider,
-						namingModel: m.namingSelection.model,
-						namingExpiresAt: sql`clock_timestamp() + interval '5 minutes'`,
-						namingRevision: sql`${conversations.namingRevision} + 1`,
-					})
-					.where(eq(conversations.id, m.conversationId));
-			}
+		if (m.threadId) {
+			const [thread] = await tx
+				.select({ id: conversationThreads.id })
+				.from(conversationThreads)
+				.where(
+					and(
+						eq(conversationThreads.id, m.threadId),
+						eq(conversationThreads.conversationId, m.conversationId),
+					),
+				);
+			if (!thread) throw new Error("thread not found");
 		}
-		await tx
-			.update(conversations)
-			.set({ updatedAt: new Date() })
-			.where(eq(conversations.id, m.conversationId));
-		return {
-			...row,
-			namingPending:
-				next === 1 &&
-				m.role === "user" &&
-				parent.namingState === "eligible" &&
-				!parent.titleLocked &&
-				!!m.namingSelection,
-		};
+		return insertMessage(tx, parent, m);
 	});
+}
+
+export type NewThreadResult =
+	| ({ status: "ok"; threadId: string } & AppendedMessage)
+	| { status: "invalid_anchor" };
+
+/**
+ * Starts a side thread with its first message, in one transaction. The anchor
+ * must be a stored, non-errored assistant reply of the conversation's main
+ * conversation, and the quote 1 to 2,000 characters after trimming;
+ * otherwise nothing is stored and the result is `invalid_anchor`.
+ */
+export async function createThreadWithMessage(
+	db: Database,
+	input: {
+		conversationId: string;
+		anchorMessageId: string;
+		quote: string;
+		message: Omit<NewMessage, "conversationId" | "threadId">;
+	},
+): Promise<NewThreadResult> {
+	const quote = input.quote.trim();
+	if (quote.length === 0 || quote.length > REPLY_CONTEXT_LIMIT)
+		return { status: "invalid_anchor" };
+	return db.transaction(async (tx) => {
+		const parent = await lockConversation(tx, input.conversationId);
+		if (!parent) throw new Error("conversation not found");
+		const [anchor] = await tx
+			.select({ id: messages.id })
+			.from(messages)
+			.where(
+				and(
+					eq(messages.id, input.anchorMessageId),
+					eq(messages.conversationId, input.conversationId),
+					eq(messages.role, "assistant"),
+					isNull(messages.threadId),
+					// A failed reply can be retried, which deletes it.
+					or(isNull(messages.finishReason), ne(messages.finishReason, "error")),
+				),
+			);
+		if (!anchor) return { status: "invalid_anchor" as const };
+		const [thread] = await tx
+			.insert(conversationThreads)
+			.values({
+				conversationId: input.conversationId,
+				anchorMessageId: anchor.id,
+				anchorQuote: quote,
+			})
+			.returning({ id: conversationThreads.id });
+		if (!thread) throw new Error("could not create thread");
+		const saved = await insertMessage(tx, parent, {
+			...input.message,
+			conversationId: input.conversationId,
+			threadId: thread.id,
+		});
+		return { status: "ok" as const, threadId: thread.id, ...saved };
+	});
+}
+
+/** Locks the conversation row, so appends serialize and `seq` stays gap-free. */
+async function lockConversation(tx: Executor, conversationId: string) {
+	const [parent] = await tx
+		.select()
+		.from(conversations)
+		.where(eq(conversations.id, conversationId))
+		.for("update");
+	return parent;
+}
+
+/** appendMessage's writes, under the conversation lock the caller holds. */
+async function insertMessage(
+	tx: Executor,
+	parent: typeof conversations.$inferSelect,
+	m: NewMessage,
+): Promise<AppendedMessage> {
+	const [{ next }] = await tx
+		.select({ next: sql<number>`coalesce(max(${messages.seq}), 0) + 1` })
+		.from(messages)
+		.where(eq(messages.conversationId, m.conversationId))
+		.then((r) => r as [{ next: number }]);
+	const [row] = await tx
+		.insert(messages)
+		.values({
+			id: m.id,
+			conversationId: m.conversationId,
+			threadId: m.threadId ?? null,
+			seq: next,
+			role: m.role,
+			parts: m.parts,
+			citations: m.citations ?? [],
+			finishReason: m.finishReason ?? null,
+			provider: m.provider ?? null,
+			model: m.model ?? null,
+			promptVersion: m.promptVersion ?? null,
+			error: m.error ?? null,
+			guideContext: m.guideContext ?? null,
+		})
+		.returning({ id: messages.id, seq: messages.seq });
+	if (!row) throw new Error("could not append message");
+	if (next === 1 && m.role === "user") {
+		const text = m.parts
+			.flatMap((p) =>
+				p &&
+				typeof p === "object" &&
+				!Array.isArray(p) &&
+				p.type === "text" &&
+				typeof p.text === "string"
+					? [p.text]
+					: [],
+			)
+			.join("\n");
+		await setProvisionalTitle(tx, m.conversationId, text);
+		if (parent.namingState === "eligible" && m.namingSelection) {
+			await tx
+				.update(conversations)
+				.set({
+					namingState: parent.titleLocked ? "skipped" : "pending",
+					namingMessageId: row.id,
+					namingProvider: m.namingSelection.provider,
+					namingModel: m.namingSelection.model,
+					namingExpiresAt: sql`clock_timestamp() + interval '5 minutes'`,
+					namingRevision: sql`${conversations.namingRevision} + 1`,
+				})
+				.where(eq(conversations.id, m.conversationId));
+		}
+	}
+	const now = new Date();
+	await tx
+		.update(conversations)
+		.set({ updatedAt: now })
+		.where(eq(conversations.id, m.conversationId));
+	if (m.threadId)
+		await tx
+			.update(conversationThreads)
+			.set({ updatedAt: now })
+			.where(eq(conversationThreads.id, m.threadId));
+	return {
+		...row,
+		namingPending:
+			next === 1 &&
+			m.role === "user" &&
+			parent.namingState === "eligible" &&
+			!parent.titleLocked &&
+			!!m.namingSelection,
+	};
 }
 
 /**
