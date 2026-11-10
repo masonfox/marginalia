@@ -17,6 +17,7 @@ import { useChatSurface } from "#/components/use-chat-surface";
 import { getConversationFn, getThreadFn } from "#/fns/conversations";
 import type { DraftSource, ThreadAnchor } from "#/lib/composer-draft";
 import { adoptableThread, isNewThreadCandidate } from "#/lib/new-thread";
+import { attachmentKey } from "#/lib/passage-ref";
 import type { ReplyContext } from "#/lib/reply-context";
 import { guideSteps } from "#/lib/research-trail";
 import { exactUsage, totalUsageLine } from "#/lib/usage-format";
@@ -146,10 +147,17 @@ export function ThreadPanel({
 						firstUserText: first
 							? textOf({ parts: first.parts as typeof snapshot.parts })
 							: null,
+						firstUserAttachmentKey: first ? attachmentKey(first.parts) : null,
 					};
 				}),
 			);
-			return adoptableThread(threads, knownIds, anchor, textOf(snapshot));
+			return adoptableThread(
+				threads,
+				knownIds,
+				anchor,
+				textOf(snapshot),
+				attachmentKey(snapshot.parts),
+			);
 		},
 	});
 	const { messages, busy, status, last } = surface;

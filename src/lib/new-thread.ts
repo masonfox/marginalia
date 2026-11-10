@@ -38,18 +38,25 @@ export function isNewThreadCandidate(
 /**
  * The thread to adopt as the one a lost new-thread request created: the only
  * candidate (see {@link isNewThreadCandidate}) whose first stored user message
- * has the retried message's text. Null when none or several match, so the
- * caller keeps its usual behavior rather than guessing.
+ * has the retried message's text and attachment (its `attachmentKey`). Null
+ * when none or several match, so the caller keeps its usual behavior rather
+ * than guessing.
  */
 export function adoptableThread(
-	threads: (ThreadCandidate & { firstUserText: string | null })[],
+	threads: (ThreadCandidate & {
+		firstUserText: string | null;
+		firstUserAttachmentKey: string | null;
+	})[],
 	knownIds: ReadonlySet<string>,
 	anchor: NewThreadAnchorRef,
 	text: string,
+	attachment: string,
 ): string | null {
 	const matches = threads.filter(
 		(t) =>
-			isNewThreadCandidate(t, knownIds, anchor) && t.firstUserText === text,
+			isNewThreadCandidate(t, knownIds, anchor) &&
+			t.firstUserText === text &&
+			t.firstUserAttachmentKey === attachment,
 	);
 	return matches.length === 1 ? matches[0].id : null;
 }
